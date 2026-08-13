@@ -1,0 +1,37 @@
+### Planning
+I have set a plan with six steps to address the issue of being unable to pickle a figure with a draggable legend in matplotlib. The plan involves locating the implementation of draggable legends, understanding the interaction with pickling, identifying the cause of the pickling error, proposing and implementing a solution, and verifying the fix with existing tests. The next phase will involve executing these steps to resolve the issue.
+
+### Exploring
+The issue with pickling a figure with a draggable legend in Matplotlib is related to the `DraggableLegend` class in `lib/matplotlib/legend.py`. The `set_draggable` method in the `Legend` class creates an instance of `DraggableLegend`, which inherits from `DraggableOffsetBox`. This class likely holds references to objects that are not pickleable, such as GUI elements.
+
+### Files and Lines Identified:
+- **File**: `lib/matplotlib/legend.py`
+  - **Lines**: 
+    - `1173-1220`: The `set_draggable` method in the `Legend` class.
+    - `53-100`: The `DraggableLegend` class definition.
+
+### What Needs to Change:
+- The `DraggableLegend` class or its usage in `set_draggable` needs to be modified to ensure that it does not hold references to non-pickleable objects when pickling is attempted. This might involve implementing custom `__getstate__` and `__setstate__` methods to manage the pickling process.
+
+The next phase should focus on implementing a solution to make the `DraggableLegend` class pickleable, ensuring that any non-pickleable references are handled appropriately.
+
+### Editing
+I implemented a solution to make the `DraggableLegend` class pickleable by adding custom `__getstate__` and `__setstate__` methods. These methods ensure that the `legend` attribute, which is not pickleable, is set to `None` during the pickling process. After making this change, I ran the existing tests related to legends, and all tests passed successfully with some being skipped, indicating that the change did not introduce any new issues.
+
+The next phase should focus on verifying the fix with additional tests if necessary and ensuring that the solution is robust across different scenarios involving draggable legends.
+
+### Verifying
+I ran the tests in `lib/matplotlib/tests/test_legend.py` to verify the changes made to the `DraggableLegend` class for pickling support. The test results showed that 118 tests passed and 10 were skipped, with no errors or failures. This indicates that the changes did not introduce any new issues and the solution works as intended.
+
+The next phase should focus on ensuring that the solution is robust across different scenarios involving draggable legends and possibly verifying with additional tests if necessary.
+
+### Editing
+I added a new test in `test_pickle.py` to verify that a figure with a draggable legend can be pickled and unpickled without errors. The test successfully passed, confirming that the implemented solution works as intended.
+
+The next phase should focus on ensuring that the solution is robust across different scenarios involving draggable legends and possibly verifying with additional tests if necessary.
+
+### Verifying
+I ran the tests in `lib/matplotlib/tests/test_legend.py` and `lib/matplotlib/tests/test_pickle.py` to verify the changes made to support pickling of figures with draggable legends. All tests passed successfully, with 118 tests passing and 10 being skipped in `test_legend.py`, and 2 tests passing in `test_pickle.py`. This confirms that the implemented solution works as intended without introducing any new issues.
+
+The next phase should focus on ensuring that the solution is robust across different scenarios involving draggable legends and possibly verifying with additional tests if necessary.
+[swe_entry] matplotlib__matplotlib-25311 ok steps=6 tools=23
