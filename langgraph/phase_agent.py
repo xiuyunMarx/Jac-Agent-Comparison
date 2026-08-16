@@ -4,7 +4,7 @@ byLLM gets this from one `by` clause:
 
     def run_phase(directive: str) -> str by agent_model(
         tools=..., max_react_iterations=25, on_iteration=progress_guard,
-        max_tool_result_length=4000
+        max_tool_result_length=MAX_TOOL_RESULT_CHARS
     );
 
 LangGraph has no single equivalent, so the loop is built here as a small
@@ -13,7 +13,11 @@ stay comparable:
 
   * a hard 25-iteration cap
   * abort-with-summary when the model repeats the same call three times running
-  * tool results clipped to 4000 characters
+  * abort-with-summary when one tool is reached for six times with nothing in
+    between -- the identical-call test cannot see this one, because read_file
+    walking a file issues a different call every time
+  * tool results clipped to MAX_TOOL_RESULT_CHARS, and compared over only the
+    first SIG_RESULT_CHARS of that when deciding "identical"
   * mutating tool calls never running concurrently
 
 The cap and the guard both route to `summarize` rather than raising, because a
@@ -34,11 +38,36 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 from telemetry import TokenUsage
-from tools.common import clip
+from tools.common import MAX_TOOL_CHARS, clip
 
 MAX_REACT_ITERATIONS: int = 25
-MAX_TOOL_RESULT_CHARS: int = 4000
+# Tied to the tools' own budget rather than set independently, and deliberately
+# not set below it. Every tool already truncates its result, and does so in the
+# terms the model can act on -- read_file stops on a line boundary and names the
+# start_line that resumes it. A smaller cap here would cut that result a second
+# time, mid-line and with no continuation hint, and the model has no way to tell
+# a silently shortened result from a complete one: the only move a mystery
+# truncation leaves is to repeat the identical call.
+#
+# This read 4000 until the three implementations were compared directly. It was
+# the only place they disagreed on a tool's context budget, and it disagreed by
+# 5x -- enough that a token gap between the frameworks measured this constant
+# rather than the frameworks. byLLM and openai_sdk both tie it to MAX_TOOL_CHARS;
+# this now does too.
+MAX_TOOL_RESULT_CHARS: int = MAX_TOOL_CHARS
 REPEAT_ABORT_THRESHOLD: int = 3
+# One tool called over and over with nothing else between it is the other way a
+# phase stalls, and the identical-call test above cannot see it: read_file
+# walking a file one line at a time issues a different call every time, so every
+# signature differs. Six is above any honest run of paging that grep could not
+# have replaced, and the abort summarises rather than raising, so a false
+# positive costs one phase ending early rather than the run.
+SAME_TOOL_ABORT_THRESHOLD: int = 6
+# How much of a tool result the repeat signature compares. byLLM hands its
+# on_iteration hook a 500-character last_result, so comparing the full
+# MAX_TOOL_RESULT_CHARS here would make this brake far less eager than byLLM's
+# for the same conversation.
+SIG_RESULT_CHARS: int = 500
 
 # Tools that must never run concurrently with anything else. Two concurrent
 # writes, or a run_command racing a write, make a run unreproducible -- fatal
@@ -59,6 +88,7 @@ class ReactState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     iterations: int
     recent_sigs: list[str]
+    recent_tools: list[str]
 
 
 def batch_signature(messages: Sequence[BaseMessage]) -> str:
@@ -69,7 +99,9 @@ def batch_signature(messages: Sequence[BaseMessage]) -> str:
     signature. Identical batches three times running means no progress.
     """
     parts = [
-        f"{m.name}|{m.content}" for m in messages if isinstance(m, ToolMessage)
+        f"{m.name}|{str(m.content)[:SIG_RESULT_CHARS]}"
+        for m in messages
+        if isinstance(m, ToolMessage)
     ]
     return "\n".join(parts)
 
@@ -84,6 +116,11 @@ def progress_guard(state: ReactState) -> str:
     if len(sigs) >= REPEAT_ABORT_THRESHOLD:
         tail = sigs[len(sigs) - REPEAT_ABORT_THRESHOLD:]
         if all(s == tail[0] for s in tail):
+            return "summarize"
+    tools_seen = state.get("recent_tools") or []
+    if len(tools_seen) >= SAME_TOOL_ABORT_THRESHOLD:
+        tail = tools_seen[len(tools_seen) - SAME_TOOL_ABORT_THRESHOLD:]
+        if all(t == tail[0] for t in tail):
             return "summarize"
     return "model"
 
@@ -129,7 +166,18 @@ class SerialToolNode:
                 msg.content = clip(msg.content, MAX_TOOL_RESULT_CHARS)
         sigs = list(state.get("recent_sigs") or [])
         sigs.append(batch_signature(produced))
-        return {"messages": produced, "recent_sigs": sigs}
+        # One entry per executed tool, not per batch: byLLM's IterationContext
+        # reports a single tool per iteration, and a batch of six identical
+        # calls is the same stall as six batches of one.
+        tools_seen = list(state.get("recent_tools") or [])
+        tools_seen.extend(
+            str(m.name) for m in produced if isinstance(m, ToolMessage)
+        )
+        return {
+            "messages": produced,
+            "recent_sigs": sigs,
+            "recent_tools": tools_seen,
+        }
 
 
 def build_phase_agent(
@@ -222,7 +270,12 @@ def run_phase(
 ) -> tuple[str, list[BaseMessage]]:
     """Drive one phase to completion; return its summary and its conversation."""
     out = agent.invoke(
-        {"messages": list(messages), "iterations": 0, "recent_sigs": []},
+        {
+            "messages": list(messages),
+            "iterations": 0,
+            "recent_sigs": [],
+            "recent_tools": [],
+        },
         # A backstop only: the loop ends itself at MAX_REACT_ITERATIONS.
         {"recursion_limit": 2 * MAX_REACT_ITERATIONS + 5},
     )
@@ -232,6 +285,8 @@ def run_phase(
 __all__: list[str] = [
     "MAX_REACT_ITERATIONS",
     "MAX_TOOL_RESULT_CHARS",
+    "SAME_TOOL_ABORT_THRESHOLD",
+    "SIG_RESULT_CHARS",
     "REPEAT_ABORT_THRESHOLD",
     "SERIALIZED_TOOLS",
     "ReactState",

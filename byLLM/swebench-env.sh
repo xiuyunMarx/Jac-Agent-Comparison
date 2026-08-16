@@ -80,7 +80,7 @@ _swebench_env() {
     echo "container   $CODEAGENT_EXEC_CONTAINER"
     echo "repo        $CODEAGENT_REPO"
     echo "jac         $CODEAGENT_JAC"
-    echo "model       ${CODEAGENT_MODEL:-gpt-4o (default)}"
+    echo "model       ${CODEAGENT_MODEL:-gpt-5 (default)}"
     echo
     echo "run:  \"\$CODEAGENT_JAC\" run orchestrator.jac --task '<issue text>' --repo-path \"\$CODEAGENT_REPO\""
 }

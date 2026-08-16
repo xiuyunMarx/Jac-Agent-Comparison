@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
-"""One SWE-bench instance, run through the LangGraph coding agent.
+"""One SWE-bench instance, run through a Python coding agent.
+
+Shared by both Python implementations. Which one it loads is decided by
+`$CODEAGENT_HOME`, which the driver sets per `--framework`, so ../langgraph and
+../openai_sdk need no shim of their own: both export solve / active_model_name /
+DEFAULT_MODEL from a module named `orchestrator`.
 
 The Python twin of swe_entry.jac, and deliberately the same shape: job file in,
 result file out, one instance per process. The byLLM side has no choice about
-that -- `jac` carries its own interpreter and cannot be imported -- but this
-side keeps it for two reasons of its own:
+that -- `jac` carries its own interpreter and cannot be imported -- but this side
+keeps it for two reasons of its own:
 
-  * the agent holds its repository binding and its token counter in module
-    globals (`orchestrator.rt`, `orchestrator.token_usage`), so N instances in
-    N threads of one process would interleave into each other's state;
+  * the agents hold their repository binding and token counter in module globals
+    (`orchestrator.rt`, `orchestrator.token_usage`), so N instances in N threads
+    of one process would interleave into each other's state;
   * a crash costs one instance instead of the whole run, and the workspace it
     already edited is still on disk for the driver to take a patch from.
 
-stdout is a transcript, not a channel: LangChain and httpx both log to it.
+stdout is a transcript, not a channel: LangChain, the openai SDK and httpx all
+log to it.
 """
 
 from __future__ import annotations
@@ -38,9 +44,9 @@ def configured_model() -> str:
     """The model this run will call, without requiring it to be constructible.
 
     byLLM builds its `Model` at import and `active_model_name` just reads the
-    attribute; this side defers construction, so asking too early would raise on
-    a missing API key and lose the error report that the caller needs. Falling
-    back to the configured name reports the same string for the same run.
+    attribute; the Python sides defer construction, so asking too early would
+    raise on a missing API key and lose the error report the caller needs.
+    Falling back to the configured name reports the same string for the same run.
     """
     try:
         return active_model_name()
@@ -63,6 +69,7 @@ def run_job(job_path: str) -> dict:
         "llm_calls": 0,
         "prompt_tokens": 0,
         "completion_tokens": 0,
+        "cached_tokens": 0,
         "tool_calls": [],
         "tool_call_count": 0,
         "error": "",
@@ -76,6 +83,11 @@ def run_job(job_path: str) -> dict:
         record["llm_calls"] = outcome.llm_calls
         record["prompt_tokens"] = outcome.prompt_tokens
         record["completion_tokens"] = outcome.completion_tokens
+        # byLLM's RunResult carries this; the Python sides compute it in their
+        # telemetry but do not yet surface it. Read defensively rather than
+        # branching per framework -- the day either one adds the field, the cost
+        # table picks it up with no change here.
+        record["cached_tokens"] = int(getattr(outcome, "cached_tokens", 0) or 0)
         record["tool_calls"] = calls
         record["tool_call_count"] = len(calls)
     except Exception as e:  # noqa: BLE001 - one instance must not end the run

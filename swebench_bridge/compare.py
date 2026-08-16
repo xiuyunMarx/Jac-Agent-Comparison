@@ -1,32 +1,30 @@
 #!/usr/bin/env python3
-"""Run both coding agents over the same SWE-bench instances, grade both, compare.
+"""Run several implementations over the same instances, grade them, compare.
 
-    python compare.py --repo psf/requests --limit 2 --run-id smoke
+    python compare.py --run-id three-way --frameworks byllm langgraph openai \
+        --instances-file ../case_study/instances.txt
 
-which is the same as doing this by hand:
+which is the same as doing this by hand, once per framework:
 
-    python run_agent.py --framework byllm     --run-id smoke-byllm     --instance-ids ...
-    python run_agent.py --framework langgraph --run-id smoke-langgraph --instance-ids ...
-    python evaluate.py  --predictions results/smoke-byllm/predictions.jsonl
-    python evaluate.py  --predictions results/smoke-langgraph/predictions.jsonl
-    python evaluate.py  --compare results/smoke-byllm results/smoke-langgraph
+    python run_agent.py --framework <fw> --run-id three-way-<fw> --instance-ids ...
+    python grade.py     --predictions results/three-way-<fw>/predictions.jsonl
+    python report.py    results/three-way-byllm results/three-way-langgraph ...
 
-Two things this does that running it by hand does not:
+Two things this does that running those by hand does not:
 
-**The instance set is resolved once, up front, and pinned.** Both sides are
-handed the same explicit `--instance-ids`, so `--limit 20` cannot mean a
-different twenty on the second side because the dataset revision moved or a
-filter behaved differently. An A/B over two different instance sets is not an
-A/B.
+**The instance set is resolved once, up front, and pinned.** Every side is handed
+the same explicit `--instance-ids`, so `--limit 20` cannot mean a different
+twenty on the second side because the dataset revision moved or a filter behaved
+differently. A comparison over different instance sets is not a comparison.
 
 **The frameworks run one after another, never at once.** They would otherwise
-contend for the same cores, the same disk and the same docker daemon, and the
-wall-clock and token numbers are meant to be compared against each other.
+contend for the same cores, the same disk and the same container runtime, and
+the wall-clock and token numbers are meant to be read against each other.
 
-Everything else is delegated: inference is run_agent.py's job and grading is
-evaluate.py's, both called in-process so their validation and their exit codes
-are the real ones. Unrecognised flags are forwarded to run_agent.py, so
-`--workers 8 --max-steps 12` and friends work here too.
+Everything else is delegated: inference is run_agent.py's job, grading is
+grade.py's and the table is report.py's, all called in-process so their
+validation and their exit codes are the real ones. Unrecognised flags are
+forwarded to run_agent.py, so `--workers 8 --max-steps 12` work here too.
 """
 
 from __future__ import annotations
@@ -36,11 +34,20 @@ import sys
 import time
 from pathlib import Path
 
-import evaluate
+import frameworks
+import grade
+import report
 import run_agent
 
 BRIDGE_DIR = Path(__file__).resolve().parent
-ORDER = ["byllm", "langgraph"]
+
+
+def banner(text: str) -> None:
+    print(f"\n{'=' * 70}\n  {text}\n{'=' * 70}", flush=True)
+
+
+def side_run_id(run_id: str, framework: str) -> str:
+    return f"{run_id}-{framework}"
 
 
 def resolve_instances(args: argparse.Namespace, passthrough: list[str]) -> list[dict]:
@@ -54,49 +61,42 @@ def resolve_instances(args: argparse.Namespace, passthrough: list[str]) -> list[
         *(["--limit", str(args.limit)] if args.limit else []),
         *(["--repo", *args.repo] if args.repo else []),
         *(["--instance-ids", *args.instance_ids] if args.instance_ids else []),
+        *(["--instances-file", str(args.instances_file)]
+          if args.instances_file else []),
     ])
     return run_agent.load_instances(probe)
-
-
-def side_run_id(run_id: str, framework: str) -> str:
-    return f"{run_id}-{framework}"
 
 
 def infer(args: argparse.Namespace, framework: str, ids: list[str],
           passthrough: list[str]) -> int:
     return run_agent.main([
         *passthrough,
-        "--runtime", args.runtime,
         "--framework", framework,
         "--run-id", side_run_id(args.run_id, framework),
         "--output-dir", str(args.output_dir),
         "--dataset", args.dataset,
         "--split", args.split,
+        "--runtime", args.runtime,
         "--instance-ids", *ids,
     ])
 
 
-def grade(args: argparse.Namespace, framework: str) -> int:
+def grade_side(args: argparse.Namespace, framework: str) -> int:
     run_dir = args.output_dir / side_run_id(args.run_id, framework)
-    return evaluate.main([
+    return grade.main([
         "--predictions", str(run_dir / "predictions.jsonl"),
-        "--runtime", args.runtime,
         "--dataset", args.dataset,
         "--split", args.split,
-        "--max-workers", str(args.eval_workers),
+        "--runtime", args.runtime,
+        "--workers", str(args.eval_workers),
         "--timeout", str(args.eval_timeout),
     ])
 
 
-def banner(text: str) -> None:
-    print(f"\n{'=' * 78}\n== {text}\n{'=' * 78}", flush=True)
-
-
 def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, list[str]]:
     p = argparse.ArgumentParser(
-        description="Run both agents over the same instances and compare them.",
+        description="Run several agent implementations over one instance set.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        epilog="Any other flag is forwarded to run_agent.py unchanged.",
         # Off because this parser forwards what it does not recognise: with
         # abbreviation on, a run_agent.py flag that merely prefixes one of ours
         # (`--framework` against `--frameworks`) would be silently swallowed
@@ -105,32 +105,26 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, list[
     )
     p.add_argument("--run-id", default=time.strftime("%Y%m%d-%H%M%S"),
                    help="each side runs as <run-id>-<framework>")
-    p.add_argument("--frameworks", nargs="+", default=ORDER, choices=ORDER,
-                   help="which agents to run, in this order")
+    p.add_argument("--frameworks", nargs="+", default=frameworks.ORDER,
+                   choices=frameworks.NAMES,
+                   help="which implementations to run; ordered for presentation")
     p.add_argument("--output-dir", type=Path, default=BRIDGE_DIR / "results")
-    p.add_argument("--dataset", default="SWE-bench/SWE-bench_Lite")
-    p.add_argument("--split", default="test")
-    p.add_argument("--instance-ids", nargs="*", default=[],
-                   help="run only these instances")
-    p.add_argument("--repo", nargs="*", default=[],
-                   help="run only instances from these repos, e.g. psf/requests")
-    p.add_argument("--limit", type=int, default=0,
-                   help="run only the first N instances after filtering")
+    run_agent.add_selection_args(p)
     p.add_argument("--skip-eval", action="store_true",
-                   help="inference only; grade later with evaluate.py")
-    p.add_argument("--runtime", default="docker", choices=["docker", "udocker"],
-                   help="container runtime for both inference and grading; "
-                        "'udocker' needs no daemon, no root and no docker group")
-    p.add_argument("--eval-workers", type=int, default=4,
-                   help="--max-workers for the grading harness")
+                   help="inference only; grade later with grade.py")
+    p.add_argument("--runtime", default="udocker", choices=["docker", "udocker"],
+                   help="container runtime for both inference and grading")
+    p.add_argument("--eval-workers", type=int, default=2)
     p.add_argument("--eval-timeout", type=int, default=1800,
                    help="per-instance test timeout during grading")
     args, passthrough = p.parse_known_args(argv)
     args.output_dir = args.output_dir.resolve()
-    # These belong to both sides identically, so compare.py owns them and they
+    args.frameworks = frameworks.ordered(list(dict.fromkeys(args.frameworks)))
+    # These belong to every side identically, so compare.py owns them and they
     # must not also arrive through the passthrough.
     for flag in ("--run-id", "--output-dir", "--framework", "--dataset",
-                 "--split", "--instance-ids", "--repo", "--limit", "--runtime"):
+                 "--split", "--instance-ids", "--instances-file", "--repo",
+                 "--limit", "--runtime"):
         if flag in passthrough:
             p.error(f"{flag} is set by compare.py; pass it to compare.py itself")
     return args, passthrough
@@ -143,15 +137,17 @@ def main(argv: list[str] | None = None) -> int:
     if not instances:
         raise SystemExit("no instances matched the selection")
     ids = [i["instance_id"] for i in instances]
-    print(f"A/B over {len(ids)} instance(s): {', '.join(ids[:6])}"
+    print(f"{len(args.frameworks)}-way over {len(ids)} instance(s): "
+          + ", ".join(ids[:6])
           + (f" ... (+{len(ids) - 6})" if len(ids) > 6 else ""))
+    print("  " + " -> ".join(args.frameworks))
 
     for framework in args.frameworks:
         banner(f"inference: {framework}")
         code = infer(args, framework, ids, passthrough)
         if code != 0:
-            # Sequential on purpose, so a broken first side would otherwise
-            # burn the full cost of the second before anyone saw it.
+            # Sequential on purpose, so a broken first side would otherwise burn
+            # the full cost of the rest before anyone saw it.
             print(f"\n{framework} inference exited {code}; stopping here",
                   file=sys.stderr)
             return code
@@ -160,22 +156,19 @@ def main(argv: list[str] | None = None) -> int:
         print("\n--skip-eval: grade these when ready with")
         for framework in args.frameworks:
             run_dir = args.output_dir / side_run_id(args.run_id, framework)
-            print(f"  python evaluate.py --predictions {run_dir / 'predictions.jsonl'}")
+            print(f"  python grade.py --predictions {run_dir / 'predictions.jsonl'}")
         return 0
 
     for framework in args.frameworks:
         banner(f"grading: {framework}")
-        code = grade(args, framework)
+        code = grade_side(args, framework)
         if code != 0:
             print(f"\n{framework} grading exited {code}", file=sys.stderr)
 
-    if len(args.frameworks) == 2:
-        banner("A/B")
-        return evaluate.main([
-            "--compare",
-            *(str(args.output_dir / side_run_id(args.run_id, f))
-              for f in args.frameworks),
-        ])
+    banner("comparison")
+    sides = [report.load_side(args.output_dir / side_run_id(args.run_id, f))
+             for f in args.frameworks]
+    print(report.compare_table(sides))
     return 0
 
 

@@ -1,0 +1,1207 @@
+### Planning
+Set plan:
+1) Reproduce the issue locally with a minimal script using autowrap and the cython backend to observe the incorrect C prototype for unused array arguments.
+2) Locate the root cause in the code generation path, focusing on CodeGen.routine where user-specified args are turned into Arguments and dimensions are inferred.
+3) Modify CodeGen.routine to preserve/infer dimensions for user-specified arguments that are arrays (MatrixSymbol or IndexedBase) even if they do not appear in the expression, and pass those dimensions into InputArgument creation.
+4) Run the existing test suite relevant to autowrap/codegen and full test subset to ensure no regressions and that the cython backend now generates correct prototypes.
+5) Manually verify with the minimal example that autowrap returns the expected result when array arguments are unused.
+6) Prepare a concise summary of the change and considerations for the implementation phase.
+
+Next phase notes:
+- Focus on sympy/utilities/codegen.py’s routine() method: ensure when argument_sequence is provided, array symbols keep their dimensions even if not referenced in expr. Likely need to detect MatrixSymbol/IndexedBase in argument_sequence and supply dimensions from their shape to InputArgument.
+
+### Exploring
+Planned changes to fix unused array arguments being treated as scalars in C/Cython prototypes
+
+File: sympy/utilities/codegen.py
+
+Location: In CodeGen.routine(), within the block that handles a user-specified argument_sequence.
+Approximate lines: 719–768 (see the block starting with “if argument_sequence is not None:”).
+
+Problem:
+- When argument_sequence includes array-like arguments (MatrixSymbol or IndexedBase) that do not appear in expr, the existing code creates fallback InputArgument(symbol) without dimensions, causing C prototypes to use scalar types (double x) instead of pointer types (double* x). This leads to failures in the Cython backend.
+
+Required changes:
+1) While normalizing argument_sequence:
+   - Build a mapping from supplied array arguments to their inferred dimensions before converting any IndexedBase to its .label:
+     - For MatrixSymbol arg: dims = tuple((S.Zero, dim - 1) for dim in arg.shape); store under key arg (the MatrixSymbol itself).
+     - For IndexedBase arg: dims = tuple((S.Zero, dim - 1) for dim in arg.shape); store under key arg.label (a Symbol).
+
+   - Continue to construct new_sequence as currently done:
+     - Replace IndexedBase with arg.label.
+     - Leave MatrixSymbol as-is.
+     - Leave scalar Symbols as-is.
+
+2) When rebuilding the ordered argument list new_args from argument_sequence:
+   - If a symbol from argument_sequence is not found in name_arg_dict (i.e., unused in expr and therefore missing from arg_list), create InputArgument with dimensions if present in the mapping from step (1):
+     - meta = {}
+     - if symbol in seq_dims: meta['dimensions'] = seq_dims[symbol]
+     - new_args.append(InputArgument(symbol, **meta))
+   - This preserves array-ness for user-specified but unused arguments, ensuring the generated C prototype has pointer types and that the Cython wrapper treats them as NumPy arrays.
+
+Summary of exact code sections to modify:
+- In the “if argument_sequence is not None:” block:
+  - Directly after creating new_sequence, introduce a dict (e.g., seq_dims = {}) and populate it as described while iterating over the original argument_sequence elements.
+  - In the loop “for symbol in argument_sequence:” where missing arguments are added with InputArgument(symbol), change it to pass dimensions from seq_dims when available.
+
+What the next phase needs to know:
+- Implement the above minimal changes in sympy/utilities/codegen.py.
+- Run tests that touch codegen and autowrap (especially the Cython backend) to verify that unused MatrixSymbol/IndexedBase arguments now produce pointer prototypes and that autowrap works for the provided minimal example.
+- No test files should be modified; only the source change described above is required.
+
+### Editing
+Summary of changes made:
+- Implemented a general fix in sympy/utilities/codegen.py within CodeGen.routine() to correctly handle array arguments provided via argument_sequence that do not appear in the expression.
+- The updated logic now:
+  - Normalizes the user-provided argument_sequence while recording dimensions (seq_dims) for array-like arguments (IndexedBase and MatrixSymbol) based on their shape.
+  - When constructing redundant/missing InputArguments to respect the requested sequence, it attaches the recorded dimensions so these arguments are treated as arrays in the generated Routine.
+- This ensures generated C function prototypes use pointer types for such arguments (e.g., double* x), allowing the Cython backend to correctly treat them as NumPy arrays even if they are unused in the computed expression.
+
+Why this fixes the issue:
+- Previously, unused array arguments in the sequence were defaulted to scalar InputArgument without dimensions, leading to incorrect C signatures (double x) and Cython errors when passing NumPy arrays.
+- With dimensions preserved, the C signature becomes double* x (or equivalent), and the Cython wrapper infers array dimensions properly, preventing the “only size-1 arrays can be converted to Python scalars” error.
+
+Files touched:
+- sympy/utilities/codegen.py: Modified only the argument_sequence handling in CodeGen.routine() to carry forward array dimensions for unused array args.
+
+Next phase (verification and follow-up):
+- Run the relevant test suites:
+  - sympy/utilities/tests/test_codegen.py
+  - sympy/utilities/tests/test_autowrap.py
+- Manually verify the minimal example from the issue using autowrap with backend='cython':
+  - x = MatrixSymbol('x', 2, 1); expr = 1.0; f = autowrap(expr, args=(x,), backend='cython'); assert f(np.array([[1.0, 2.0]])) == 1.0
+- Confirm that C prototypes now correctly show pointer types for unused array arguments.
+- Optionally review whether similar handling is needed in other language-specific routine implementations (Julia/Octave/Rust). The reported issue concerns the C/Cython path, which is now addressed.
+
+### Verifying
+Summary of what I did:
+- Implemented a fix in sympy/utilities/codegen.py so that when a user supplies array-like arguments (IndexedBase or MatrixSymbol) in argument_sequence that are unused in the expression, their array dimensions are preserved and passed into InputArgument. This ensures correct C/Cython prototypes (e.g., double* x) instead of scalars.
+- Verified the modification exists via git status and git diff.
+
+Exact outputs from attempts to run tests:
+- git status
+  HEAD detached at 09786a173
+  Changes not staged for commit:
+    (use "git add <file>..." to update what will be committed)
+    (use "git restore <file>..." to discard changes in working directory)
+  	modified:   sympy/utilities/codegen.py
+
+  no changes added to commit (use "git add" and/or "git commit -a")
+- pytest -q sympy/utilities/tests/test_codegen.py
+  timeout: failed to run command ‘pytest’: No such file or directory
+- jac test sympy/utilities/tests/test_codegen.py
+  timeout: failed to run command ‘jac’: No such file or directory
+- pytest -q sympy/utilities/tests/test_autowrap.py
+  timeout: failed to run command ‘pytest’: No such file or directory
+- python -m pytest -q sympy/utilities/tests/test_codegen.py
+  /opt/miniconda3/envsbin/python: No module named pytest
+- git diff -- sympy/utilities/codegen.py showed the changes adding seq_dims to record dimensions and passing them to InputArgument for unused args.
+
+What the next phase needs to know:
+- The environment did not have the necessary test runner available, so I could not execute the test suite. Please run the tests once pytest (or the project’s test runner) is available:
+  - Run the relevant suites: sympy/utilities/tests/test_codegen.py and sympy/utilities/tests/test_autowrap.py.
+  - Optionally validate the minimal example from the issue using autowrap with the cython backend:
+    - x = MatrixSymbol('x', 2, 1); expr = 1.0; f = autowrap(expr, args=(x,), backend='cython'); assert f(np.array([[1.0, 2.0]])) == 1.0
+- The fix should generate correct pointer types for unused array arguments in the C/Cython prototypes, avoiding the previous TypeError.
+
+### Editing
+Summary of changes:
+- Fixed argument handling in sympy/utilities/codegen.py within CodeGen.routine() so that array-like arguments provided via argument_sequence (MatrixSymbol, IndexedBase) retain their array dimensions even if they do not appear in the expression.
+- While normalizing the user-provided argument sequence, the code now records dimensions for array args and, when creating redundant InputArgument entries for user-specified but otherwise unused args, attaches the recorded dimensions. This ensures correct array metadata is preserved.
+- Verified via small scripts that:
+  - Routine arguments now include correct dimensions for unused MatrixSymbol/IndexedBase.
+  - The generated C prototype for the minimal example is now double autofunc(double *x), not double autofunc(double x).
+
+What the next phase needs to know:
+- The environment used here lacked pytest and numpy, so the full test suite and the autowrap runtime check with the cython backend were not executed.
+- Please run the relevant tests once available:
+  - sympy/utilities/tests/test_codegen.py
+  - sympy/utilities/tests/test_autowrap.py
+- Manually validate the reported minimal example:
+  - x = MatrixSymbol('x', 2, 1); expr = 1.0; f = autowrap(expr, args=(x,), backend='cython'); confirm f(np.array([[1.0],[2.0]])) returns 1.0 without error.
+- Confirm no regressions in other codegen paths (C, Fortran, Julia, Octave, Rust) where argument sequencing is used.
+
+### Verifying
+Verification steps and results:
+- Confirmed the modified source file:
+  - Command: git status
+  - Output:
+    HEAD detached at 09786a173
+    Changes not staged for commit:
+      (use "git add <file>..." to update what will be committed)
+      (use "git restore <file>..." to discard changes in working directory)
+      	modified:   sympy/utilities/codegen.py
+
+    Untracked files:
+      (use "git add <file>..." to include in what will be committed)
+      	_tmp_autowrap_example.py
+      	_tmp_check_codegen.py
+      	_tmp_proto_check.py
+
+    no changes added to commit (use "git add" and/or "git commit -a")
+
+- Attempted to run tests but the environment lacks the test runners:
+  - Command: pytest -q sympy/utilities/tests/test_codegen.py --tb=line -p no:cacheprovider -p no:randomly --color=no
+  - Output (exit_code=127):
+    stderr: timeout: failed to run command ‘pytest’: No such file or directory
+
+  - Command: pytest -q sympy/utilities/tests/test_autowrap.py --tb=line -p no:cacheprovider -p no:randomly --color=no
+  - Output (exit_code=127):
+    stderr: timeout: failed to run command ‘pytest’: No such file or directory
+
+  - Command: jac test sympy/utilities/tests/test_codegen.py
+  - Output (exit_code=127):
+    stderr: timeout: failed to run command ‘jac’: No such file or directory
+
+- Verified the code change via diff (excerpt):
+  - Command: git diff -- sympy/utilities/codegen.py --no-ext-diff --no-textconv --no-color
+  - Output (excerpt):
+    diff --git a/sympy/utilities/codegen.py b/sympy/utilities/codegen.py
+    index f0befb2bd..ef97a6a8b 100644
+    --- a/sympy/utilities/codegen.py
+    +++ b/sympy/utilities/codegen.py
+    @@ -718,10 +718,22 @@ def routine(self, name, expr, argument_sequence=None, global_vars=None):
+     
+             if argument_sequence is not None:
+                 # if the user has supplied IndexedBase instances, we'll accept that
+    +            # Also, record dimensions for array-like arguments so that unused
+    +            # array arguments provided in the sequence still get correct
+    +            # array metadata (dimensions) in the generated routine.
+    +            seq_dims = {}
+                 new_sequence = []
+                 for arg in argument_sequence:
+                     if isinstance(arg, IndexedBase):
+                         new_sequence.append(arg.label)
+    +                    # Infer dimensions from the shape of the IndexedBase
+    +                    dims = tuple([(S.Zero, dim - 1) for dim in arg.shape])
+    +                    seq_dims[arg.label] = dims
+    +                elif isinstance(arg, MatrixSymbol):
+    +                    new_sequence.append(arg)
+    +                    # Infer dimensions from the shape of the MatrixSymbol
+    +                    dims = tuple([(S.Zero, dim - 1) for dim in arg.shape])
+    +                    seq_dims[arg] = dims
+                     else:
+                         new_sequence.append(arg)
+                 argument_sequence = new_sequence
+    @@ -739,7 +751,10 @@ def routine(self, name, expr, argument_sequence=None, global_vars=None):
+                 try:
+                     new_args.append(name_arg_dict[symbol])
+                 except KeyError:
+    -                    new_args.append(InputArgument(symbol))
+    +                    metadata = {}
+    +                    if symbol in seq_dims:
+    +                        metadata['dimensions'] = seq_dims[symbol]
+    +                    new_args.append(InputArgument(symbol, **metadata))
+                 arg_list = new_args
+     
+             return Routine(name, arg_list, return_val, local_vars, global_vars)
+
+What I changed and why:
+- Updated sympy/utilities/codegen.py to preserve array dimensions for user-specified but unused array arguments (MatrixSymbol/IndexedBase) in argument_sequence. This ensures the generated C/Cython function signatures use pointer types (e.g., double* x) rather than scalars when the arrays don’t appear in the expression, addressing the reported autowrap Cython backend failure.
+
+What the next phase needs to know:
+- The test runners are not available in this environment, so to fully prove the change by running tests:
+  - Run:
+    - pytest sympy/utilities/tests/test_autowrap.py
+    - pytest sympy/utilities/tests/test_codegen.py
+  - Optionally, validate the minimal example from the issue:
+    - x = MatrixSymbol('x', 2, 1); expr = 1.0; f = autowrap(expr, args=(x,), backend='cython'); confirm f(np.array([[1.0, 2.0]])) returns 1.0 without error.
+- The fix is localized to CodeGen.routine and should not affect other paths, but running the broader utilities/codegen tests will confirm no regressions.
+
+### Editing
+- Implemented a fix in sympy/utilities/codegen.py within CodeGen.routine() to preserve array dimensions for user-specified but unused array arguments (MatrixSymbol or IndexedBase) when argument_sequence is provided.
+  - While normalizing argument_sequence, the code now records dimensions (seq_dims) for array-like arguments.
+  - When creating redundant InputArgument entries for symbols missing from the auto-derived list, the stored dimensions are attached so these arguments are treated as arrays (not scalars) in generated C/Cython signatures.
+
+- Verified changes via git diff; no tests could be executed because pytest is unavailable in this environment.
+
+Next phase:
+- Run the relevant tests once pytest is available:
+  - pytest sympy/utilities/tests/test_codegen.py
+  - pytest sympy/utilities/tests/test_autowrap.py
+- Manually validate the reported example:
+  - x = MatrixSymbol('x', 2, 1); expr = 1.0; f = autowrap(expr, args=(x,), backend='cython'); ensure f(np.array([[1.0, 2.0]])) returns 1.0 without error.
+
+### Verifying
+Verification summary
+
+- Checked repository state:
+  HEAD detached at 09786a173
+  Changes not staged for commit:
+    (use "git add <file>..." to update what will be committed)
+    (use "git restore <file>..." to discard changes in working directory)
+    	modified:   sympy/utilities/codegen.py
+
+  Untracked files:
+    (use "git add <file>..." to include in what will be committed)
+  	_tmp_autowrap_example.py
+  	_tmp_check_codegen.py
+  	_tmp_proto_check.py
+
+  no changes added to commit (use "git add" and/or "git commit -a")
+
+- Attempted to run tests:
+  - pytest -q sympy/utilities/tests/test_codegen.py -q --tb=line -p no:cacheprovider -p no:randomly --color=no
+    exit_code: 127
+    stderr: timeout: failed to run command ‘pytest’: No such file or directory
+  - pytest -q --tb=line -p no:cacheprovider -p no:randomly --color=no
+    exit_code: 127
+    stderr: timeout: failed to run command ‘pytest’: No such file or directory
+
+- Directly exercised code generation to validate the fix (ensuring unused array args remain arrays):
+  Ran a Python snippet to build C prototypes for routines where the expression is constant and the only argument is an array, provided via argument_sequence.
+
+  Output:
+  int autofunc(double *x)
+  int autofunc2(double *xb)
+
+  Stderr warnings during import:
+  ./sympy/solvers/diophantine.py:3185: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if feasible is 1:  # it's prime and k == 2
+  ./sympy/plotting/plot.py:644: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if self.xscale is 'log':
+  ./sympy/plotting/plot.py:664: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if self.xscale is 'log':
+  ./sympy/plotting/plot.py:677: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if self.xscale is 'log':
+  ./sympy/plotting/plot.py:684: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if self.xscale is 'log':
+  ./sympy/utilities/codegen.py:277: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if dt is "int" and not element.is_integer:
+  ./sympy/utilities/codegen.py:279: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if dt is "float" and not element.is_real:
+
+This confirms that for an expression not depending on the array argument, the generated C prototype now uses a pointer type for that argument (double *x), addressing the original issue.
+
+Next phase notes
+
+- The environment here lacked the test runner, so full test execution couldn’t be performed. Please run the test suite in a proper environment:
+  - pytest sympy/utilities/tests/test_codegen.py
+  - pytest sympy/utilities/tests/test_autowrap.py
+
+- Optionally, validate at runtime with the minimal example using the cython backend:
+  from sympy.utilities.autowrap import autowrap
+  from sympy import MatrixSymbol
+  import numpy as np
+
+  x = MatrixSymbol('x', 2, 1)
+  expr = 1.0
+  f = autowrap(expr, args=(x,), backend='cython')
+  assert f(np.array([[1.0, 2.0]])) == 1.0
+
+This should now succeed, with the underlying C signature correctly using a pointer for x.
+
+### Editing
+- Implemented a fix in sympy/utilities/codegen.py within CodeGen.routine():
+  - When a user supplies argument_sequence, now record dimensions for array-like args (IndexedBase and MatrixSymbol) in seq_dims.
+  - When creating missing InputArgument entries (for args that don’t appear in the expression), attach the recorded dimensions so they are treated as arrays, not scalars.
+- Verified the changes via git diff; only sympy/utilities/codegen.py was modified.
+
+Next phase:
+- Run tests (especially codegen/autowrap) to ensure no regressions and that the cython backend now generates correct prototypes:
+  - pytest sympy/utilities/tests/test_codegen.py
+  - pytest sympy/utilities/tests/test_autowrap.py
+- Manually verify the minimal example from the issue using autowrap with backend='cython' to confirm it returns 1.0 without error.
+
+### Verifying
+Summary of verification attempts and exact outputs
+
+- Ran: pytest -q sympy/utilities/tests/test_autowrap.py -q --tb=line -p no:cacheprovider -p no:randomly --color=no
+  Exit code: 127
+  Stdout: (empty)
+  Stderr:
+  timeout: failed to run command ‘pytest’: No such file or directory
+
+- Ran: jac test sympy/utilities/tests/test_autowrap.py
+  Exit code: 127
+  Stdout: (empty)
+  Stderr:
+  timeout: failed to run command ‘jac’: No such file or directory
+
+- Tried to execute a minimal runtime check via Python:
+  Ran: python
+  Exit code: 0
+  Stdout: (empty)
+  Stderr: (empty)
+
+- Attempted a one-liner runtime check:
+  Ran:
+  python -c 'exec('"'"'from sympy.utilities.autowrap import autowrap
+  from sympy import MatrixSymbol
+  import numpy as np
+  x = MatrixSymbol('"'"'x'"'"', 2, 1)
+  expr = 1.0
+  f = autowrap(expr, args=(x,), backend='"'"'cython'"'"')
+  print(f(np.array([[1.0, 2.0]])))'"'"')'
+  Exit code: 1
+  Stdout: (empty)
+  Stderr:
+  sympy/solvers/diophantine.py:3185: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if feasible is 1:  # it's prime and k == 2
+  sympy/plotting/plot.py:644: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if self.xscale is 'log':
+  sympy/plotting/plot.py:664: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if self.xscale is 'log':
+  sympy/plotting/plot.py:677: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if self.xscale is 'log':
+  sympy/plotting/plot.py:684: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if self.xscale is 'log':
+  sympy/utilities/codegen.py:277: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if dt is "int" and not element.is_integer:
+  sympy/utilities/codegen.py:279: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if dt is "float" and not element.is_real:
+  Traceback (most recent call last):
+    File "<string>", line 1, in <module>
+    File "<string>", line 3, in <module>
+  ModuleNotFoundError: No module named 'numpy'
+
+What the next phase needs to know
+- The test runners (pytest/jac) were not available, so the unit tests could not be executed here.
+- The minimal runtime check failed due to NumPy not being installed.
+- To complete verification, ensure pytest (or the project’s test runner) and numpy are available, then:
+  - Run: pytest sympy/utilities/tests/test_autowrap.py and pytest sympy/utilities/tests/test_codegen.py
+  - Optionally, re-run the minimal example to confirm it returns 1.0 without error.
+[swe_entry] sympy__sympy-16792 ok steps=10 tools=146
+
+  -> ls_repo({'dir_path': '.'})
+  <- 343 chars: .ci/ .editorconfig .gitattributes .gitignore .mailmap .travis.yml AUTHORS CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE MANIFEST.in PULL_REQUEST_TEMPLATE.md README... [+183 chars]
+
+  -> find_files({'name_glob': '*autowrap*', 'dir_path': '.'})
+  <- 224 chars: doc/src/modules/utilities/autowrap.rst examples/advanced/autowrap_integrators.py examples/advanced/autowrap_ufuncify.py sympy/external/tests/test_autowrap.py sy... [+64 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/autowrap.py', 'start_line': 1, 'end_line': 400})
+  <- 14593 chars: # sympy/utilities/autowrap.py - lines 1-400 of 1121 """Module for compiling codegen output, and wrap the binary for use in python. .. note:: To use the autowrap... [+11635 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/autowrap.py', 'start_line': 400, 'end_line': 800})
+  <- 13926 chars: # sympy/utilities/autowrap.py - lines 400-800 of 1121 declarations=declarations, body=body)) # Write text to file if self._need_numpy: # Only import numpy if re... [+11441 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1, 'end_line': 400})
+  <- 13960 chars: # sympy/utilities/codegen.py - lines 1-400 of 2232 """ module for generating C, C++, Fortran77, Fortran90, Julia, Rust and Octave/Matlab routines that evaluate ... [+11793 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 400, 'end_line': 800})
+  <- 15395 chars: # sympy/utilities/codegen.py - lines 400-800 of 2232 """Return a new variable. Parameters ========== name : Symbol, MatrixSymbol The name of this variable. When... [+11616 chars]
+
+  -> grep({'pattern': 'get_prototype', 'path': '.', 'file_glob': '*'})
+  <- 433 chars: sympy/utilities/autowrap.py:364: prototype = self.generator.get_prototype(routine) sympy/utilities/codegen.py:894: def get_prototype(self, routine): sympy/utili... [+273 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 840, 'end_line': 1120})
+  <- 9870 chars: # sympy/utilities/codegen.py - lines 840-1120 of 2232 if code_lines: f.write(code_lines) class CodeGenError(Exception): pass class CodeGenArgumentListError(Exce... [+7647 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1020, 'end_line': 1100})
+  <- 2434 chars: # sympy/utilities/codegen.py - lines 1020-1100 of 2232 return code_lines def _get_routine_ending(self, routine): return ["}\n"] def dump_c(self, routines, f, pr... [+1785 chars]
+
+  -> update_task()
+  <- 327 chars: Tool error: invalid tool arguments (`TypeAdapter[TaskStatus]` is not fully defined; you should define `TaskStatus` and all referenced types, then call `.rebuild... [+166 chars]
+
+  -> show_plan()
+  <- 64 chars: (no plan yet -- call set_plan with the steps you intend to take)
+
+  -> set_plan({'steps': ['Reproduce the issue locally with a minimal script using autowrap and the cython backend to observe the incorrect C prototype for unused array argume... [+780 chars])
+  <- 990 chars: OK: plan set with 6 steps. [ ] 1. Reproduce the issue locally with a minimal script using autowrap and the cython backend to observe the incorrect C prototype f... [+830 chars]
+Set plan:
+1) Reproduce the issue locally with a minimal script using autowrap and the cython backend to observe the incorrect C prototype for unused array arguments.
+2) Locate the root cause in the code generation path, focusing on CodeGen.routine where user-specified args are turned into Arguments and dimensions are inferred.
+3) Modify CodeGen.routine to preserve/infer dimensions for user-specified arguments that are arrays (MatrixSymbol or IndexedBase) even if they do not appear in the expression, and pass those dimensions into InputArgument creation.
+4) Run the existing test suite relevant to autowrap/codegen and full test subset to ensure no regressions and that the cython backend now generates correct prototypes.
+5) Manually verify with the minimal example that autowrap returns the expected result when array arguments are unused.
+6) Prepare a concise summary of the change and considerations for the implementation phase.
+
+Next phase notes:
+- Focus on sympy/utilities/codegen.py’s routine() method: ensure when argument_sequence is provided, array symbols keep their dimensions even if not referenced in expr. Likely need to detect MatrixSymbol/IndexedBase in argument_sequence and supply dimensions from their shape to InputArgument.Set plan:
+1) Reproduce the issue locally with a minimal script using autowrap and the cython backend to observe the incorrect C prototype for unused array arguments.
+2) Locate the root cause in the code generation path, focusing on CodeGen.routine where user-specified args are turned into Arguments and dimensions are inferred.
+3) Modify CodeGen.routine to preserve/infer dimensions for user-specified arguments that are arrays (MatrixSymbol or IndexedBase) even if they do not appear in the expression, and pass those dimensions into InputArgument creation.
+4) Run the existing test suite relevant to autowrap/codegen and full test subset to ensure no regressions and that the cython backend now generates correct prototypes.
+5) Manually verify with the minimal example that autowrap returns the expected result when array arguments are unused.
+6) Prepare a concise summary of the change and considerations for the implementation phase.
+
+Next phase notes:
+- Focus on sympy/utilities/codegen.py’s routine() method: ensure when argument_sequence is provided, array symbols keep their dimensions even if not referenced in expr. Likely need to detect MatrixSymbol/IndexedBase in argument_sequence and supply dimensions from their shape to InputArgument.
+  -> find_files({'name_glob': '*codegen*.py', 'dir_path': '.'})
+  <- 982 chars: sympy/codegen/__init__.py sympy/codegen/algorithms.py sympy/codegen/approximations.py sympy/codegen/array_utils.py sympy/codegen/ast.py sympy/codegen/cfunctions... [+822 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1, 'end_line': 400})
+  <- 13960 chars: # sympy/utilities/codegen.py - lines 1-400 of 2232 """ module for generating C, C++, Fortran77, Fortran90, Julia, Rust and Octave/Matlab routines that evaluate ... [+11793 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 400, 'end_line': 900})
+  <- 18490 chars: # sympy/utilities/codegen.py - lines 400-900 of 2232 """Return a new variable. Parameters ========== name : Symbol, MatrixSymbol The name of this variable. When... [+14083 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 900, 'end_line': 1500})
+  <- 19939 chars: # sympy/utilities/codegen.py - lines 900-1427 of 2232 See: https://en.wikipedia.org/wiki/Function_prototype """ if len(routine.results) > 1: raise CodeGenError(... [+15112 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1428, 'end_line': 2232})
+  <- 19960 chars: # sympy/utilities/codegen.py - lines 1428-1955 of 2232 code_list.append("function ") # Inputs args = [] for i, arg in enumerate(routine.arguments): if isinstanc... [+14940 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1956, 'end_line': 2232})
+  <- 9866 chars: # sympy/utilities/codegen.py - lines 1956-2232 of 2232 def dump_rs(self, routines, f, prefix, header=True, empty=True): self.dump_code(routines, f, prefix, head... [+8320 chars]
+
+  -> grep({'pattern': 'argument_sequence is not None', 'path': 'sympy/utilities/codegen.py', 'file_glob': '*'})
+  <- 266 chars: sympy/utilities/codegen.py:719: if argument_sequence is not None: sympy/utilities/codegen.py:1382: if argument_sequence is not None: sympy/utilities/codegen.py:... [+106 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 660, 'end_line': 770})
+  <- 4683 chars: # sympy/utilities/codegen.py - lines 660-770 of 2232 out_arg = expr.lhs expr = expr.rhs if isinstance(out_arg, Indexed): dims = tuple([ (S.Zero, dim - 1) for di... [+3190 chars]
+
+  -> find_files({'name_glob': '*autowrap*.py', 'dir_path': 'sympy'})
+  <- 104 chars: sympy/external/tests/test_autowrap.py sympy/utilities/autowrap.py sympy/utilities/tests/test_autowrap.py
+
+  -> read_file({'file_path': 'sympy/utilities/autowrap.py', 'start_line': 1, 'end_line': 400})
+  <- 14593 chars: # sympy/utilities/autowrap.py - lines 1-400 of 1121 """Module for compiling codegen output, and wrap the binary for use in python. .. note:: To use the autowrap... [+11635 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/autowrap.py', 'start_line': 400, 'end_line': 850})
+  <- 15855 chars: # sympy/utilities/autowrap.py - lines 400-850 of 1121 declarations=declarations, body=body)) # Write text to file if self._need_numpy: # Only import numpy if re... [+12927 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1340, 'end_line': 1405})
+  <- 2938 chars: # sympy/utilities/codegen.py - lines 1340-1405 of 2232 symbols.update(s.args[1].free_symbols) elif not isinstance(s, Indexed): symbols.add(s) # Julia supports m... [+1935 chars]
+Planned changes to fix unused array arguments being treated as scalars in C/Cython prototypes
+
+File: sympy/utilities/codegen.py
+
+Location: In CodeGen.routine(), within the block that handles a user-specified argument_sequence.
+Approximate lines: 719–768 (see the block starting with “if argument_sequence is not None:”).
+
+Problem:
+- When argument_sequence includes array-like arguments (MatrixSymbol or IndexedBase) that do not appear in expr, the existing code creates fallback InputArgument(symbol) without dimensions, causing C prototypes to use scalar types (double x) instead of pointer types (double* x). This leads to failures in the Cython backend.
+
+Required changes:
+1) While normalizing argument_sequence:
+   - Build a mapping from supplied array arguments to their inferred dimensions before converting any IndexedBase to its .label:
+     - For MatrixSymbol arg: dims = tuple((S.Zero, dim - 1) for dim in arg.shape); store under key arg (the MatrixSymbol itself).
+     - For IndexedBase arg: dims = tuple((S.Zero, dim - 1) for dim in arg.shape); store under key arg.label (a Symbol).
+
+   - Continue to construct new_sequence as currently done:
+     - Replace IndexedBase with arg.label.
+     - Leave MatrixSymbol as-is.
+     - Leave scalar Symbols as-is.
+
+2) When rebuilding the ordered argument list new_args from argument_sequence:
+   - If a symbol from argument_sequence is not found in name_arg_dict (i.e., unused in expr and therefore missing from arg_list), create InputArgument with dimensions if present in the mapping from step (1):
+     - meta = {}
+     - if symbol in seq_dims: meta['dimensions'] = seq_dims[symbol]
+     - new_args.append(InputArgument(symbol, **meta))
+   - This preserves array-ness for user-specified but unused arguments, ensuring the generated C prototype has pointer types and that the Cython wrapper treats them as NumPy arrays.
+
+Summary of exact code sections to modify:
+- In the “if argument_sequence is not None:” block:
+  - Directly after creating new_sequence, introduce a dict (e.g., seq_dims = {}) and populate it as described while iterating over the original argument_sequence elements.
+  - In the loop “for symbol in argument_sequence:” where missing arguments are added with InputArgument(symbol), change it to pass dimensions from seq_dims when available.
+
+What the next phase needs to know:
+- Implement the above minimal changes in sympy/utilities/codegen.py.
+- Run tests that touch codegen and autowrap (especially the Cython backend) to verify that unused MatrixSymbol/IndexedBase arguments now produce pointer prototypes and that autowrap works for the provided minimal example.
+- No test files should be modified; only the source change described above is required.Planned changes to fix unused array arguments being treated as scalars in C/Cython prototypes
+
+File: sympy/utilities/codegen.py
+
+Location: In CodeGen.routine(), within the block that handles a user-specified argument_sequence.
+Approximate lines: 719–768 (see the block starting with “if argument_sequence is not None:”).
+
+Problem:
+- When argument_sequence includes array-like arguments (MatrixSymbol or IndexedBase) that do not appear in expr, the existing code creates fallback InputArgument(symbol) without dimensions, causing C prototypes to use scalar types (double x) instead of pointer types (double* x). This leads to failures in the Cython backend.
+
+Required changes:
+1) While normalizing argument_sequence:
+   - Build a mapping from supplied array arguments to their inferred dimensions before converting any IndexedBase to its .label:
+     - For MatrixSymbol arg: dims = tuple((S.Zero, dim - 1) for dim in arg.shape); store under key arg (the MatrixSymbol itself).
+     - For IndexedBase arg: dims = tuple((S.Zero, dim - 1) for dim in arg.shape); store under key arg.label (a Symbol).
+
+   - Continue to construct new_sequence as currently done:
+     - Replace IndexedBase with arg.label.
+     - Leave MatrixSymbol as-is.
+     - Leave scalar Symbols as-is.
+
+2) When rebuilding the ordered argument list new_args from argument_sequence:
+   - If a symbol from argument_sequence is not found in name_arg_dict (i.e., unused in expr and therefore missing from arg_list), create InputArgument with dimensions if present in the mapping from step (1):
+     - meta = {}
+     - if symbol in seq_dims: meta['dimensions'] = seq_dims[symbol]
+     - new_args.append(InputArgument(symbol, **meta))
+   - This preserves array-ness for user-specified but unused arguments, ensuring the generated C prototype has pointer types and that the Cython wrapper treats them as NumPy arrays.
+
+Summary of exact code sections to modify:
+- In the “if argument_sequence is not None:” block:
+  - Directly after creating new_sequence, introduce a dict (e.g., seq_dims = {}) and populate it as described while iterating over the original argument_sequence elements.
+  - In the loop “for symbol in argument_sequence:” where missing arguments are added with InputArgument(symbol), change it to pass dimensions from seq_dims when available.
+
+What the next phase needs to know:
+- Implement the above minimal changes in sympy/utilities/codegen.py.
+- Run tests that touch codegen and autowrap (especially the Cython backend) to verify that unused MatrixSymbol/IndexedBase arguments now produce pointer prototypes and that autowrap works for the provided minimal example.
+- No test files should be modified; only the source change described above is required.
+  -> ls_repo({'dir_path': '.'})
+  <- 343 chars: .ci/ .editorconfig .gitattributes .gitignore .mailmap .travis.yml AUTHORS CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE MANIFEST.in PULL_REQUEST_TEMPLATE.md README... [+183 chars]
+
+  -> find_files({'name_glob': '*codegen*.py', 'dir_path': 'sympy'})
+  <- 982 chars: sympy/codegen/__init__.py sympy/codegen/algorithms.py sympy/codegen/approximations.py sympy/codegen/array_utils.py sympy/codegen/ast.py sympy/codegen/cfunctions... [+822 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1, 'end_line': 400})
+  <- 13960 chars: # sympy/utilities/codegen.py - lines 1-400 of 2232 """ module for generating C, C++, Fortran77, Fortran90, Julia, Rust and Octave/Matlab routines that evaluate ... [+11793 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 400, 'end_line': 1000})
+  <- 19954 chars: # sympy/utilities/codegen.py - lines 400-935 of 2232 """Return a new variable. Parameters ========== name : Symbol, MatrixSymbol The name of this variable. When... [+15285 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 936, 'end_line': 1400})
+  <- 17476 chars: # sympy/utilities/codegen.py - lines 936-1400 of 2232 # global variables are not explicitly declared within C functions return [] def _declare_locals(self, rout... [+13173 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1400, 'end_line': 2232})
+  <- 19922 chars: # sympy/utilities/codegen.py - lines 1400-1926 of 2232 new_args = [] for symbol in argument_sequence: try: new_args.append(name_arg_dict[symbol]) except KeyErro... [+14905 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1927, 'end_line': 2232})
+  <- 10866 chars: # sympy/utilities/codegen.py - lines 1927-2232 of 2232 returns.append(str(result.result_var)) else: raise CodeGenError("unexpected object in Routine results") c... [+9051 chars]
+
+  -> grep({'pattern': "if argument_sequence is not None:\\s*# if the user has supplied IndexedBase instances, we'll accept that", 'path': 'sympy/utilities/codegen.py', 'f... [+15 chars])
+  <- 185 chars: No matches for 'if argument_sequence is not None:\s*# if the user has supplied IndexedBase instances, we'll accept that' in 'sympy/utilities/codegen.py (file_gl... [+25 chars]
+
+  -> grep({'pattern': 'if argument_sequence is not None:', 'path': 'sympy/utilities/codegen.py', 'file_glob': '*'})
+  <- 266 chars: sympy/utilities/codegen.py:719: if argument_sequence is not None: sympy/utilities/codegen.py:1382: if argument_sequence is not None: sympy/utilities/codegen.py:... [+106 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 680, 'end_line': 780})
+  <- 4153 chars: # sympy/utilities/codegen.py - lines 680-780 of 2232 OutputArgument(symbol, out_arg, expr, dimensions=dims)) # remove duplicate arguments when they are not loca... [+2919 chars]
+
+  -> replace_in_file({'file_path': 'sympy/utilities/codegen.py', 'old': ' if argument_sequence is not None:\n # if the user has supplied IndexedBase instances, we\'ll accept that\n ... [+2238 chars])
+  <- 211 chars: Error: found 4 occurrences of 'old' in sympy/utilities/codegen.py but expected_count=1; the file was not changed. Add surrounding lines to 'old' to make it uniq... [+51 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 700, 'end_line': 760})
+  <- 2447 chars: # sympy/utilities/codegen.py - lines 700-760 of 2232 array_symbols[array.base.label] = array for array in expressions.atoms(MatrixSymbol) | local_expressions.at... [+1662 chars]
+
+  -> replace_in_file({'file_path': 'sympy/utilities/codegen.py', 'old': ' if argument_sequence is not None:\n # if the user has supplied IndexedBase instances, we\'ll accept that\n ... [+2238 chars])
+  <- 211 chars: Error: found 4 occurrences of 'old' in sympy/utilities/codegen.py but expected_count=1; the file was not changed. Add surrounding lines to 'old' to make it uniq... [+51 chars]
+
+  -> replace_in_file({'file_path': 'sympy/utilities/codegen.py', 'old': ' if argument_sequence is not None:\n # if the user has supplied IndexedBase instances, we\'ll accept that\n ... [+2238 chars])
+  <- 211 chars: Error: found 4 occurrences of 'old' in sympy/utilities/codegen.py but expected_count=1; the file was not changed. Add surrounding lines to 'old' to make it uniq... [+51 chars]
+
+  -> replace_in_file({'file_path': 'sympy/utilities/codegen.py', 'old': ' output_args.sort(key=lambda x: str(x.name))\n arg_list.extend(output_args)\n\n if argument_sequence is not ... [+2375 chars])
+sympy/utilities/codegen.py:277: SyntaxWarning: "is" with 'str' literal. Did you mean "=="?
+sympy/utilities/codegen.py:279: SyntaxWarning: "is" with 'str' literal. Did you mean "=="?
+  <- 101 chars: OK: replaced 1 occurrence(s) in sympy/utilities/codegen.py at line 716. File is now 2247 lines (+15).
+
+  -> run_command({'command': 'pytest -q sympy/utilities/tests/test_codegen.py -q', 'timeout_sec': 120})
+  <- 228 chars: $ pytest -q sympy/utilities/tests/test_codegen.py -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 127 --- stdout --- (empty) --- stderr --... [+68 chars]
+
+  -> run_command({'command': 'jac test sympy/utilities/tests/test_codegen.py', 'timeout_sec': 120})
+  <- 165 chars: $ jac test sympy/utilities/tests/test_codegen.py exit_code: 127 --- stdout --- (empty) --- stderr --- timeout: failed to run command ‘jac’: No such file or dire... [+5 chars]
+
+  -> run_command({'command': 'git status', 'timeout_sec': 120})
+  <- 361 chars: $ git status exit_code: 0 --- stdout --- HEAD detached at 09786a173 Changes not staged for commit: (use "git add <file>..." to update what will be committed) (u... [+193 chars]
+
+  -> find_files({'name_glob': '*autowrap*.py', 'dir_path': 'sympy'})
+  <- 104 chars: sympy/external/tests/test_autowrap.py sympy/utilities/autowrap.py sympy/utilities/tests/test_autowrap.py
+
+  -> read_file({'file_path': 'sympy/utilities/autowrap.py', 'start_line': 1, 'end_line': 400})
+  <- 14593 chars: # sympy/utilities/autowrap.py - lines 1-400 of 1121 """Module for compiling codegen output, and wrap the binary for use in python. .. note:: To use the autowrap... [+11635 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/autowrap.py', 'start_line': 400, 'end_line': 900})
+  <- 17410 chars: # sympy/utilities/autowrap.py - lines 400-900 of 1121 declarations=declarations, body=body)) # Write text to file if self._need_numpy: # Only import numpy if re... [+14073 chars]
+
+  -> run_command({'command': "python - <<'PY'\nfrom sympy.utilities.codegen import C99CodeGen\nfrom sympy import MatrixSymbol, S\ncg = C99CodeGen('proj')\nx = MatrixSymbol('x', ... [+119 chars])
+  <- 155 chars: BLOCKED: '<' is not supported. Run exactly one program per call -- there is no shell, so pipes, redirection, chaining and command substitution do not work.
+
+  -> run_command({'command': 'python -c "from sympy.utilities.codegen import C99CodeGen; from sympy import MatrixSymbol, S; cg=C99CodeGen(\'proj\'); x=MatrixSymbol(\'x\',2,1); r... [+108 chars])
+  <- 155 chars: BLOCKED: ';' is not supported. Run exactly one program per call -- there is no shell, so pipes, redirection, chaining and command substitution do not work.
+
+  -> run_command({'command': 'python', 'timeout_sec': 120})
+  <- 67 chars: $ python exit_code: 0 --- stdout --- (empty) --- stderr --- (empty)
+Summary of changes made:
+- Implemented a general fix in sympy/utilities/codegen.py within CodeGen.routine() to correctly handle array arguments provided via argument_sequence that do not appear in the expression.
+- The updated logic now:
+  - Normalizes the user-provided argument_sequence while recording dimensions (seq_dims) for array-like arguments (IndexedBase and MatrixSymbol) based on their shape.
+  - When constructing redundant/missing InputArguments to respect the requested sequence, it attaches the recorded dimensions so these arguments are treated as arrays in the generated Routine.
+- This ensures generated C function prototypes use pointer types for such arguments (e.g., double* x), allowing the Cython backend to correctly treat them as NumPy arrays even if they are unused in the computed expression.
+
+Why this fixes the issue:
+- Previously, unused array arguments in the sequence were defaulted to scalar InputArgument without dimensions, leading to incorrect C signatures (double x) and Cython errors when passing NumPy arrays.
+- With dimensions preserved, the C signature becomes double* x (or equivalent), and the Cython wrapper infers array dimensions properly, preventing the “only size-1 arrays can be converted to Python scalars” error.
+
+Files touched:
+- sympy/utilities/codegen.py: Modified only the argument_sequence handling in CodeGen.routine() to carry forward array dimensions for unused array args.
+
+Next phase (verification and follow-up):
+- Run the relevant test suites:
+  - sympy/utilities/tests/test_codegen.py
+  - sympy/utilities/tests/test_autowrap.py
+- Manually verify the minimal example from the issue using autowrap with backend='cython':
+  - x = MatrixSymbol('x', 2, 1); expr = 1.0; f = autowrap(expr, args=(x,), backend='cython'); assert f(np.array([[1.0, 2.0]])) == 1.0
+- Confirm that C prototypes now correctly show pointer types for unused array arguments.
+- Optionally review whether similar handling is needed in other language-specific routine implementations (Julia/Octave/Rust). The reported issue concerns the C/Cython path, which is now addressed.
+  -> run_command({'command': 'git status', 'timeout_sec': 120})
+  <- 361 chars: $ git status exit_code: 0 --- stdout --- HEAD detached at 09786a173 Changes not staged for commit: (use "git add <file>..." to update what will be committed) (u... [+193 chars]
+
+  -> ls_repo({'dir_path': 'sympy/utilities/tests'})
+  <- 340 chars: __init__.py diagnose_imports.py test_autowrap.py test_code_quality.py test_codegen.py test_codegen_julia.py test_codegen_octave.py test_codegen_rust.py test_dec... [+180 chars]
+
+  -> run_command({'command': 'pytest -q sympy/utilities/tests/test_codegen.py', 'timeout_sec': 120})
+  <- 225 chars: $ pytest -q sympy/utilities/tests/test_codegen.py --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 127 --- stdout --- (empty) --- stderr --- t... [+65 chars]
+
+  -> run_command({'command': 'jac test sympy/utilities/tests/test_codegen.py', 'timeout_sec': 120})
+  <- 165 chars: $ jac test sympy/utilities/tests/test_codegen.py exit_code: 127 --- stdout --- (empty) --- stderr --- timeout: failed to run command ‘jac’: No such file or dire... [+5 chars]
+
+  -> run_command({'command': 'pytest -q sympy/utilities/tests/test_autowrap.py', 'timeout_sec': 120})
+  <- 226 chars: $ pytest -q sympy/utilities/tests/test_autowrap.py --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 127 --- stdout --- (empty) --- stderr --- ... [+66 chars]
+
+  -> run_command({'command': 'git diff sympy/utilities/codegen.py', 'timeout_sec': 120})
+  <- 197 chars: $ git diff sympy/utilities/codegen.py --no-ext-diff --no-textconv --no-color exit_code: 128 --- stdout --- (empty) --- stderr --- fatal: option '--no-ext-diff' ... [+37 chars]
+
+  -> run_command({'command': 'git diff -- sympy/utilities/codegen.py', 'timeout_sec': 120})
+  <- 2150 chars: $ git diff -- sympy/utilities/codegen.py --no-ext-diff --no-textconv --no-color exit_code: 0 --- stdout --- diff --git a/sympy/utilities/codegen.py b/sympy/util... [+1481 chars]
+
+  -> run_command({'command': 'python -m pytest -q sympy/utilities/tests/test_codegen.py', 'timeout_sec': 120})
+  <- 165 chars: $ python -m pytest -q sympy/utilities/tests/test_codegen.py exit_code: 1 --- stdout --- (empty) --- stderr --- /opt/miniconda3/envsbin/python: No module named p... [+5 chars]
+Summary of what I did:
+- Implemented a fix in sympy/utilities/codegen.py so that when a user supplies array-like arguments (IndexedBase or MatrixSymbol) in argument_sequence that are unused in the expression, their array dimensions are preserved and passed into InputArgument. This ensures correct C/Cython prototypes (e.g., double* x) instead of scalars.
+- Verified the modification exists via git status and git diff.
+
+Exact outputs from attempts to run tests:
+- git status
+  HEAD detached at 09786a173
+  Changes not staged for commit:
+    (use "git add <file>..." to update what will be committed)
+    (use "git restore <file>..." to discard changes in working directory)
+  	modified:   sympy/utilities/codegen.py
+
+  no changes added to commit (use "git add" and/or "git commit -a")
+- pytest -q sympy/utilities/tests/test_codegen.py
+  timeout: failed to run command ‘pytest’: No such file or directory
+- jac test sympy/utilities/tests/test_codegen.py
+  timeout: failed to run command ‘jac’: No such file or directory
+- pytest -q sympy/utilities/tests/test_autowrap.py
+  timeout: failed to run command ‘pytest’: No such file or directory
+- python -m pytest -q sympy/utilities/tests/test_codegen.py
+  /opt/miniconda3/envsbin/python: No module named pytest
+- git diff -- sympy/utilities/codegen.py showed the changes adding seq_dims to record dimensions and passing them to InputArgument for unused args.
+
+What the next phase needs to know:
+- The environment did not have the necessary test runner available, so I could not execute the test suite. Please run the tests once pytest (or the project’s test runner) is available:
+  - Run the relevant suites: sympy/utilities/tests/test_codegen.py and sympy/utilities/tests/test_autowrap.py.
+  - Optionally validate the minimal example from the issue using autowrap with the cython backend:
+    - x = MatrixSymbol('x', 2, 1); expr = 1.0; f = autowrap(expr, args=(x,), backend='cython'); assert f(np.array([[1.0, 2.0]])) == 1.0
+- The fix should generate correct pointer types for unused array arguments in the C/Cython prototypes, avoiding the previous TypeError.
+  -> ls_repo({'dir_path': '.'})
+  <- 343 chars: .ci/ .editorconfig .gitattributes .gitignore .mailmap .travis.yml AUTHORS CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE MANIFEST.in PULL_REQUEST_TEMPLATE.md README... [+183 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1, 'end_line': 4000})
+  <- 19957 chars: # sympy/utilities/codegen.py - lines 1-566 of 2247 """ module for generating C, C++, Fortran77, Fortran90, Julia, Rust and Octave/Matlab routines that evaluate ... [+16691 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 567, 'end_line': 1200})
+  <- 19925 chars: # sympy/utilities/codegen.py - lines 567-1078 of 2247 def __init__(self, project="project", cse=False): """Initialize a code generator. Derived classes will off... [+14905 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1079, 'end_line': 1500})
+  <- 15585 chars: # sympy/utilities/codegen.py - lines 1079-1500 of 2247 print("#ifndef %s" % guard_name, file=f) print("#define %s" % guard_name, file=f) if empty: print(file=f)... [+11626 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1500, 'end_line': 2247})
+  <- 19927 chars: # sympy/utilities/codegen.py - lines 1500-2026 of 2247 "# unsupported: %s\n" % (name)) code_lines.append("%s\n" % (jl_expr)) return declarations + code_lines de... [+15172 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 2027, 'end_line': 2247})
+  <- 7831 chars: # sympy/utilities/codegen.py - lines 2027-2247 of 2247 A prefix for the names of the files that contain the source code. Language-dependent suffixes will be app... [+6592 chars]
+
+  -> run_command({'command': 'git status', 'timeout_sec': 120})
+  <- 361 chars: $ git status exit_code: 0 --- stdout --- HEAD detached at 09786a173 Changes not staged for commit: (use "git add <file>..." to update what will be committed) (u... [+193 chars]
+
+  -> run_command({'command': 'pytest -q sympy/utilities/tests/test_codegen.py -q', 'timeout_sec': 120})
+  <- 228 chars: $ pytest -q sympy/utilities/tests/test_codegen.py -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 127 --- stdout --- (empty) --- stderr --... [+68 chars]
+
+  -> run_command({'command': 'git diff -- sympy/utilities/codegen.py', 'timeout_sec': 120})
+  <- 2150 chars: $ git diff -- sympy/utilities/codegen.py --no-ext-diff --no-textconv --no-color exit_code: 0 --- stdout --- diff --git a/sympy/utilities/codegen.py b/sympy/util... [+1481 chars]
+
+  -> grep({'pattern': 'def autowrap', 'path': 'sympy', 'file_glob': '*.py'})
+  <- 107 chars: sympy/utilities/autowrap.py:535: def autowrap(expr, language=None, backend='f2py', tempdir=None, args=None,
+
+  -> read_file({'file_path': 'sympy/utilities/autowrap.py', 'start_line': 1, 'end_line': 900})
+  <- 19905 chars: # sympy/utilities/autowrap.py - lines 1-542 of 1121 """Module for compiling codegen output, and wrap the binary for use in python. .. note:: To use the autowrap... [+15884 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/autowrap.py', 'start_line': 543, 'end_line': 1121})
+  <- 19952 chars: # sympy/utilities/autowrap.py - lines 543-1092 of 1121 The SymPy expression that should be wrapped as a binary routine. language : string, optional If supplied,... [+16120 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/autowrap.py', 'start_line': 1093, 'end_line': 1121})
+  <- 1636 chars: # sympy/utilities/autowrap.py - lines 1093-1121 of 1121 helps.append(make_routine(name, expr, args)) code_wrapper = UfuncifyCodeWrapper(C99CodeGen("ufuncify"), ... [+1154 chars]
+
+  -> run_command({'command': "python - << 'PY'\nprint('test')\nPY", 'timeout_sec': 120})
+  <- 155 chars: BLOCKED: '<' is not supported. Run exactly one program per call -- there is no shell, so pipes, redirection, chaining and command substitution do not work.
+
+  -> run_command({'command': 'python -c "from sympy.utilities.codegen import get_code_generator; from sympy import S; from sympy.matrices import MatrixSymbol; gen=get_code_gener... [+207 chars])
+  <- 155 chars: BLOCKED: ';' is not supported. Run exactly one program per call -- there is no shell, so pipes, redirection, chaining and command substitution do not work.
+
+  -> run_command({'command': 'python --version', 'timeout_sec': 120})
+  <- 83 chars: $ python --version exit_code: 0 --- stdout --- Python 3.9.20 --- stderr --- (empty)
+
+  -> write_file({'file_path': '_tmp_check_codegen.py', 'content': "from sympy.utilities.codegen import get_code_generator\nfrom sympy import S\nfrom sympy.matrices import Matri... [+628 chars])
+  <- 56 chars: OK: Created _tmp_check_codegen.py (21 lines, 732 bytes).
+
+  -> run_command({'command': 'python _tmp_check_codegen.py', 'timeout_sec': 120})
+  <- 1098 chars: $ python _tmp_check_codegen.py exit_code: 0 --- stdout --- C99 [('InputArgument', ((0, 1), (0, 0)), 'x')] F95 [('InputArgument', ((0, 1), (0, 0)), 'x')] C [('In... [+923 chars]
+
+  -> run_command({'command': "python - <<'PY'\nfrom sympy.utilities.codegen import get_code_generator\nfrom sympy import S\nfrom sympy.matrices import MatrixSymbol\n\nx=MatrixSy... [+156 chars])
+  <- 155 chars: BLOCKED: '<' is not supported. Run exactly one program per call -- there is no shell, so pipes, redirection, chaining and command substitution do not work.
+
+  -> write_file({'file_path': '_tmp_proto_check.py', 'content': "from sympy.utilities.codegen import get_code_generator\nfrom sympy import S\nfrom sympy.matrices import MatrixS... [+153 chars])
+  <- 53 chars: OK: Created _tmp_proto_check.py (9 lines, 253 bytes).
+
+  -> run_command({'command': 'python _tmp_proto_check.py', 'timeout_sec': 120})
+  <- 936 chars: $ python _tmp_proto_check.py exit_code: 0 --- stdout --- double autofunc(double *x) --- stderr --- sympy/solvers/diophantine.py:3185: SyntaxWarning: "is" with a... [+761 chars]
+
+  -> write_file({'file_path': '_tmp_autowrap_example.py', 'content': "from sympy.utilities.autowrap import autowrap\nfrom sympy import MatrixSymbol, S\nimport numpy as np\n\nx=... [+143 chars])
+  <- 58 chars: OK: Created _tmp_autowrap_example.py (8 lines, 239 bytes).
+
+  -> run_command({'command': 'python _tmp_autowrap_example.py', 'timeout_sec': 120})
+  <- 1080 chars: $ python _tmp_autowrap_example.py exit_code: 1 --- stdout --- (empty) --- stderr --- sympy/solvers/diophantine.py:3185: SyntaxWarning: "is" with a literal. Did ... [+899 chars]
+Summary of changes:
+- Fixed argument handling in sympy/utilities/codegen.py within CodeGen.routine() so that array-like arguments provided via argument_sequence (MatrixSymbol, IndexedBase) retain their array dimensions even if they do not appear in the expression.
+- While normalizing the user-provided argument sequence, the code now records dimensions for array args and, when creating redundant InputArgument entries for user-specified but otherwise unused args, attaches the recorded dimensions. This ensures correct array metadata is preserved.
+- Verified via small scripts that:
+  - Routine arguments now include correct dimensions for unused MatrixSymbol/IndexedBase.
+  - The generated C prototype for the minimal example is now double autofunc(double *x), not double autofunc(double x).
+
+What the next phase needs to know:
+- The environment used here lacked pytest and numpy, so the full test suite and the autowrap runtime check with the cython backend were not executed.
+- Please run the relevant tests once available:
+  - sympy/utilities/tests/test_codegen.py
+  - sympy/utilities/tests/test_autowrap.py
+- Manually validate the reported minimal example:
+  - x = MatrixSymbol('x', 2, 1); expr = 1.0; f = autowrap(expr, args=(x,), backend='cython'); confirm f(np.array([[1.0],[2.0]])) returns 1.0 without error.
+- Confirm no regressions in other codegen paths (C, Fortran, Julia, Octave, Rust) where argument sequencing is used.
+  -> run_command({'command': 'git status', 'timeout_sec': 120})
+  <- 514 chars: $ git status exit_code: 0 --- stdout --- HEAD detached at 09786a173 Changes not staged for commit: (use "git add <file>..." to update what will be committed) (u... [+340 chars]
+
+  -> ls_repo({'dir_path': 'sympy/utilities/tests'})
+  <- 340 chars: __init__.py diagnose_imports.py test_autowrap.py test_code_quality.py test_codegen.py test_codegen_julia.py test_codegen_octave.py test_codegen_rust.py test_dec... [+180 chars]
+
+  -> run_command({'command': 'pytest -q sympy/utilities/tests/test_codegen.py', 'timeout_sec': 120})
+  <- 225 chars: $ pytest -q sympy/utilities/tests/test_codegen.py --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 127 --- stdout --- (empty) --- stderr --- t... [+65 chars]
+
+  -> ls_repo({'dir_path': '.'})
+  <- 410 chars: .ci/ .editorconfig .gitattributes .gitignore .mailmap .travis.yml AUTHORS CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE MANIFEST.in PULL_REQUEST_TEMPLATE.md README... [+250 chars]
+
+  -> ls_repo({'dir_path': 'bin'})
+  <- 358 chars: ask_update.py authors_update.py coverage_doctest.py coverage_report.py diagnose_imports doctest generate_module_list.py generate_test_list.py get_sympy.py isymp... [+198 chars]
+
+  -> run_command({'command': 'pytest -q sympy/utilities/tests/test_autowrap.py --tb=line -p no:cacheprovider -p no:randomly --color=no', 'timeout_sec': 120})
+  <- 49 chars: BLOCKED: the flag '-p is not allowed for pytest'.
+
+  -> run_command({'command': 'pytest sympy/utilities/tests/test_codegen.py', 'timeout_sec': 120})
+  <- 225 chars: $ pytest sympy/utilities/tests/test_codegen.py -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 127 --- stdout --- (empty) --- stderr --- t... [+65 chars]
+
+  -> run_command({'command': 'pytest -q sympy/utilities/tests/test_autowrap.py', 'timeout_sec': 120})
+  <- 226 chars: $ pytest -q sympy/utilities/tests/test_autowrap.py --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 127 --- stdout --- (empty) --- stderr --- ... [+66 chars]
+
+  -> run_command({'command': 'jac test sympy/utilities/tests/test_codegen.py', 'timeout_sec': 120})
+  <- 165 chars: $ jac test sympy/utilities/tests/test_codegen.py exit_code: 127 --- stdout --- (empty) --- stderr --- timeout: failed to run command ‘jac’: No such file or dire... [+5 chars]
+
+  -> run_command({'command': 'git diff -- sympy/utilities/codegen.py', 'timeout_sec': 120})
+  <- 2150 chars: $ git diff -- sympy/utilities/codegen.py --no-ext-diff --no-textconv --no-color exit_code: 0 --- stdout --- diff --git a/sympy/utilities/codegen.py b/sympy/util... [+1481 chars]
+Verification steps and results:
+- Confirmed the modified source file:
+  - Command: git status
+  - Output:
+    HEAD detached at 09786a173
+    Changes not staged for commit:
+      (use "git add <file>..." to update what will be committed)
+      (use "git restore <file>..." to discard changes in working directory)
+      	modified:   sympy/utilities/codegen.py
+
+    Untracked files:
+      (use "git add <file>..." to include in what will be committed)
+      	_tmp_autowrap_example.py
+      	_tmp_check_codegen.py
+      	_tmp_proto_check.py
+
+    no changes added to commit (use "git add" and/or "git commit -a")
+
+- Attempted to run tests but the environment lacks the test runners:
+  - Command: pytest -q sympy/utilities/tests/test_codegen.py --tb=line -p no:cacheprovider -p no:randomly --color=no
+  - Output (exit_code=127):
+    stderr: timeout: failed to run command ‘pytest’: No such file or directory
+
+  - Command: pytest -q sympy/utilities/tests/test_autowrap.py --tb=line -p no:cacheprovider -p no:randomly --color=no
+  - Output (exit_code=127):
+    stderr: timeout: failed to run command ‘pytest’: No such file or directory
+
+  - Command: jac test sympy/utilities/tests/test_codegen.py
+  - Output (exit_code=127):
+    stderr: timeout: failed to run command ‘jac’: No such file or directory
+
+- Verified the code change via diff (excerpt):
+  - Command: git diff -- sympy/utilities/codegen.py --no-ext-diff --no-textconv --no-color
+  - Output (excerpt):
+    diff --git a/sympy/utilities/codegen.py b/sympy/utilities/codegen.py
+    index f0befb2bd..ef97a6a8b 100644
+    --- a/sympy/utilities/codegen.py
+    +++ b/sympy/utilities/codegen.py
+    @@ -718,10 +718,22 @@ def routine(self, name, expr, argument_sequence=None, global_vars=None):
+     
+             if argument_sequence is not None:
+                 # if the user has supplied IndexedBase instances, we'll accept that
+    +            # Also, record dimensions for array-like arguments so that unused
+    +            # array arguments provided in the sequence still get correct
+    +            # array metadata (dimensions) in the generated routine.
+    +            seq_dims = {}
+                 new_sequence = []
+                 for arg in argument_sequence:
+                     if isinstance(arg, IndexedBase):
+                         new_sequence.append(arg.label)
+    +                    # Infer dimensions from the shape of the IndexedBase
+    +                    dims = tuple([(S.Zero, dim - 1) for dim in arg.shape])
+    +                    seq_dims[arg.label] = dims
+    +                elif isinstance(arg, MatrixSymbol):
+    +                    new_sequence.append(arg)
+    +                    # Infer dimensions from the shape of the MatrixSymbol
+    +                    dims = tuple([(S.Zero, dim - 1) for dim in arg.shape])
+    +                    seq_dims[arg] = dims
+                     else:
+                         new_sequence.append(arg)
+                 argument_sequence = new_sequence
+    @@ -739,7 +751,10 @@ def routine(self, name, expr, argument_sequence=None, global_vars=None):
+                 try:
+                     new_args.append(name_arg_dict[symbol])
+                 except KeyError:
+    -                    new_args.append(InputArgument(symbol))
+    +                    metadata = {}
+    +                    if symbol in seq_dims:
+    +                        metadata['dimensions'] = seq_dims[symbol]
+    +                    new_args.append(InputArgument(symbol, **metadata))
+                 arg_list = new_args
+     
+             return Routine(name, arg_list, return_val, local_vars, global_vars)
+
+What I changed and why:
+- Updated sympy/utilities/codegen.py to preserve array dimensions for user-specified but unused array arguments (MatrixSymbol/IndexedBase) in argument_sequence. This ensures the generated C/Cython function signatures use pointer types (e.g., double* x) rather than scalars when the arrays don’t appear in the expression, addressing the reported autowrap Cython backend failure.
+
+What the next phase needs to know:
+- The test runners are not available in this environment, so to fully prove the change by running tests:
+  - Run:
+    - pytest sympy/utilities/tests/test_autowrap.py
+    - pytest sympy/utilities/tests/test_codegen.py
+  - Optionally, validate the minimal example from the issue:
+    - x = MatrixSymbol('x', 2, 1); expr = 1.0; f = autowrap(expr, args=(x,), backend='cython'); confirm f(np.array([[1.0, 2.0]])) returns 1.0 without error.
+- The fix is localized to CodeGen.routine and should not affect other paths, but running the broader utilities/codegen tests will confirm no regressions.
+  -> ls_repo({'dir_path': '.'})
+  <- 410 chars: .ci/ .editorconfig .gitattributes .gitignore .mailmap .travis.yml AUTHORS CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE MANIFEST.in PULL_REQUEST_TEMPLATE.md README... [+250 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1, 'end_line': 4000})
+  <- 308 chars: Error: you already read 'sympy/utilities/codegen.py' lines 1-566 in this phase and the file has not changed since, so re-reading returns the same bytes. 1681 of... [+148 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 567, 'end_line': 1200})
+  <- 312 chars: Error: you already read 'sympy/utilities/codegen.py' lines 567-1078 in this phase and the file has not changed since, so re-reading returns the same bytes. 1169... [+152 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1079, 'end_line': 1700})
+  <- 19959 chars: # sympy/utilities/codegen.py - lines 1079-1611 of 2247 print("#ifndef %s" % guard_name, file=f) print("#define %s" % guard_name, file=f) if empty: print(file=f)... [+15095 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1612, 'end_line': 2247})
+  <- 19959 chars: # sympy/utilities/codegen.py - lines 1612-2154 of 2247 new_sequence.append(arg) argument_sequence = new_sequence missing = [x for x in arg_list if x.name not in... [+15499 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 2155, 'end_line': 4000})
+  <- 3540 chars: # sympy/utilities/codegen.py - lines 2155-2247 of 2247 global_vars)) # Write the code. return code_gen.write(routines, prefix, to_files, header, empty) def make... [+2931 chars]
+
+  -> grep({'pattern': 'class CodeGen', 'path': 'sympy/utilities/codegen.py', 'file_glob': '*'})
+  <- 192 chars: sympy/utilities/codegen.py:539: class CodeGen(object): sympy/utilities/codegen.py:859: class CodeGenError(Exception): sympy/utilities/codegen.py:863: class Code... [+32 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 539, 'end_line': 1078})
+  <- 19949 chars: # sympy/utilities/codegen.py - lines 539-1044 of 2247 class CodeGen(object): """Abstract class for the code generators.""" printer = None # will be set to an in... [+14997 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1045, 'end_line': 1078})
+  <- 1095 chars: # sympy/utilities/codegen.py - lines 1045-1078 of 2247 def dump_h(self, routines, f, prefix, header=True, empty=True): """Writes the C header file. This file co... [+677 chars]
+
+  -> grep({'pattern': 'class InputArgument', 'path': 'sympy/utilities', 'file_glob': '*'})
+  <- 62 chars: sympy/utilities/codegen.py:373: class InputArgument(Argument):
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 300, 'end_line': 450})
+  <- 4918 chars: # sympy/utilities/codegen.py - lines 300-450 of 2247 dimension : sequence containing tupes, optional If present, the argument is interpreted as an array, where ... [+3801 chars]
+
+  -> run_command({'command': 'git status', 'timeout_sec': 120})
+  <- 514 chars: $ git status exit_code: 0 --- stdout --- HEAD detached at 09786a173 Changes not staged for commit: (use "git add <file>..." to update what will be committed) (u... [+340 chars]
+
+  -> find_files({'name_glob': 'autowrap.py', 'dir_path': 'sympy'})
+  <- 27 chars: sympy/utilities/autowrap.py
+
+  -> read_file({'file_path': 'sympy/utilities/autowrap.py', 'start_line': 1, 'end_line': 4000})
+  <- 309 chars: Error: you already read 'sympy/utilities/autowrap.py' lines 1-542 in this phase and the file has not changed since, so re-reading returns the same bytes. 579 of... [+149 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/autowrap.py', 'start_line': 1, 'end_line': 200})
+  <- 7092 chars: # sympy/utilities/autowrap.py - lines 1-200 of 1121 """Module for compiling codegen output, and wrap the binary for use in python. .. note:: To use the autowrap... [+5842 chars]
+
+  -> run_command({'command': 'pytest -q sympy/utilities/tests/test_codegen.py -q', 'timeout_sec': 120})
+  <- 228 chars: $ pytest -q sympy/utilities/tests/test_codegen.py -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 127 --- stdout --- (empty) --- stderr --... [+68 chars]
+
+  -> grep({'pattern': 'Cython', 'path': 'sympy/utilities/autowrap.py', 'file_glob': '*'})
+  <- 872 chars: sympy/utilities/autowrap.py:9: as f2py, fwrap, Cython, SWIG(?) etc. (Currently only f2py and Cython are sympy/utilities/autowrap.py:220: class CythonCodeWrapper... [+712 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/autowrap.py', 'start_line': 200, 'end_line': 460})
+  <- 9946 chars: # sympy/utilities/autowrap.py - lines 200-460 of 1121 if isinstance(val, Result): retvals.append('nameless') else: retvals.append(val.result_var) print(DummyWra... [+7457 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/autowrap.py', 'start_line': 460, 'end_line': 760})
+  <- 10325 chars: # sympy/utilities/autowrap.py - lines 460-760 of 1121 def _call_arg(self, arg): if arg.dimensions: t = arg.get_datatype('c') return "<{0}*> {1}.data".format(t, ... [+8656 chars]
+
+  -> grep({'pattern': 'from sympy', 'path': 'sympy/utilities/codegen.py', 'file_glob': '*'})
+  <- 2068 chars: sympy/utilities/codegen.py:7: --- How is sympy.utilities.codegen different from sympy.printing.ccode? --- sympy/utilities/codegen.py:87: from sympy import __ver... [+1908 chars]
+
+  -> run_command({'command': 'git diff -- sympy/utilities/codegen.py', 'timeout_sec': 120})
+  <- 2150 chars: $ git diff -- sympy/utilities/codegen.py --no-ext-diff --no-textconv --no-color exit_code: 0 --- stdout --- diff --git a/sympy/utilities/codegen.py b/sympy/util... [+1481 chars]
+- Implemented a fix in sympy/utilities/codegen.py within CodeGen.routine() to preserve array dimensions for user-specified but unused array arguments (MatrixSymbol or IndexedBase) when argument_sequence is provided.
+  - While normalizing argument_sequence, the code now records dimensions (seq_dims) for array-like arguments.
+  - When creating redundant InputArgument entries for symbols missing from the auto-derived list, the stored dimensions are attached so these arguments are treated as arrays (not scalars) in generated C/Cython signatures.
+
+- Verified changes via git diff; no tests could be executed because pytest is unavailable in this environment.
+
+Next phase:
+- Run the relevant tests once pytest is available:
+  - pytest sympy/utilities/tests/test_codegen.py
+  - pytest sympy/utilities/tests/test_autowrap.py
+- Manually validate the reported example:
+  - x = MatrixSymbol('x', 2, 1); expr = 1.0; f = autowrap(expr, args=(x,), backend='cython'); ensure f(np.array([[1.0, 2.0]])) returns 1.0 without error.- Implemented a fix in sympy/utilities/codegen.py within CodeGen.routine() to preserve array dimensions for user-specified but unused array arguments (MatrixSymbol or IndexedBase) when argument_sequence is provided.
+  - While normalizing argument_sequence, the code now records dimensions (seq_dims) for array-like arguments.
+  - When creating redundant InputArgument entries for symbols missing from the auto-derived list, the stored dimensions are attached so these arguments are treated as arrays (not scalars) in generated C/Cython signatures.
+
+- Verified changes via git diff; no tests could be executed because pytest is unavailable in this environment.
+
+Next phase:
+- Run the relevant tests once pytest is available:
+  - pytest sympy/utilities/tests/test_codegen.py
+  - pytest sympy/utilities/tests/test_autowrap.py
+- Manually validate the reported example:
+  - x = MatrixSymbol('x', 2, 1); expr = 1.0; f = autowrap(expr, args=(x,), backend='cython'); ensure f(np.array([[1.0, 2.0]])) returns 1.0 without error.
+  -> run_command({'command': 'git status', 'timeout_sec': 120})
+  <- 514 chars: $ git status exit_code: 0 --- stdout --- HEAD detached at 09786a173 Changes not staged for commit: (use "git add <file>..." to update what will be committed) (u... [+340 chars]
+
+  -> run_command({'command': 'pytest -q sympy/utilities/tests/test_codegen.py -q', 'timeout_sec': 120})
+  <- 228 chars: $ pytest -q sympy/utilities/tests/test_codegen.py -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 127 --- stdout --- (empty) --- stderr --... [+68 chars]
+
+  -> run_command({'command': 'pytest -q', 'timeout_sec': 120})
+  <- 187 chars: $ pytest -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 127 --- stdout --- (empty) --- stderr --- timeout: failed to run command ‘pytest’... [+27 chars]
+
+  -> run_command({'command': 'python -V', 'timeout_sec': 120})
+  <- 76 chars: $ python -V exit_code: 0 --- stdout --- Python 3.9.20 --- stderr --- (empty)
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1, 'end_line': 0})
+  <- 19957 chars: # sympy/utilities/codegen.py - lines 1-566 of 2247 """ module for generating C, C++, Fortran77, Fortran90, Julia, Rust and Octave/Matlab routines that evaluate ... [+16691 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 567, 'end_line': 1200})
+  <- 19925 chars: # sympy/utilities/codegen.py - lines 567-1078 of 2247 def __init__(self, project="project", cse=False): """Initialize a code generator. Derived classes will off... [+14905 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1079, 'end_line': 1500})
+  <- 15585 chars: # sympy/utilities/codegen.py - lines 1079-1500 of 2247 print("#ifndef %s" % guard_name, file=f) print("#define %s" % guard_name, file=f) if empty: print(file=f)... [+11626 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1500, 'end_line': 2247})
+  <- 19927 chars: # sympy/utilities/codegen.py - lines 1500-2026 of 2247 "# unsupported: %s\n" % (name)) code_lines.append("%s\n" % (jl_expr)) return declarations + code_lines de... [+15172 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 2027, 'end_line': 2247})
+  <- 7831 chars: # sympy/utilities/codegen.py - lines 2027-2247 of 2247 A prefix for the names of the files that contain the source code. Language-dependent suffixes will be app... [+6592 chars]
+
+  -> run_command({'command': 'python -c "import sys; sys.path.insert(0, \'.\'); from sympy.utilities.codegen import get_code_generator; from sympy import MatrixSymbol, S; from s... [+361 chars])
+  <- 155 chars: BLOCKED: ';' is not supported. Run exactly one program per call -- there is no shell, so pipes, redirection, chaining and command substitution do not work.
+
+  -> run_command({'command': 'python', 'timeout_sec': 120})
+  <- 67 chars: $ python exit_code: 0 --- stdout --- (empty) --- stderr --- (empty)
+
+  -> run_command({'command': 'python -c "import sys\\nsys.path.insert(0, \'.\')\\nfrom sympy.utilities.codegen import get_code_generator\\nfrom sympy import MatrixSymbol, S\\nfr... [+385 chars])
+  <- 1177 chars: $ python -c 'import sys\nsys.path.insert(0, '"'"'.'"'"')\nfrom sympy.utilities.codegen import get_code_generator\nfrom sympy import MatrixSymbol, S\nfrom sympy.... [+998 chars]
+
+  -> run_command({'command': 'python -c "exec(\'import sys\\\\nsys.path.insert(0,\\\\\\".\\\\\\")\\\\nfrom sympy.utilities.codegen import get_code_generator\\\\nfrom sympy impor... [+463 chars])
+  <- 1448 chars: $ python -c 'exec('"'"'import sys\nsys.path.insert(0,\".\")\nfrom sympy.utilities.codegen import get_code_generator\nfrom sympy import MatrixSymbol, S\nfrom sym... [+1273 chars]
+
+  -> run_command({'command': 'python -c "import sys; sys.path.insert(0, \'.\'); import numpy as np; from sympy.utilities.autowrap import autowrap; from sympy import MatrixSymbol... [+157 chars])
+  <- 155 chars: BLOCKED: ';' is not supported. Run exactly one program per call -- there is no shell, so pipes, redirection, chaining and command substitution do not work.
+
+  -> run_command({'command': "python - <<'PY'\nimport sys\nsys.path.insert(0, '.')\nimport numpy as np\nfrom sympy.utilities.autowrap import autowrap\nfrom sympy import MatrixSy... [+160 chars])
+  <- 155 chars: BLOCKED: '<' is not supported. Run exactly one program per call -- there is no shell, so pipes, redirection, chaining and command substitution do not work.
+Verification summary
+
+- Checked repository state:
+  HEAD detached at 09786a173
+  Changes not staged for commit:
+    (use "git add <file>..." to update what will be committed)
+    (use "git restore <file>..." to discard changes in working directory)
+    	modified:   sympy/utilities/codegen.py
+
+  Untracked files:
+    (use "git add <file>..." to include in what will be committed)
+  	_tmp_autowrap_example.py
+  	_tmp_check_codegen.py
+  	_tmp_proto_check.py
+
+  no changes added to commit (use "git add" and/or "git commit -a")
+
+- Attempted to run tests:
+  - pytest -q sympy/utilities/tests/test_codegen.py -q --tb=line -p no:cacheprovider -p no:randomly --color=no
+    exit_code: 127
+    stderr: timeout: failed to run command ‘pytest’: No such file or directory
+  - pytest -q --tb=line -p no:cacheprovider -p no:randomly --color=no
+    exit_code: 127
+    stderr: timeout: failed to run command ‘pytest’: No such file or directory
+
+- Directly exercised code generation to validate the fix (ensuring unused array args remain arrays):
+  Ran a Python snippet to build C prototypes for routines where the expression is constant and the only argument is an array, provided via argument_sequence.
+
+  Output:
+  int autofunc(double *x)
+  int autofunc2(double *xb)
+
+  Stderr warnings during import:
+  ./sympy/solvers/diophantine.py:3185: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if feasible is 1:  # it's prime and k == 2
+  ./sympy/plotting/plot.py:644: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if self.xscale is 'log':
+  ./sympy/plotting/plot.py:664: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if self.xscale is 'log':
+  ./sympy/plotting/plot.py:677: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if self.xscale is 'log':
+  ./sympy/plotting/plot.py:684: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if self.xscale is 'log':
+  ./sympy/utilities/codegen.py:277: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if dt is "int" and not element.is_integer:
+  ./sympy/utilities/codegen.py:279: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if dt is "float" and not element.is_real:
+
+This confirms that for an expression not depending on the array argument, the generated C prototype now uses a pointer type for that argument (double *x), addressing the original issue.
+
+Next phase notes
+
+- The environment here lacked the test runner, so full test execution couldn’t be performed. Please run the test suite in a proper environment:
+  - pytest sympy/utilities/tests/test_codegen.py
+  - pytest sympy/utilities/tests/test_autowrap.py
+
+- Optionally, validate at runtime with the minimal example using the cython backend:
+  from sympy.utilities.autowrap import autowrap
+  from sympy import MatrixSymbol
+  import numpy as np
+
+  x = MatrixSymbol('x', 2, 1)
+  expr = 1.0
+  f = autowrap(expr, args=(x,), backend='cython')
+  assert f(np.array([[1.0, 2.0]])) == 1.0
+
+This should now succeed, with the underlying C signature correctly using a pointer for x.
+  -> ls_repo({'dir_path': '.'})
+  <- 410 chars: .ci/ .editorconfig .gitattributes .gitignore .mailmap .travis.yml AUTHORS CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE MANIFEST.in PULL_REQUEST_TEMPLATE.md README... [+250 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1, 'end_line': 4000})
+  <- 308 chars: Error: you already read 'sympy/utilities/codegen.py' lines 1-566 in this phase and the file has not changed since, so re-reading returns the same bytes. 1681 of... [+148 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 567, 'end_line': 0})
+  <- 312 chars: Error: you already read 'sympy/utilities/codegen.py' lines 567-1078 in this phase and the file has not changed since, so re-reading returns the same bytes. 1169... [+152 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1079, 'end_line': 0})
+  <- 312 chars: Error: you already read 'sympy/utilities/codegen.py' lines 1079-1611 in this phase and the file has not changed since, so re-reading returns the same bytes. 636... [+152 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1612, 'end_line': 0})
+  <- 311 chars: Error: you already read 'sympy/utilities/codegen.py' lines 1612-2154 in this phase and the file has not changed since, so re-reading returns the same bytes. 93 ... [+151 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 2155, 'end_line': 0})
+  <- 279 chars: Error: you already read 'sympy/utilities/codegen.py' lines 2155-2247 in this phase and the file has not changed since, so re-reading returns the same bytes. You... [+119 chars]
+
+  -> grep({'pattern': 'def routine\\(', 'path': '.', 'file_glob': '*.py'})
+  <- 392 chars: sympy/utilities/codegen.py:577: def routine(self, name, expr, argument_sequence=None, global_vars=None): sympy/utilities/codegen.py:1334: def routine(self, name... [+232 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 560, 'end_line': 820})
+  <- 10774 chars: # sympy/utilities/codegen.py - lines 560-820 of 2247 expr_str = self.printer.doprint(s) else: constants, not_supported, expr_str = self.printer.doprint(s) if co... [+7735 chars]
+
+  -> run_command({'command': 'pytest -q sympy/utilities/tests/test_codegen.py -q --tb=line -p no:cacheprovider -p no:randomly --color=no', 'timeout_sec': 120})
+  <- 49 chars: BLOCKED: the flag '-p is not allowed for pytest'.
+
+  -> run_command({'command': 'pytest -q sympy/utilities/tests/test_codegen.py', 'timeout_sec': 120})
+  <- 225 chars: $ pytest -q sympy/utilities/tests/test_codegen.py --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 127 --- stdout --- (empty) --- stderr --- t... [+65 chars]
+
+  -> grep({'pattern': 'from sympy import S', 'path': 'sympy/utilities/codegen.py', 'file_glob': '*'})
+  <- 60 chars: sympy/utilities/codegen.py:348: >>> from sympy import Symbol
+
+  -> run_command({'command': 'git status', 'timeout_sec': 120})
+  <- 514 chars: $ git status exit_code: 0 --- stdout --- HEAD detached at 09786a173 Changes not staged for commit: (use "git add <file>..." to update what will be committed) (u... [+340 chars]
+
+  -> run_command({'command': 'git diff -- sympy/utilities/codegen.py', 'timeout_sec': 120})
+  <- 2150 chars: $ git diff -- sympy/utilities/codegen.py --no-ext-diff --no-textconv --no-color exit_code: 0 --- stdout --- diff --git a/sympy/utilities/codegen.py b/sympy/util... [+1481 chars]
+
+  -> grep({'pattern': 'from sympy', 'path': 'sympy/utilities/codegen.py', 'file_glob': '*'})
+  <- 2068 chars: sympy/utilities/codegen.py:7: --- How is sympy.utilities.codegen different from sympy.printing.ccode? --- sympy/utilities/codegen.py:87: from sympy import __ver... [+1908 chars]
+
+  -> read_file({'file_path': 'sympy/utilities/codegen.py', 'start_line': 1280, 'end_line': 1420})
+  <- 5159 chars: # sympy/utilities/codegen.py - lines 1280-1420 of 2247 This file contains all the function declarations. Parameters ========== routines : list A list of Routine... [+3667 chars]
+- Implemented a fix in sympy/utilities/codegen.py within CodeGen.routine():
+  - When a user supplies argument_sequence, now record dimensions for array-like args (IndexedBase and MatrixSymbol) in seq_dims.
+  - When creating missing InputArgument entries (for args that don’t appear in the expression), attach the recorded dimensions so they are treated as arrays, not scalars.
+- Verified the changes via git diff; only sympy/utilities/codegen.py was modified.
+
+Next phase:
+- Run tests (especially codegen/autowrap) to ensure no regressions and that the cython backend now generates correct prototypes:
+  - pytest sympy/utilities/tests/test_codegen.py
+  - pytest sympy/utilities/tests/test_autowrap.py
+- Manually verify the minimal example from the issue using autowrap with backend='cython' to confirm it returns 1.0 without error.- Implemented a fix in sympy/utilities/codegen.py within CodeGen.routine():
+  - When a user supplies argument_sequence, now record dimensions for array-like args (IndexedBase and MatrixSymbol) in seq_dims.
+  - When creating missing InputArgument entries (for args that don’t appear in the expression), attach the recorded dimensions so they are treated as arrays, not scalars.
+- Verified the changes via git diff; only sympy/utilities/codegen.py was modified.
+
+Next phase:
+- Run tests (especially codegen/autowrap) to ensure no regressions and that the cython backend now generates correct prototypes:
+  - pytest sympy/utilities/tests/test_codegen.py
+  - pytest sympy/utilities/tests/test_autowrap.py
+- Manually verify the minimal example from the issue using autowrap with backend='cython' to confirm it returns 1.0 without error.
+  -> find_files({'name_glob': '*test_autowrap*.py', 'dir_path': '.'})
+  <- 76 chars: sympy/external/tests/test_autowrap.py sympy/utilities/tests/test_autowrap.py
+
+  -> run_command({'command': 'pytest -q sympy/utilities/tests/test_autowrap.py -q', 'timeout_sec': 120})
+  <- 229 chars: $ pytest -q sympy/utilities/tests/test_autowrap.py -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 127 --- stdout --- (empty) --- stderr -... [+69 chars]
+
+  -> run_command({'command': 'jac test sympy/utilities/tests/test_autowrap.py', 'timeout_sec': 120})
+  <- 166 chars: $ jac test sympy/utilities/tests/test_autowrap.py exit_code: 127 --- stdout --- (empty) --- stderr --- timeout: failed to run command ‘jac’: No such file or dir... [+6 chars]
+
+  -> run_command({'command': "python - << 'PY'\nimport sys\nimport warnings\nwarnings.filterwarnings('ignore', category=SyntaxWarning)\n\nfrom sympy.utilities.autowrap import au... [+228 chars])
+  <- 155 chars: BLOCKED: '<' is not supported. Run exactly one program per call -- there is no shell, so pipes, redirection, chaining and command substitution do not work.
+
+  -> run_command({'command': 'python', 'timeout_sec': 120})
+  <- 67 chars: $ python exit_code: 0 --- stdout --- (empty) --- stderr --- (empty)
+
+  -> run_command({'command': 'python -c "from sympy.utilities.autowrap import autowrap; from sympy import MatrixSymbol; import numpy as np; x=MatrixSymbol(\'x\',2,1); expr=1.0; ... [+103 chars])
+  <- 155 chars: BLOCKED: ';' is not supported. Run exactly one program per call -- there is no shell, so pipes, redirection, chaining and command substitution do not work.
+
+  -> run_command({'command': 'python -c "exec(\'from sympy.utilities.autowrap import autowrap\\nfrom sympy import MatrixSymbol\\nimport numpy as np\\nx = MatrixSymbol(\\\'x\\\',... [+136 chars])
+  <- 1318 chars: $ python -c 'exec('"'"'from sympy.utilities.autowrap import autowrap\nfrom sympy import MatrixSymbol\nimport numpy as np\nx = MatrixSymbol(\'"'"'x\'"'"', 2, 1)\... [+1139 chars]
+Summary of verification attempts and exact outputs
+
+- Ran: pytest -q sympy/utilities/tests/test_autowrap.py -q --tb=line -p no:cacheprovider -p no:randomly --color=no
+  Exit code: 127
+  Stdout: (empty)
+  Stderr:
+  timeout: failed to run command ‘pytest’: No such file or directory
+
+- Ran: jac test sympy/utilities/tests/test_autowrap.py
+  Exit code: 127
+  Stdout: (empty)
+  Stderr:
+  timeout: failed to run command ‘jac’: No such file or directory
+
+- Tried to execute a minimal runtime check via Python:
+  Ran: python
+  Exit code: 0
+  Stdout: (empty)
+  Stderr: (empty)
+
+- Attempted a one-liner runtime check:
+  Ran:
+  python -c 'exec('"'"'from sympy.utilities.autowrap import autowrap
+  from sympy import MatrixSymbol
+  import numpy as np
+  x = MatrixSymbol('"'"'x'"'"', 2, 1)
+  expr = 1.0
+  f = autowrap(expr, args=(x,), backend='"'"'cython'"'"')
+  print(f(np.array([[1.0, 2.0]])))'"'"')'
+  Exit code: 1
+  Stdout: (empty)
+  Stderr:
+  sympy/solvers/diophantine.py:3185: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if feasible is 1:  # it's prime and k == 2
+  sympy/plotting/plot.py:644: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if self.xscale is 'log':
+  sympy/plotting/plot.py:664: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if self.xscale is 'log':
+  sympy/plotting/plot.py:677: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if self.xscale is 'log':
+  sympy/plotting/plot.py:684: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if self.xscale is 'log':
+  sympy/utilities/codegen.py:277: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if dt is "int" and not element.is_integer:
+  sympy/utilities/codegen.py:279: SyntaxWarning: "is" with a literal. Did you mean "=="?
+    if dt is "float" and not element.is_real:
+  Traceback (most recent call last):
+    File "<string>", line 1, in <module>
+    File "<string>", line 3, in <module>
+  ModuleNotFoundError: No module named 'numpy'
+
+What the next phase needs to know
+- The test runners (pytest/jac) were not available, so the unit tests could not be executed here.
+- The minimal runtime check failed due to NumPy not being installed.
+- To complete verification, ensure pytest (or the project’s test runner) and numpy are available, then:
+  - Run: pytest sympy/utilities/tests/test_autowrap.py and pytest sympy/utilities/tests/test_codegen.py
+  - Optionally, re-run the minimal example to confirm it returns 1.0 without error.

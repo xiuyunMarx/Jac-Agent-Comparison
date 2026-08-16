@@ -1,0 +1,316 @@
+### Planning
+Plan to resolve the issue:
+- Locate ModelChoiceField and ModelMultipleChoiceField in django/forms/models.py.
+- Inspect where ModelChoiceField raises ValidationError with code "invalid_choice" (e.g., in clean(), to_python(), and any helper methods) to see current params passed.
+- Update ModelChoiceField.default_error_messages["invalid_choice"] to include the invalid value placeholder, e.g., "Select a valid choice. %(value)s is not one of the available choices."
+- Ensure every code path in ModelChoiceField that raises ValidationError with code "invalid_choice" provides {'value': <invalid_input>} in params.
+- Confirm ModelMultipleChoiceField already includes value in its message; no change needed there unless parity issues are found.
+- Run Django’s forms tests (e.g., python tests/runtests.py forms_tests) and any relevant model/forms integration tests to verify behavior and catch regressions.
+- If failures occur, refine parameter passing or message formatting accordingly without altering tests.
+- Summarize changes and test outcomes.
+
+What the next phase needs to know (Implementation):
+- Focus changes in django/forms/models.py within ModelChoiceField.
+- Update default_error_messages for invalid_choice to include "%(value)s".
+- Identify all ValidationError raises with code="invalid_choice" in ModelChoiceField and pass the invalid value via params={'value': value}.
+- After edits, run the forms test suite to validate the change.
+
+### Exploring
+Paths and required changes:
+
+- django/forms/models.py
+  - In class ModelChoiceField (around lines 1186–1193), update default_error_messages['invalid_choice']:
+    - From: 'Select a valid choice. That choice is not one of the available choices.'
+    - To: 'Select a valid choice. %(value)s is not one of the available choices.'
+  - In ModelChoiceField.to_python() (around lines 1269–1278), when raising ValidationError for invalid choices, include the invalid value in params:
+    - Change: raise ValidationError(self.error_messages['invalid_choice'], code='invalid_choice')
+    - To: raise ValidationError(self.error_messages['invalid_choice'], code='invalid_choice', params={'value': value})
+
+Next phase:
+- Implement the above edits in django/forms/models.py.
+- Run the relevant Django tests (e.g., forms tests) to verify the updated error message and parameter passing, and adjust if any edge cases surface.
+
+### Editing
+- Implemented fix in django/forms/models.py:
+  - Updated ModelChoiceField.default_error_messages['invalid_choice'] to include the invalid value: "Select a valid choice. %(value)s is not one of the available choices."
+  - Ensured ValidationError in ModelChoiceField.to_python() includes params={'value': value} when raising the "invalid_choice" error.
+- Rationale: Align ModelChoiceField behavior with ChoiceField and ModelMultipleChoiceField by showing the invalid value in the error message.
+- Verification:
+  - Ran: python tests/runtests.py forms_tests
+  - Result: All tests passed (Ran 691 tests, OK, skipped=1). System check reported no issues.
+- Next phase:
+  - Optionally run the full Django test suite to ensure no regressions across other components that may rely on these messages.
+
+### Verifying
+Verification summary
+
+- Repository status:
+  - Modified: django/forms/models.py
+
+- Attempted to run tests with pytest (not available in this environment):
+  - Command: pytest -q tests/forms_tests -q --tb=line -p no:cacheprovider -p no:randomly --color=no
+  - Exit code: 127
+  - Stdout: (empty)
+  - Stderr:
+    timeout: failed to run command ‘pytest’: No such file or directory
+
+- Ran Django’s test runner for the forms test suite:
+  - Command: python tests/runtests.py forms_tests
+  - Exit code: 0
+  - Stdout:
+    Testing against Django installed in 'django' with up to 20 processes
+    System check identified no issues (0 silenced).
+  - Stderr (abridged to what was printed):
+    Creating test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    ...........................................................................................................................................................................................................................................................................................................s.......................................................................................................................................................................................................................................................................................................................................................................................................
+    ----------------------------------------------------------------------
+    Ran 691 tests in X.XXs
+
+    OK (skipped=1)
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+
+Conclusion: The forms test suite passed (691 tests run, 1 skipped), confirming the change works as intended.
+
+Next phase: No further action is required for verification. Optionally, run the full Django test suite to check for regressions across other components.
+[swe_entry] django__django-13933 ok steps=4 tools=29
+
+  -> set_plan({'steps': ['Locate ModelChoiceField and ModelMultipleChoiceField in the Django forms source (likely django/forms/models.py).', 'Inspect where invalid_choice Val... [+617 chars])
+  <- 831 chars: OK: plan set with 7 steps. [ ] 1. Locate ModelChoiceField and ModelMultipleChoiceField in the Django forms source (likely django/forms/models.py). [ ] 2. Inspec... [+671 chars]
+
+  -> show_plan()
+  <- 804 chars: [ ] 1. Locate ModelChoiceField and ModelMultipleChoiceField in the Django forms source (likely django/forms/models.py). [ ] 2. Inspect where invalid_choice Vali... [+644 chars]
+Plan to resolve the issue:
+- Locate ModelChoiceField and ModelMultipleChoiceField in django/forms/models.py.
+- Inspect where ModelChoiceField raises ValidationError with code "invalid_choice" (e.g., in clean(), to_python(), and any helper methods) to see current params passed.
+- Update ModelChoiceField.default_error_messages["invalid_choice"] to include the invalid value placeholder, e.g., "Select a valid choice. %(value)s is not one of the available choices."
+- Ensure every code path in ModelChoiceField that raises ValidationError with code "invalid_choice" provides {'value': <invalid_input>} in params.
+- Confirm ModelMultipleChoiceField already includes value in its message; no change needed there unless parity issues are found.
+- Run Django’s forms tests (e.g., python tests/runtests.py forms_tests) and any relevant model/forms integration tests to verify behavior and catch regressions.
+- If failures occur, refine parameter passing or message formatting accordingly without altering tests.
+- Summarize changes and test outcomes.
+
+What the next phase needs to know (Implementation):
+- Focus changes in django/forms/models.py within ModelChoiceField.
+- Update default_error_messages for invalid_choice to include "%(value)s".
+- Identify all ValidationError raises with code="invalid_choice" in ModelChoiceField and pass the invalid value via params={'value': value}.
+- After edits, run the forms test suite to validate the change.
+  -> ls_repo({'dir_path': '.'})
+  <- 298 chars: .editorconfig .eslintignore .eslintrc .gitattributes .github/ .gitignore .pre-commit-config.yaml .tx/ AUTHORS CONTRIBUTING.rst Django.egg-info/ Gruntfile.js INS... [+138 chars]
+
+  -> find_files({'name_glob': 'models.py', 'dir_path': 'django/forms'})
+  <- 22 chars: django/forms/models.py
+
+  -> read_file({'file_path': 'django/forms/models.py', 'start_line': 1, 'end_line': 400})
+  <- 16781 chars: # django/forms/models.py - lines 1-400 of 1400 """ Helper functions for creating Form classes from Django models and database field objects. """ from itertools ... [+13387 chars]
+
+  -> grep({'pattern': 'class ModelChoiceField', 'path': 'django/forms/models.py', 'file_glob': '*'})
+  <- 65 chars: django/forms/models.py:1186: class ModelChoiceField(ChoiceField):
+
+  -> read_file({'file_path': 'django/forms/models.py', 'start_line': 1120, 'end_line': 1400})
+  <- 10528 chars: # django/forms/models.py - lines 1120-1400 of 1400 super().__init__(*args, **kwargs) def clean(self, value): if value in self.empty_values: if self.pk_field: re... [+8160 chars]
+
+  -> grep({'pattern': 'def clean\\(', 'path': 'django/forms/models.py', 'file_glob': '*'})
+  <- 195 chars: django/forms/models.py:357: def clean(self): django/forms/models.py:683: def clean(self): django/forms/models.py:1122: def clean(self, value): django/forms/mode... [+35 chars]
+
+  -> read_file({'file_path': 'django/forms/models.py', 'start_line': 1040, 'end_line': 1145})
+  <- 3831 chars: # django/forms/models.py - lines 1040-1145 of 1400 ) ) else: raise ValueError( "'%s' has more than one ForeignKey to '%s'. You must specify " "a 'fk_name' attri... [+2789 chars]
+
+  -> find_files({'name_glob': 'fields.py', 'dir_path': 'django/forms'})
+  <- 22 chars: django/forms/fields.py
+
+  -> read_file({'file_path': 'django/forms/fields.py', 'start_line': 1, 'end_line': 500})
+  <- 18703 chars: # django/forms/fields.py - lines 1-500 of 1270 """ Field classes. """ import copy import datetime import json import math import operator import os import re im... [+15068 chars]
+
+  -> grep({'pattern': 'class ChoiceField', 'path': 'django/forms/fields.py', 'file_glob': '*'})
+  <- 53 chars: django/forms/fields.py:764: class ChoiceField(Field):
+
+  -> read_file({'file_path': 'django/forms/fields.py', 'start_line': 740, 'end_line': 985})
+  <- 8434 chars: # django/forms/fields.py - lines 740-985 of 1270 which are likely to be returned by JavaScript serializations of forms, and for '1' and '0', which is what a Rad... [+6432 chars]
+
+  -> grep({'pattern': 'That choice is not one of', 'path': 'django/forms/models.py', 'file_glob': '*'})
+  <- 99 chars: django/forms/models.py:1191: 'invalid_choice': _('Select a valid choice. That choice is not one of'
+Paths and required changes:
+
+- django/forms/models.py
+  - In class ModelChoiceField (around lines 1186–1193), update default_error_messages['invalid_choice']:
+    - From: 'Select a valid choice. That choice is not one of the available choices.'
+    - To: 'Select a valid choice. %(value)s is not one of the available choices.'
+  - In ModelChoiceField.to_python() (around lines 1269–1278), when raising ValidationError for invalid choices, include the invalid value in params:
+    - Change: raise ValidationError(self.error_messages['invalid_choice'], code='invalid_choice')
+    - To: raise ValidationError(self.error_messages['invalid_choice'], code='invalid_choice', params={'value': value})
+
+Next phase:
+- Implement the above edits in django/forms/models.py.
+- Run the relevant Django tests (e.g., forms tests) to verify the updated error message and parameter passing, and adjust if any edge cases surface.Paths and required changes:
+
+- django/forms/models.py
+  - In class ModelChoiceField (around lines 1186–1193), update default_error_messages['invalid_choice']:
+    - From: 'Select a valid choice. That choice is not one of the available choices.'
+    - To: 'Select a valid choice. %(value)s is not one of the available choices.'
+  - In ModelChoiceField.to_python() (around lines 1269–1278), when raising ValidationError for invalid choices, include the invalid value in params:
+    - Change: raise ValidationError(self.error_messages['invalid_choice'], code='invalid_choice')
+    - To: raise ValidationError(self.error_messages['invalid_choice'], code='invalid_choice', params={'value': value})
+
+Next phase:
+- Implement the above edits in django/forms/models.py.
+- Run the relevant Django tests (e.g., forms tests) to verify the updated error message and parameter passing, and adjust if any edge cases surface.
+  -> find_files({'name_glob': '*forms/models.py', 'dir_path': '.'})
+  <- 50 chars: django/forms/models.py tests/model_forms/models.py
+
+  -> read_file({'file_path': 'django/forms/models.py', 'start_line': 1, 'end_line': 4000})
+  <- 19930 chars: # django/forms/models.py - lines 1-482 of 1400 """ Helper functions for creating Form classes from Django models and database field objects. """ from itertools ... [+15819 chars]
+
+  -> read_file({'file_path': 'django/forms/models.py', 'start_line': 483, 'end_line': 1400})
+  <- 19936 chars: # django/forms/models.py - lines 483-932 of 1400 labels=None, help_texts=None, error_messages=None, field_classes=None): """ Return a ModelForm containing form ... [+15098 chars]
+
+  -> read_file({'file_path': 'django/forms/models.py', 'start_line': 933, 'end_line': 1400})
+  <- 18266 chars: # django/forms/models.py - lines 933-1400 of 1400 form.data._mutable = True # Remove the primary key from the form's data, we are only # creating new instances ... [+14210 chars]
+
+  -> ls_repo({'dir_path': 'tests'})
+  <- 3211 chars: .coveragerc README.rst absolute_url_overrides/ admin_autodiscover/ admin_changelist/ admin_checks/ admin_custom_urls/ admin_default_site/ admin_docs/ admin_filt... [+3051 chars]
+
+  -> grep({'pattern': 'ModelChoiceField\\(|invalid_choice|Select a valid choice', 'path': 'tests/forms_tests', 'file_glob': '*'})
+  <- 3126 chars: tests/forms_tests/field_tests/test_choicefield.py:19: msg = "'Select a valid choice. 3 is not one of the available choices.'" tests/forms_tests/field_tests/test... [+2966 chars]
+
+  -> replace_in_file({'file_path': 'django/forms/models.py', 'old': " default_error_messages = {\n 'invalid_choice': _('Select a valid choice. That choice is not one of'\n ' the ava... [+192 chars])
+  <- 97 chars: OK: replaced 1 occurrence(s) in django/forms/models.py at line 1190. File is now 1400 lines (+0).
+
+  -> replace_in_file({'file_path': 'django/forms/models.py', 'old': " except (ValueError, TypeError, self.queryset.model.DoesNotExist):\n raise ValidationError(self.error_messages['... [+296 chars])
+  <- 97 chars: OK: replaced 1 occurrence(s) in django/forms/models.py at line 1286. File is now 1404 lines (+4).
+
+  -> run_command({'command': 'pytest tests/forms_tests -q', 'timeout_sec': 120000})
+  <- 205 chars: $ pytest tests/forms_tests -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 127 --- stdout --- (empty) --- stderr --- timeout: failed to ru... [+45 chars]
+
+  -> run_command({'command': 'python tests/runtests.py forms_tests -q', 'timeout_sec': 120000})
+  <- 722 chars: $ python tests/runtests.py forms_tests -q exit_code: 2 --- stdout --- (empty) --- stderr --- usage: runtests.py [-h] [-v {0,1,2,3}] [--noinput] [--failfast] [--... [+410 chars]
+
+  -> run_command({'command': 'python tests/runtests.py forms_tests', 'timeout_sec': 120000})
+  <- 2954 chars: $ python tests/runtests.py forms_tests exit_code: 0 --- stdout --- Testing against Django installed in 'django' with up to 20 processes System check identified ... [+2793 chars]
+- Implemented fix in django/forms/models.py:
+  - Updated ModelChoiceField.default_error_messages['invalid_choice'] to include the invalid value: "Select a valid choice. %(value)s is not one of the available choices."
+  - Ensured ValidationError in ModelChoiceField.to_python() includes params={'value': value} when raising the "invalid_choice" error.
+- Rationale: Align ModelChoiceField behavior with ChoiceField and ModelMultipleChoiceField by showing the invalid value in the error message.
+- Verification:
+  - Ran: python tests/runtests.py forms_tests
+  - Result: All tests passed (Ran 691 tests, OK, skipped=1). System check reported no issues.
+- Next phase:
+  - Optionally run the full Django test suite to ensure no regressions across other components that may rely on these messages.
+  -> run_command({'command': 'git status', 'timeout_sec': 120})
+  <- 358 chars: $ git status exit_code: 0 --- stdout --- HEAD detached at 42e8cf47c7 Changes not staged for commit: (use "git add <file>..." to update what will be committed) (... [+190 chars]
+
+  -> run_command({'command': 'pytest -q tests/forms_tests -q', 'timeout_sec': 120})
+  <- 208 chars: $ pytest -q tests/forms_tests -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 127 --- stdout --- (empty) --- stderr --- timeout: failed to... [+48 chars]
+
+  -> ls_repo({'dir_path': '.'})
+  <- 298 chars: .editorconfig .eslintignore .eslintrc .gitattributes .github/ .gitignore .pre-commit-config.yaml .tx/ AUTHORS CONTRIBUTING.rst Django.egg-info/ Gruntfile.js INS... [+138 chars]
+
+  -> run_command({'command': 'python tests/runtests.py forms_tests', 'timeout_sec': 120})
+  <- 2954 chars: $ python tests/runtests.py forms_tests exit_code: 0 --- stdout --- Testing against Django installed in 'django' with up to 20 processes System check identified ... [+2793 chars]
+Verification summary
+
+- Repository status:
+  - Modified: django/forms/models.py
+
+- Attempted to run tests with pytest (not available in this environment):
+  - Command: pytest -q tests/forms_tests -q --tb=line -p no:cacheprovider -p no:randomly --color=no
+  - Exit code: 127
+  - Stdout: (empty)
+  - Stderr:
+    timeout: failed to run command ‘pytest’: No such file or directory
+
+- Ran Django’s test runner for the forms test suite:
+  - Command: python tests/runtests.py forms_tests
+  - Exit code: 0
+  - Stdout:
+    Testing against Django installed in 'django' with up to 20 processes
+    System check identified no issues (0 silenced).
+  - Stderr (abridged to what was printed):
+    Creating test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    Cloning test database for alias 'default'...
+    ...........................................................................................................................................................................................................................................................................................................s.......................................................................................................................................................................................................................................................................................................................................................................................................
+    ----------------------------------------------------------------------
+    Ran 691 tests in X.XXs
+
+    OK (skipped=1)
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+    Destroying test database for alias 'default'...
+
+Conclusion: The forms test suite passed (691 tests run, 1 skipped), confirming the change works as intended.
+
+Next phase: No further action is required for verification. Optionally, run the full Django test suite to check for regressions across other components.

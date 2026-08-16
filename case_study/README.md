@@ -1,82 +1,135 @@
-# byLLM vs LangGraph — SWE-bench Lite case studies
+# Case studies
 
-Ten instances from run `lite-01` where exactly one of the two CodeAgent implementations produced a
-patch that resolved the task. Each case is packaged as a standalone repair task: a repo checked out
-at the buggy commit, the issue text, the reference fix, and a script that grades any candidate patch.
-
-## Layout
+Turns graded runs from [`../swebench_bridge`](../swebench_bridge) into a study:
+which implementations resolved what, where they disagreed, and what each one's
+patch actually did to the tests.
 
 ```
-<instance_id>/
-  repo/                 the project at its buggy base commit (real git repo, branch `buggy`)
-  problem_statement.md  the GitHub issue text — the only input an agent gets
-  gold.patch            the reference fix
-  test_patch.diff       the graded tests, applied on top of the base commit
-  verify.sh             apply a patch, run the graded tests, print RESOLVED / NOT RESOLVED
-  meta.json             repo, commit, image, test command, FAIL_TO_PASS / PASS_TO_PASS
+build_study.py       graded run dirs -> verdicts.csv, divergence.csv, divergence.json, README.md
+select_instances.py  a divergence.csv -> instances.txt, for the next comparison run
+lite-01/             the byLLM vs LangGraph study, generated
+instances.txt        the 30 instances pinned for the three-way run
 ```
 
-## Verifying a fix
+## Everything here is generated
+
+The previous version of this directory was not. Its CSV, its JSON, its per-case
+metadata and its whole status vocabulary existed only as checked-in files that no
+code produced — which meant the numbers could not be re-derived, could not be
+extended to the other 32 diverging instances, and could not be checked against
+the runs they described. Nothing was wrong with them; there was just no way to
+know that.
+
+So:
 
 ```bash
-cd byllm_wins/django__django-12983
-./verify.sh                  # gold.patch — should print RESOLVED
-./verify.sh --none           # no fix — FAIL_TO_PASS must fail
-./verify.sh /tmp/my_fix.diff # your agent's patch
+python3 build_study.py --out lite-01 \
+    ../swebench_bridge/results/lite-01-byllm \
+    ../swebench_bridge/results/lite-01-langgraph
 ```
 
-By default `verify.sh` runs the official SWE-bench eval script inside the instance's
-`swebench/sweb.eval.x86_64.*` image through `swebench_bridge/grade_local.py` and udocker; the image
-is pulled on first use. `--local` runs the test command against `./repo` in the current shell, which
-only works when the active environment already matches the instance (Python version included) —
-`repo/` is there for the agent to read and edit, not to run everything natively.
+takes about three seconds, starts no container, calls no model, and rewrites
+`lite-01/` from the run directories. Add a third run directory and it is a
+three-way study; the generator does not count sides.
 
-`grade.py` (top level) parses a captured test log with swebench's own parser for that repo and
-reports FAIL_TO_PASS / PASS_TO_PASS; `verify.sh --local` calls it for you.
+### Per-test status comes from the captured logs
 
-## byLLM resolved, LangGraph did not
+`eval_logs/<id>/test_output.txt` plus the instance's own log parser recovers
+FAIL_TO_PASS and PASS_TO_PASS exactly as the harness saw them. That is why a
+study can be rebuilt from any graded run without re-grading it, and why
+`divergence.json` can say *how* a patch failed rather than just that it did.
 
-| case | bug | file to fix | F2P/P2P | why LangGraph's patch failed |
-|---|---|---|---|---|
-| [`astropy__astropy-12907`](byllm_wins/astropy__astropy-12907) | separability_matrix of nested CompoundModels | `astropy/modeling/separable.py` | 2/13 | LangGraph applied the fix to | composition too, 5 P2P regressions |
-| [`django__django-12983`](byllm_wins/django__django-12983) | slugify strips dashes in the wrong order | `django/utils/text.py` | 1/15 | LangGraph stripped before the dash collapse instead of after |
-| [`pytest-dev__pytest-7373`](byllm_wins/pytest-dev__pytest-7373) | remove the skipif/xfail evaluation cache | `src/_pytest/mark/evaluate.py` | 1/81 | LangGraph emitted unparseable Python (IndentationError) |
-| [`scikit-learn__scikit-learn-13241`](byllm_wins/scikit-learn__scikit-learn-13241) | KernelPCA sign indeterminacy | `sklearn/decomposition/kernel_pca.py` | 1/54 | LangGraph flipped signs in transform() instead of at fit time |
-| [`sympy__sympy-15609`](byllm_wins/sympy__sympy-15609) | LaTeX printing of MatrixElement indices | `sympy/printing/latex.py` | 1/121 | LangGraph patched _print_Indexed, not _print_MatrixElement, and deleted 1.9k test lines |
+## The status vocabulary
 
-## LangGraph resolved, byLLM did not
+One string per (instance, implementation). The two distinctions worth the extra
+names:
 
-| case | bug | file to fix | F2P/P2P | why byLLM's patch failed |
-|---|---|---|---|---|
-| [`django__django-11999`](langgraph_wins/django__django-11999) | cannot override get_FOO_display() | `django/db/models/fields/__init__.py` | 1/30 | byLLM had the right fix plus an extra edit causing infinite recursion |
-| [`django__django-12700`](langgraph_wins/django__django-12700) | cleanse settings recursively in lists/tuples | `django/views/debug.py` | 1/77 | byLLM referenced an unbound name k -> NameError, 59 P2P errors |
-| [`matplotlib__matplotlib-25311`](langgraph_wins/matplotlib__matplotlib-25311) | pickling a figure with a draggable legend | `lib/matplotlib/offsetbox.py` | 1/181 | byLLM patched DraggableLegend, not DraggableOffsetBox |
-| [`pytest-dev__pytest-5692`](langgraph_wins/pytest-dev__pytest-5692) | hostname/timestamp in the JUnit XML | `src/_pytest/junitxml.py` | 2/68 | byLLM put imports inside the function and dedented the assignment |
-| [`sympy__sympy-20442`](langgraph_wins/sympy__sympy-20442) | convert_to returns nonsense for some units | `sympy/physics/units/util.py` | 1/24 | byLLM changed an unrelated early return |
+| status | meaning |
+|---|---|
+| `RESOLVED` | FAIL_TO_PASS all pass, PASS_TO_PASS intact |
+| `REGRESSION(P2P)` | every FAIL_TO_PASS passed **and then** a PASS_TO_PASS broke — the diagnosis was right and something came with it |
+| `SUITE_ERROR` | no PASS_TO_PASS test passed at all: the run collapsed before it measured anything, usually an import error from unparseable source |
+| `TESTS_FAIL` | the patch applied and did not fix it |
+| `APPLY_FAIL` | the patch would not apply |
+| `EMPTY_PATCH` | the run produced no patch |
+| `HARNESS_ERROR` | grading itself failed; no verdict |
 
-## Run totals
+`REGRESSION(P2P)` is deliberately narrow. A patch that failed its own
+FAIL_TO_PASS tests *and* broke others is just a wrong patch, and calling that a
+regression would flatter it. `SUITE_ERROR` is separate because 0 of 862
+matplotlib tests passing is not 862 regressions — nothing regressed, the suite
+never ran.
 
-| | byLLM | LangGraph |
-|---|---|---|
-| Resolved | 63 / 300 (21.0%) | 65 / 300 (21.7%) |
-| Empty patch | 18 | 12 |
-| Harness error | 4 | 2 |
+## Choosing instances for the next run
 
-43 instances were resolved by both; 42 diverged. Five of those 42 are not capability differences and
-were left out of this folder: `psf__requests-2317`, `sympy__sympy-24152` and `sympy__sympy-24213`
-(byte-identical patches on both sides, verdicts split by harness flakes), plus `django__django-12184`
-and `scikit-learn__scikit-learn-13439` (the loser submitted nothing because udocker failed to create
-the container). `matplotlib__matplotlib-23314` is real but framework-level: LangGraph's run died on an
-OpenAI 400 for an unanswered `tool_call_id`.
+```bash
+python3 select_instances.py --count 30
+```
 
-The three failure families across the ten cases: **unparseable edits** (pytest-7373 vs pytest-5692,
-one each), **right diagnosis at the wrong site** (sklearn-13241, mpl-25311, sympy-15609, sympy-20442),
-and **scope creep** — a correct fix plus a second edit that regresses PASS_TO_PASS (astropy-12907,
-django-11999).
+Draws from `lite-01/divergence.csv`, because an instance every implementation
+resolved — or none did — says nothing about the difference between them.
 
-## Other files
+**This makes the set deliberately hard and non-representative.** Every instance
+in it is one that at least one implementation already failed, so a resolve rate
+measured on it is not comparable to a rate over the full 300. Any study built
+from it has to say so, and the generated README does.
 
-- `divergence_all.csv` — all 42 diverging instances: winner, both verdicts, patch sizes, exclusions.
-- `divergence_all.json` — the same rows plus the full gold / byLLM / LangGraph patches and per-test
-  status. The agents' patches live here only; the case directories carry `gold.patch` alone.
-- Run logs stay in `swebench_bridge/results/lite-01-{byllm,langgraph}/{logs,eval_logs}/<instance_id>/`.
+Two categories are refused as not-evidence, by rule rather than by hand:
+
+- **split verdicts on byte-identical patches** — the same diff graded both ways
+  is a flake in the harness, not a difference between the agents;
+- **instances a side lost to infrastructure** — a container that never came up,
+  or a provider 400. A *timeout* is not in this category and is kept: the agent
+  spent its own budget and came back with nothing, which is a real result.
+
+On `lite-01` those rules exclude exactly six of the 42 diverging instances, and
+the draw is then balanced across the winning sides and capped per repo
+(`--max-repo-fraction`, default 0.5 — django is 38% of Lite and over half the
+divergence, and left alone would decide the comparison).
+
+## The current study: `lite-01/`
+
+byLLM vs LangGraph, SWE-bench Lite, all 300, gpt-4o. 63/300 and 65/300, 43
+resolved by both, **42 diverging** — which is the interesting number, because it
+means the two implementations agreed on only about two thirds of what they
+individually got right.
+
+See [`lite-01/README.md`](lite-01/README.md) for the tables, and
+`lite-01/divergence.json` for the patches and per-test breakdowns.
+
+## The next study: three ways
+
+`instances.txt` holds the 30 instances selected above. Nothing has been run
+against them yet; `openai_sdk` has never been run against SWE-bench at all.
+
+```bash
+cd ../swebench_bridge
+python compare.py --run-id three-way --frameworks byllm langgraph openai \
+    --instances-file ../case_study/instances.txt --model gpt-5
+
+cd ../case_study
+python3 build_study.py --out three-way \
+    ../swebench_bridge/results/three-way-byllm \
+    ../swebench_bridge/results/three-way-langgraph \
+    ../swebench_bridge/results/three-way-openai
+```
+
+That run bills a provider key: on the gpt-5 evidence available (~865k tokens and
+~800s per instance) 30 instances × 3 implementations is on the order of 78M
+tokens and several hours. Smoke-test one instance first — `openai_sdk` has no
+test suite of its own and has never completed an LLM round trip under the
+harness:
+
+```bash
+python run_agent.py --framework openai --run-id smoke \
+    --instance-ids astropy__astropy-12907 --model gpt-5 --workers 1
+```
+
+## Tests
+
+```bash
+python3 -m pytest tests -q
+```
+
+Covers the status rules and the selection rules — the two places where this
+directory turns run data into a claim.

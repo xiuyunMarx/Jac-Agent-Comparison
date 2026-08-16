@@ -29,6 +29,9 @@ from orchestrator import (
 )
 from phase_agent import (
     MAX_REACT_ITERATIONS,
+    SAME_TOOL_ABORT_THRESHOLD,
+    SIG_RESULT_CHARS,
+    batch_signature,
     MAX_TOOL_RESULT_CHARS,
     UNANSWERED_TOOL_CALL,
     SerialToolNode,
@@ -246,16 +249,20 @@ def test_a_serialized_batch_still_answers_every_call() -> None:
 
 
 def test_tool_results_are_clipped_to_the_phase_budget() -> None:
+    # Sized off the budget rather than written as a literal: this fixture was
+    # 9000 while the budget was 4000, and silently stopped exercising the clip
+    # the moment the budget was tied to MAX_TOOL_CHARS.
+    oversized = MAX_TOOL_RESULT_CHARS + 5000
     node = SerialToolNode([
         StructuredTool.from_function(
-            func=lambda file_path: "y" * 9000,
+            func=lambda file_path: "y" * oversized,
             name="read_file",
             description="read",
         )
     ])
     out = node(_batch(("read_file", {"file_path": "big.txt"})))
     content = out["messages"][0].content
-    assert len(content) < 9000
+    assert len(content) < oversized
     assert "truncated" in content
     assert content.startswith("y" * MAX_TOOL_RESULT_CHARS)
 
@@ -286,11 +293,55 @@ def test_a_repeated_call_ends_the_phase_with_a_summary(tmp_repo: str) -> None:
     assert model.cursor == len(model.outputs)
 
 
-def test_the_iteration_cap_ends_the_phase_with_a_summary(tmp_repo: str) -> None:
-    # Distinct patterns so each result differs and the repeat guard stays quiet:
-    # this must be the iteration cap firing, not the progress guard.
+def test_a_run_of_one_tool_ends_the_phase(tmp_repo: str) -> None:
+    # The stall the identical-call guard is blind to: read_file walking a file
+    # issues a different call every time, so no two signatures ever match.
+    # byLLM catches this with SAME_TOOL_ABORT_THRESHOLD; so must this side.
     calls = [
         MockToolCall("grep", {"pattern": f"absent{i}", "path": "."})
+        for i in range(SAME_TOOL_ABORT_THRESHOLD)
+    ]
+    model = scripted([*calls, "I kept grepping."])
+    agent, phase = _exploring_agent(model, tmp_repo)
+
+    summary, _ = run_phase(
+        agent, [SystemMessage(content="s"), HumanMessage(content=phase.goal)]
+    )
+
+    assert summary == "I kept grepping."
+    # Stopped at the brake, far short of the iteration cap.
+    assert model.cursor == SAME_TOOL_ABORT_THRESHOLD + 1
+
+
+def test_the_repeat_signature_ignores_anything_past_the_window(tmp_repo: str) -> None:
+    # Results agreeing over the first SIG_RESULT_CHARS are the same stalled call.
+    # Without the truncation these would compare as distinct and only the
+    # same-tool brake would stop them -- three iterations later than byLLM.
+    head = "x" * SIG_RESULT_CHARS
+    produced = [
+        ToolMessage(content=head + f" tail {i}", name="grep", tool_call_id=str(i))
+        for i in range(3)
+    ]
+    sigs = [batch_signature([m]) for m in produced]
+    assert sigs[0] == sigs[1] == sigs[2]
+
+    inside = [
+        ToolMessage(content=f"hit {i} " + "x" * 40, name="grep", tool_call_id=str(i))
+        for i in range(3)
+    ]
+    distinct = {batch_signature([m]) for m in inside}
+    assert len(distinct) == 3
+
+
+def test_the_iteration_cap_ends_the_phase_with_a_summary(tmp_repo: str) -> None:
+    # Both brakes have to stay quiet so that the cap is unambiguously what ends
+    # the phase. Distinct patterns keep the repeat guard silent; alternating the
+    # tool keeps SAME_TOOL_ABORT_THRESHOLD silent, which a straight run of 25
+    # greps would trip at the sixth.
+    calls = [
+        MockToolCall("grep", {"pattern": f"absent{i}", "path": "."})
+        if i % 2 == 0
+        else MockToolCall("ls_repo", {"dir_path": "."})
         for i in range(MAX_REACT_ITERATIONS)
     ]
     model = scripted([*calls, "I ran out of room."])

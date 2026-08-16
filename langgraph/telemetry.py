@@ -26,10 +26,17 @@ class TokenUsage:
             return
         prompt_tokens = 0
         completion_tokens = 0
+        cached_tokens = 0
         usage = getattr(response, "usage_metadata", None) or {}
         if usage:
             prompt_tokens = int(usage.get("input_tokens", 0) or 0)
             completion_tokens = int(usage.get("output_tokens", 0) or 0)
+            # LangChain normalises the provider's cache figure to
+            # input_token_details.cache_read -- not the prompt_tokens_details
+            # .cached_tokens that byLLM reads off litellm. Same quantity, and
+            # like there it is a SUBSET of prompt_tokens, not an addition.
+            details = usage.get("input_token_details") or {}
+            cached_tokens = int(details.get("cache_read", 0) or 0)
         else:
             # Older providers put it here instead; a fake model in the tests has
             # neither, and contributes a call with zero tokens.
@@ -42,6 +49,7 @@ class TokenUsage:
             "model": meta.get("model_name") or meta.get("model"),
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
+            "cached_tokens": cached_tokens,
         })
 
     def reset(self) -> None:
@@ -50,11 +58,14 @@ class TokenUsage:
     def totals(self) -> dict[str, int]:
         prompt = 0
         completion = 0
+        cached = 0
         for call in self.calls:
             prompt += int(call.get("prompt_tokens", 0) or 0)
             completion += int(call.get("completion_tokens", 0) or 0)
+            cached += int(call.get("cached_tokens", 0) or 0)
         return {
             "llm_calls": len(self.calls),
             "prompt_tokens": prompt,
             "completion_tokens": completion,
+            "cached_tokens": cached,
         }

@@ -38,10 +38,14 @@ obj LLMCall {
     has tools_called: list[LLMToolCall] = [];
     has prompt_tokens: int = 0;
     has completion_tokens: int = 0;
+    # A SUBSET of prompt_tokens, never an addition to it: the provider counts a
+    # cache hit in both figures and bills it at a discount. Summing the two
+    # double-counts the cached half of every prompt.
+    has cached_tokens: int = 0;
 }
 
 
-# The four extractors below read litellm's untyped callback payload, so their
+# The extractors below read litellm's untyped callback payload, so their
 # locals are `any` by necessity -- the shape varies by provider and by whether
 # the call streamed. Every field is optional-with-fallback: a provider that
 # omits one costs that line of the log, never the run.
@@ -103,6 +107,51 @@ def extract_tools_offered(kwargs: dict[str, object]) -> list[str] {
 }
 
 
+"""True when this payload is one chunk of a stream rather than a finished call.
+
+litellm fires the success callback for every streamed chunk *and* once more for
+the completed call, so without this the tracker counts chunks. A measured
+one-sentence completion produced 28 chunks and 29 records, of which 27 carried
+no usage at all; `llm_calls` became a chunk count and the per-call token
+averages became meaningless. Only the aggregate is a call.
+
+Discriminated on the choice rather than the class name -- a chunk's choice
+carries `delta`, a finished one carries `message` -- so a provider shipping its
+own response type is still classified correctly.
+"""
+def is_stream_chunk(response: object) -> bool {
+    choices: any = getattr(response, "choices", None);
+    if not choices {
+        return False;
+    }
+    first: any = choices[0];
+    return hasattr(first, "delta") and not hasattr(first, "message");
+}
+
+
+"""Prompt tokens the provider served from its own cache.
+
+Nested a level below `usage` and optional at every step -- a provider that does
+no caching omits `prompt_tokens_details` entirely and litellm passes the absence
+through, so this reads defensively for the same reason the extractors above do:
+a provider that omits it should cost this one figure, never the run.
+
+It matters here because the phase graph is close to the best case for prompt
+caching. Every visit to a phase reissues the same system preamble, and a ReAct
+lap resends the whole conversation each iteration, so the shared prefix is large
+and repeated -- 2176 of 2414 prompt tokens on a measured second call. Reporting
+prompt_tokens alone therefore overstates spend by whatever the cache absorbed.
+"""
+def extract_cached_tokens(usage: object) -> int {
+    details: any = getattr(usage, "prompt_tokens_details", None);
+    if details is None {
+        return 0;
+    }
+    cached: any = details.get("cached_tokens") if isinstance(details, dict) else getattr(details, "cached_tokens", None);
+    return int(cached or 0);
+}
+
+
 """The tools the model actually invoked on this call."""
 def extract_tools_called(resp: object) -> list[LLMToolCall] {
     out: list[LLMToolCall] = [];
@@ -131,15 +180,43 @@ def extract_tools_called(resp: object) -> list[LLMToolCall] {
 
 obj TokenUsage {
     has calls: list[LLMCall] = [];
+    # Completion ids already recorded. See the dedupe in `track`.
+    has seen_ids: set[str] = set();
 
     def track(kwargs: dict[str, object], response: object, _start: object, _end: object) {
-        resp = kwargs.get("complete_streaming_response") or response;
+        resp = kwargs.get("complete_streaming_response");
+        if resp is None {
+            # A streamed call arrives here once per chunk before it arrives
+            # once as a whole; only the whole is a call. See is_stream_chunk.
+            if is_stream_chunk(response) {
+                return;
+            }
+            resp = response;
+        }
+        # A sync streaming request reaches this callback twice for the one
+        # finished call: litellm's run_success_logging_and_cache_storage
+        # (streaming_handler.py) runs the async success handler and then the
+        # sync one, and both dispatch to litellm.success_callback. The two
+        # carry the same aggregated response, so the provider's own completion
+        # id separates a redelivery from a second call. Ids are unique per
+        # completion, so this cannot merge two real calls; an empty id (a local
+        # or mock backend that issues none) falls through and is recorded,
+        # which risks a double rather than a silent loss.
+        call_id = str(getattr(resp, "id", "") or "");
+        if call_id {
+            if call_id in self.seen_ids {
+                return;
+            }
+            self.seen_ids.add(call_id);
+        }
         usage = getattr(resp, "usage", None);
         prompt_tokens = 0;
         completion_tokens = 0;
+        cached_tokens = 0;
         if usage is not None {
             prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0);
             completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0);
+            cached_tokens = extract_cached_tokens(usage);
         }
         self.calls.append(LLMCall(
             model=str(getattr(resp, "model", None) or kwargs.get("model") or "?"),
@@ -148,7 +225,8 @@ obj TokenUsage {
             tools_offered=extract_tools_offered(kwargs),
             tools_called=extract_tools_called(resp),
             prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens
+            completion_tokens=completion_tokens,
+            cached_tokens=cached_tokens
         ));
     }
 
@@ -172,14 +250,17 @@ obj TokenUsage {
     def totals() -> dict[str, int] {
         prompt = 0;
         completion = 0;
+        cached = 0;
         for call in self.calls {
             prompt += call.prompt_tokens;
             completion += call.completion_tokens;
+            cached += call.cached_tokens;
         }
         return {
             "llm_calls": len(self.calls),
             "prompt_tokens": prompt,
-            "completion_tokens": completion
+            "completion_tokens": completion,
+            "cached_tokens": cached
         };
     }
 }

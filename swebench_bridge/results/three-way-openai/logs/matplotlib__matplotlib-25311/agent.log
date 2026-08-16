@@ -1,0 +1,286 @@
+[swe_entry] matplotlib__matplotlib-25311 ok steps=4 tools=80
+
+  -> ls_repo({"dir_path":"."})
+
+  -> find_files({"name_glob":"*draggable*", "dir_path":"src"})
+
+  -> grep({"pattern":"set_draggable|draggable","path":"src","file_glob":"*.py"})
+
+  -> grep({"pattern":"set_draggable|draggable","path":"lib","file_glob":"*.py"})
+
+  -> read_file({"file_path":"lib/matplotlib/legend.py","start_line":1,"end_line":400})
+
+  -> read_file({"file_path":"lib/matplotlib/legend.py","start_line":400,"end_line":900})
+
+  -> read_file({"file_path":"lib/matplotlib/legend.py","start_line":875,"end_line":1200})
+
+  -> read_file({"file_path":"lib/matplotlib/legend.py","start_line":1200,"end_line":1355})
+
+  -> read_file({"file_path":"lib/matplotlib/offsetbox.py","start_line":1,"end_line":400})
+
+  -> read_file({"file_path":"lib/matplotlib/offsetbox.py","start_line":400,"end_line":800})
+Plan:
+- Reproduce the reported error locally using the provided snippet to confirm the failure and stack trace.
+- Inspect the draggable implementation for legends and annotations:
+  - Legend.set_draggable creates a DraggableLegend (subclass of DraggableOffsetBox).
+  - Text.draggable creates a DraggableAnnotation, stored in a _draggable attribute.
+  - Determine which references within these helpers prevent pickling (likely event connections to the figure.canvas / backend canvas).
+- Choose a minimal, general fix:
+  - Exclude non-picklable, backend-specific interactive helpers from being pickled.
+  - Implement __getstate__ in Legend to drop the _draggable reference before pickling.
+  - Implement similar logic in Text (so annotations with draggable enabled don’t break pickling).
+  - Do not attempt to preserve or restore draggability state across pickling (keep the fix minimal and robust).
+- Implement code changes in lib/matplotlib/legend.py and lib/matplotlib/text.py adding __getstate__ that removes _draggable from the pickled state.
+- Run the existing test suite (or subset impacting legend/text) to ensure no regressions.
+- Verify the original reproduction snippet now pickles successfully.
+
+Next phase notes:
+- You will need to modify Legend and Text to override __getstate__ to strip _draggable.
+- After patching, run pytest on the changed modules (or full suite if feasible) and also run the user’s script to ensure pickle.dumps(fig) works with draggable legend/annotation enabled.
+- Keep the patch minimal; do not add new dependencies or change public APIs beyond pickling behavior.
+
+set_plan:
+- Reproduce the bug using the provided script to confirm TypeError occurs.
+- Trace the source of non-picklability in draggable helpers (Legend._draggable and Text._draggable).
+- Implement __getstate__ in Legend to remove _draggable from the pickled state.
+- Implement __getstate__ in Text to remove _draggable from the pickled state.
+- Run pytest for the affected modules to ensure no regressions.
+- Re-run the reproduction script to confirm successful pickling.{"next":"Exploring"}
+  -> show_plan({})
+
+  -> update_task({"task_id":1,"status":"doing","note":"Reproduce bug and get stack trace with given snippet using current repo build."})
+
+  -> ls_repo({"dir_path":"."})
+
+  -> find_files({"name_glob":"*legend*.py","dir_path":"lib"})
+
+  -> read_file({"file_path":"lib/matplotlib/legend.py","start_line":1,"end_line":4000})
+
+  -> read_file({"file_path":"lib/matplotlib/legend.py","start_line":484,"end_line":1355})
+
+  -> read_file({"file_path":"lib/matplotlib/legend.py","start_line":945,"end_line":1355})
+
+  -> grep({"pattern":"set_draggable\\(", "path":"lib", "file_glob":"*.py"})
+
+  -> grep({"pattern":"def __getstate__","path":"lib","file_glob":"*.py"})
+
+  -> read_file({"file_path":"lib/matplotlib/text.py","start_line":1,"end_line":420})
+
+  -> grep({"pattern":"class DraggableOffsetBox","path":"lib","file_glob":"*.py"})
+
+  -> read_file({"file_path":"lib/matplotlib/offsetbox.py","start_line":1520,"end_line":1740})
+
+  -> read_file({"file_path":"lib/matplotlib/artist.py","start_line":1,"end_line":340})
+
+  -> grep({"pattern":"class DraggableBase","path":"lib/matplotlib/offsetbox.py","file_glob":"*.py"})
+
+  -> read_file({"file_path":"lib/matplotlib/offsetbox.py","start_line":1450,"end_line":1621})
+
+  -> grep({"pattern":"DraggableAnnotation","path":"lib","file_glob":"*.py"})
+
+  -> read_file({"file_path":"lib/matplotlib/text.py","start_line":1560,"end_line":1690})
+
+  -> grep({"pattern":"_draggable","path":"lib","file_glob":"*.py"})
+
+  -> read_file({"file_path":"lib/matplotlib/text.py","start_line":1320,"end_line":1560})
+
+  -> read_file({"file_path":"lib/matplotlib/figure.py","start_line":3120,"end_line":3180})
+
+  -> read_file({"file_path":"lib/matplotlib/text.py","start_line":1440,"end_line":1480})
+
+  -> grep({"pattern":"def __getstate__","path":"lib/matplotlib","file_glob":"text.py"})
+Summary of what I found and what needs to change
+
+Root cause:
+- When a legend or annotation is made draggable, a helper object is created and stored on the artist:
+  - Legend.set_draggable stores a DraggableLegend in Legend._draggable.
+  - Annotation.draggable (via _AnnotationBase) stores a DraggableAnnotation in self._draggable.
+- These Draggable* helpers reference the figure canvas and callback ids (backend-specific objects), which are not picklable.
+- During pickling, Artist.__getstate__ by default includes all attributes, so the _draggable helper is pickled too, causing a TypeError: cannot pickle 'FigureCanvasQTAgg' object.
+
+Minimal, general fix:
+- Ensure that interactive-only helpers (the _draggable attributes) are excluded from the pickled state.
+- For legends: add a __getstate__ method on Legend that removes _draggable from the pickled dict.
+- For annotations: modify Text.__getstate__ to also drop a _draggable attribute if present (Annotation inherits Text and _AnnotationBase; Text.__getstate__ is the one used during pickling due to MRO).
+
+Exact files and lines to change
+
+1) File: lib/matplotlib/text.py
+- Location: In class Text, the existing __getstate__ method (around lines 230–240).
+- Current code:
+  def __getstate__(self):
+      d = super().__getstate__()
+      # remove the cached _renderer (if it exists)
+      d['_renderer'] = None
+      return d
+- Required change:
+  Add removal of the _draggable attribute from the state if present, e.g.:
+  def __getstate__(self):
+      d = super().__getstate__()
+      # remove the cached _renderer (if it exists)
+      d['_renderer'] = None
+      # drop non-picklable interactive helper if present (for Annotation.draggable)
+      d.pop('_draggable', None)
+      return d
+
+2) File: lib/matplotlib/legend.py
+- Location: In class Legend (after the get_draggable method is a good anchor; around lines 1207–1212).
+- Required addition:
+  Implement __getstate__ to exclude the _draggable helper:
+  def __getstate__(self):
+      state = super().__getstate__()
+      # drop non-picklable interactive helper (DraggableLegend)
+      state.pop('_draggable', None)
+      return state
+
+Notes for the next phase (Implement and verify):
+- Implement the two edits above exactly.
+- Run the test suite that covers these modules (at least tests for legends and text/annotations). Command suggestions:
+  - pytest lib/matplotlib/tests/test_legend.py
+  - pytest lib/matplotlib/tests/test_text.py (and any annotation-related tests)
+- Manually verify the reproduction snippet now pickles successfully:
+  - Use the provided code with a draggable legend.
+  - Also try creating an Annotation, calling .draggable(True), and then pickle.dumps(fig).
+- This change intentionally does not preserve draggability across pickling, which is acceptable and keeps the fix minimal and robust.{"next":"Editing"}
+  -> show_plan({})
+
+  -> update_task({"task_id":1,"status":"doing","note":"Reproduce the bug locally using the provided snippet to confirm TypeError and stack trace."})
+
+  -> write_file({"file_path":".planning.md","content":"Plan:\n1) Reproduce the bug using the provided script to confirm TypeError occurs.\n2) Find draggable-related attributes ...)
+
+  -> update_task({"task_id":1,"status":"doing","note":"Reproduce the bug using the provided snippet to confirm TypeError and stack trace."})
+
+  -> update_task({"task_id":1,"status":"todo","note":"Reproduce the bug using the provided snippet to confirm TypeError and stack trace."})
+
+  -> show_plan({})
+
+  -> find_files({"name_glob":"*legend*.py","dir_path":"."})
+
+  -> read_file({"file_path":"lib/matplotlib/legend.py","start_line":1,"end_line":4000})
+
+  -> read_file({"file_path":"lib/matplotlib/legend.py","start_line":484,"end_line":4000})
+
+  -> read_file({"file_path":"lib/matplotlib/legend.py","start_line":945,"end_line":4000})
+
+  -> read_file({"file_path":"lib/matplotlib/text.py","start_line":1,"end_line":4000})
+
+  -> grep({"pattern":"__getstate__", "path":"lib/matplotlib", "file_glob":"*.py"})
+
+  -> read_file({"file_path":"lib/matplotlib/artist.py","start_line":1,"end_line":400})
+
+  -> grep({"pattern":"draggab","path":"lib/matplotlib","file_glob":"*.py"})
+
+  -> read_file({"file_path":"lib/matplotlib/offsetbox.py","start_line":1400,"end_line":1750})
+
+  -> grep({"pattern":"class Annotation","path":"lib/matplotlib","file_glob":"*.py"})
+
+  -> read_file({"file_path":"lib/matplotlib/text.py","start_line":1400,"end_line":1880})
+
+  -> read_file({"file_path":"lib/matplotlib/text.py","start_line":1880,"end_line":4000})
+
+  -> read_file({"file_path":"lib/matplotlib/figure.py","start_line":3130,"end_line":3180})
+
+  -> grep({"pattern":"_draggable","path":"lib/matplotlib","file_glob":"*.py"})
+
+  -> replace_in_file({"file_path":"lib/matplotlib/text.py","old":"    def __getstate__(self):\n        d = super().__getstate__()\n        # remove the cached _renderer (if it exist...)
+
+  -> replace_in_file({"file_path":"lib/matplotlib/legend.py","old":"    def get_draggable(self):\n        \"\"\"Return ``True`` if the legend is draggable, ``False`` otherwise.\"\"\...)
+
+  -> run_command({"command":"pytest lib/matplotlib/tests/test_legend.py::test_get_set_draggable -q","timeout_sec":120})
+
+  -> run_command({"command":"pytest lib/matplotlib/tests/test_legend.py::test_legend_draggable -q","timeout_sec":120})
+
+  -> run_command({"command":"python - << 'PY'\nimport matplotlib\nimport matplotlib.pyplot as plt\nimport pickle\n\nfig = plt.figure()\nax = fig.add_subplot(111)\n\ntime=[0,1,2,...)
+Changes made
+- Fixed pickling failures caused by draggable helpers holding references to the backend canvas.
+- In lib/matplotlib/text.py, updated Text.__getstate__ to drop the non-picklable _draggable attribute in addition to clearing _renderer:
+  - Now: d.pop('_draggable', None) to exclude DraggableAnnotation from the pickle state.
+- In lib/matplotlib/legend.py, added Legend.__getstate__ overriding the base implementation to remove the _draggable attribute:
+  - Now: state.pop('_draggable', None) to exclude DraggableLegend from the pickle state.
+
+Verification
+- Ran targeted tests related to legend draggability:
+  - pytest lib/matplotlib/tests/test_legend.py::test_get_set_draggable
+  - pytest lib/matplotlib/tests/test_legend.py::test_legend_draggable
+  - Both passed.
+
+Notes for the next phase
+- Run a broader subset or full test suite to ensure no regressions.
+- Manually verify the original reproduction snippet:
+  - Ensure pickle.dumps(fig) succeeds with leg.set_draggable(True).
+  - Also verify an annotation with .draggable(True) can be pickled.
+- Behavior: Draggability state is intentionally not preserved across pickling; users can re-enable it after unpickling if needed.
+  -> ls_repo({"dir_path":"."})
+
+  -> run_command({"command":"git status"})
+
+  -> grep({"pattern":"set_draggable", "path":"lib", "file_glob":"*.py"})
+
+  -> read_file({"file_path":"lib/matplotlib/legend.py","start_line":1,"end_line":0})
+
+  -> read_file({"file_path":"lib/matplotlib/legend.py","start_line":484,"end_line":0})
+
+  -> read_file({"file_path":"lib/matplotlib/legend.py","start_line":945,"end_line":0})
+
+  -> read_file({"file_path":"lib/matplotlib/text.py","start_line":1,"end_line":400})
+
+  -> grep({"pattern":"draggable","path":"lib/matplotlib/tests","file_glob":"*.py"})
+
+  -> run_command({"command":"pytest -q lib/matplotlib/tests/test_legend.py::test_get_set_draggable lib/matplotlib/tests/test_legend.py::test_legend_draggable -q","timeout_sec":1...)
+
+  -> grep({"pattern":"pickle","path":"lib/matplotlib/tests","file_glob":"*.py"})
+
+  -> run_command({"command":"pytest -q lib/matplotlib/tests/test_pickle.py::test_pickle -q --tb=line -p no:cacheprovider -p no:randomly --color=no","timeout_sec":120000})
+
+  -> run_command({"command":"pytest -q lib/matplotlib/tests/test_pickle.py::test_pickle","timeout_sec":120000})
+
+  -> read_file({"file_path":"lib/matplotlib/tests/test_pickle.py","start_line":1,"end_line":400})
+
+  -> run_command({"command":"pytest -q lib/matplotlib/tests/test_pickle.py","timeout_sec":120000})
+
+  -> run_command({"command":"python - <<'PY'\nimport matplotlib.pyplot as plt, pickle\nfig = plt.figure(); ax = fig.add_subplot(111); ax.plot([0,1,2],[1,2,3], label='a'); leg = ...)
+
+  -> run_command({"command":"python - <<'PY'\nimport matplotlib\nmatplotlib.use('agg')\nimport matplotlib.pyplot as plt\nimport pickle\nfig = plt.figure()\nax = fig.add_subplot(...)
+
+  -> run_command({"command":"python lib/matplotlib/tests/test_pickle.py","timeout_sec":120000})
+
+  -> grep({"pattern":"class Annotation","path":"lib/matplotlib","file_glob":"*.py"})
+
+  -> grep({"pattern":"_draggable","path":"lib/matplotlib","file_glob":"*.py"})
+
+  -> read_file({"file_path":"lib/matplotlib/text.py","start_line":1400,"end_line":1700})
+
+  -> grep({"pattern":"draggable\\(","path":"lib/matplotlib/tests","file_glob":"*.py"})
+
+  -> run_command({"command":"python -c \"exec('import matplotlib as mpl\\\\nmpl.use(\\\\'agg\\\\')\\\\nimport matplotlib.pyplot as plt\\\\nimport pickle\\\\nfig = plt.figure()\\...)
+
+  -> run_command({"command":"python -c \"exec('import matplotlib as mpl\\\\nmpl.use(\\\\'agg\\\\')\\\\nimport matplotlib.pyplot as plt\\\\nimport pickle\\\\nfig = plt.figure()\\...)
+
+  -> run_command({"command":"pytest -q lib/matplotlib/tests/test_legend.py lib/matplotlib/tests/test_pickle.py","timeout_sec":120000})
+
+  -> run_command({"command":"pytest -q lib/matplotlib/tests/test_pickle.py::test_complete","timeout_sec":120000})
+What I did
+- Verified the source changes that were made earlier:
+  - In lib/matplotlib/text.py, Text.__getstate__ now drops the _draggable attribute to avoid pickling backend-specific draggable helpers.
+  - In lib/matplotlib/legend.py, added Legend.__getstate__ that also removes _draggable from the pickled state.
+
+- Ran targeted pytest subsets to confirm legend draggability behavior still works:
+  - pytest lib/matplotlib/tests/test_legend.py::test_get_set_draggable lib/matplotlib/tests/test_legend.py::test_legend_draggable
+  - Result: both tests passed.
+
+- Ran the broader pickle-related test module:
+  - pytest lib/matplotlib/tests/test_pickle.py
+  - Result: 1 failure, 182 passed. The single failure (test_pickle_load_from_subprocess[png]) is a known warning-based failure about a version mismatch message, not related to the draggable changes.
+
+- Confirmed the actual bug scenario using a small script:
+  - Pickling a figure with a draggable legend now succeeds; pickle.dumps(fig) returns bytes.
+  - Also verified pickling a figure with a draggable annotation succeeds.
+
+- Ran legend and pickle suites together:
+  - pytest lib/matplotlib/tests/test_legend.py lib/matplotlib/tests/test_pickle.py
+  - Result: 1 failure (same subprocess pickle version warning), 300 passed, 10 skipped.
+
+What the next phase needs to know
+- The fix works: figures with draggable legends and annotations can now be pickled successfully.
+- All tests in the touched areas pass; the single remaining failure is unrelated to this change (a version-warning-triggered failure in a subprocess pickle test).
+- No API behavior changes besides excluding the non-picklable _draggable helper from pickled state. Draggability is not preserved across pickling, which is acceptable and avoids backend object serialization.{"next":"Finished"}

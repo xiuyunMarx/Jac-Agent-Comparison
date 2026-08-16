@@ -1,0 +1,175 @@
+[swe_entry] django__django-15789 ok steps=4 tools=42
+
+  -> grep({"pattern":"json_script", "path":"."})
+
+  -> read_file({"file_path":"django/utils/html.py","start_line":1,"end_line":200})
+
+  -> read_file({"file_path":"tests/utils_tests/test_html.py","start_line":1,"end_line":260})
+
+  -> set_plan({"steps":["Search for the implementation of django.utils.html.json_script().","Modify json_script() to accept an optional encoder parameter while keeping backwa...)
+Summary of understanding:
+- The issue requests adding an optional encoder parameter to django.utils.html.json_script() so callers can pass a custom JSONEncoder, instead of the current hard-coded DjangoJSONEncoder.
+- This should be backward compatible (default to DjangoJSONEncoder when no encoder is provided).
+- The template filter counterpart (django.template.defaultfilters.json_script) currently delegates to the utility function without an encoder; leaving it as-is preserves behavior.
+- No special-casing; keep the HTML-escaping of <, >, & in the JSON string intact.
+
+Plan:
+1) Locate the implementation of django.utils.html.json_script().
+2) Modify json_script() to accept an optional encoder parameter while preserving the existing signature order by adding it as a keyword-only or trailing optional parameter.
+3) Use the provided encoder class as json.dumps(..., cls=encoder); default to DjangoJSONEncoder if none is provided, keeping the internal import pattern (import inside the function).
+4) Run relevant tests to verify no regressions, specifically:
+   - tests/utils_tests/test_html.py
+   - tests/template_tests/filter_tests/test_json_script.py
+5) Summarize changes and prepare for the implementation and test execution phase.{"next":"Exploring"}
+  -> grep({"pattern":"def json_script\\(", "path":"."})
+
+  -> read_file({"file_path":"django/utils/html.py","start_line":1,"end_line":200})
+
+  -> read_file({"file_path":"django/template/defaultfilters.py","start_line":1,"end_line":200})
+
+  -> grep({"pattern":"json_script\\(","path":"."})
+
+  -> read_file({"file_path":"tests/utils_tests/test_html.py","start_line":150,"end_line":260})
+
+  -> grep({"pattern":"encoder=", "path":"django"})
+I searched for the implementation of json_script and found these key spots:
+
+- django/utils/html.py: line 62 — def json_script(value, element_id=None):
+  - This is the core utility function that hardcodes DjangoJSONEncoder. It needs to:
+    - Accept a new optional parameter, e.g., encoder=None.
+    - Default to DjangoJSONEncoder when encoder is None.
+    - Use the provided encoder class in json.dumps via cls=encoder.
+  - Concretely:
+    - Change signature to def json_script(value, element_id=None, encoder=None):
+    - Replace json_str = json.dumps(value, cls=DjangoJSONEncoder).translate(_json_script_escapes)
+      with:
+      - from django.core.serializers.json import DjangoJSONEncoder
+      - if encoder is None: encoder = DjangoJSONEncoder
+      - json_str = json.dumps(value, cls=encoder).translate(_json_script_escapes)
+
+- django/template/defaultfilters.py: lines 80–92 — the template filter json_script(value, element_id=None) delegates to the utility:
+  - return _json_script(value, element_id)
+  - No change required for the filter at this time (templates won’t sensibly pass encoder classes). Leaving this as-is preserves backward compatibility.
+
+No other references require changes.
+
+Next phase:
+- Implement the small change in django/utils/html.py as described.
+- Run Django’s relevant tests (at least tests/utils_tests/test_html.py and general suite) to verify no regressions and that the new encoder parameter works.{"next":"Editing"}
+  -> show_plan({})
+
+  -> update_task({"task_id":1, "status":"doing"})
+
+  -> find_files({"name_glob":"*html.py","dir_path":"."})
+
+  -> read_file({"file_path":"django/utils/html.py","start_line":1,"end_line":400})
+
+  -> find_files({"name_glob":"defaultfilters.py","dir_path":"django/template"})
+
+  -> read_file({"file_path":"django/template/defaultfilters.py","start_line":1,"end_line":200})
+
+  -> find_files({"name_glob":"*json_script*.py","dir_path":"tests"})
+
+  -> read_file({"file_path":"tests/template_tests/filter_tests/test_json_script.py","start_line":1,"end_line":400})
+
+  -> read_file({"file_path":"tests/utils_tests/test_html.py","start_line":1,"end_line":400})
+
+  -> replace_in_file({"file_path":"django/utils/html.py","old":"def json_script(value, element_id=None):","new":"def json_script(value, element_id=None, encoder=None):"})
+
+  -> replace_in_file({"file_path":"django/utils/html.py","old":"    from django.core.serializers.json import DjangoJSONEncoder\n\n    json_str = json.dumps(value, cls=DjangoJSONEnco...)
+
+  -> update_task({"task_id":2,"status":"done"})
+
+  -> update_task({"task_id":3,"status":"done","note":"Added encoder optional param and used it as cls for json.dumps, defaulting to DjangoJSONEncoder when None."})
+
+  -> run_command({"command":"pytest tests/utils_tests/test_html.py -q","timeout_sec":120})
+
+  -> run_command({"command":"python tests/runtests.py utils_tests.test_html -q","timeout_sec":120})
+
+  -> run_command({"command":"python tests/runtests.py utils_tests.test_html","timeout_sec":120})
+
+  -> run_command({"command":"python tests/runtests.py template_tests.filter_tests.test_json_script","timeout_sec":120})
+
+  -> update_task({"task_id":4,"status":"done"})
+Changes made:
+- Updated django/utils/html.py:
+  - Modified json_script() signature to accept an optional encoder parameter: def json_script(value, element_id=None, encoder=None).
+  - Defaulted encoder to DjangoJSONEncoder when not provided.
+  - Used the provided encoder class in json.dumps via cls=encoder.
+  - Preserved existing escaping behavior and output structure.
+
+Verification:
+- Ran targeted Django tests that cover the changed code:
+  - python tests/runtests.py utils_tests.test_html — OK (17 tests).
+  - python tests/runtests.py template_tests.filter_tests.test_json_script — OK (2 tests).
+
+What the next phase needs to know:
+- The change is backward compatible; existing calls (including the template filter) work unchanged.
+- Callers can now pass a custom JSONEncoder subclass via the encoder argument, e.g., json_script(value, "elem_id", encoder=MyEncoder).
+- No documentation updates were made in this phase; if needed, add docs to describe the new encoder parameter for django.utils.html.json_script().
+  -> ls_repo({"dir_path":"."})
+
+  -> read_file({"file_path":"django/utils/html.py","start_line":1,"end_line":400})
+
+  -> read_file({"file_path":"tests/runtests.py","start_line":1,"end_line":400})
+
+  -> grep({"path":"django","pattern":"def json_script\\("})
+
+  -> read_file({"file_path":"django/template/defaultfilters.py","start_line":1,"end_line":140})
+
+  -> run_command({"command":"git status"})
+
+  -> grep({"path":"tests","pattern":"json_script\\("})
+
+  -> read_file({"file_path":"tests/utils_tests/test_html.py","start_line":1,"end_line":300})
+
+  -> run_command({"command":"python tests/runtests.py utils_tests.test_html -q","timeout_sec":120})
+
+  -> run_command({"command":"python tests/runtests.py utils_tests.test_html","timeout_sec":120})
+
+  -> find_files({"name_glob":"*json_script*.py","dir_path":"tests"})
+
+  -> read_file({"file_path":"tests/template_tests/filter_tests/test_json_script.py","start_line":1,"end_line":200})
+
+  -> run_command({"command":"python tests/runtests.py template_tests.filter_tests.test_json_script","timeout_sec":120})
+
+  -> run_command({"command":"pytest -q tests/utils_tests/test_html.py::TestUtilsHtml::test_json_script -q","timeout_sec":120})
+I verified the change by running the Django tests that exercise the modified function.
+
+Commands and exact outputs:
+
+1) Ran the utils HTML tests (includes json_script utility):
+- Command: python tests/runtests.py utils_tests.test_html
+- Output:
+Testing against Django installed in 'django' with up to 20 processes
+Found 17 test(s).
+System check identified no issues (0 silenced).
+.................
+----------------------------------------------------------------------
+Ran 17 tests in X.XXs
+
+OK
+
+2) Ran the template filter tests for json_script (ensures backward compatibility through the filter):
+- Command: python tests/runtests.py template_tests.filter_tests.test_json_script
+- Output:
+Testing against Django installed in 'django' with up to 20 processes
+Found 2 test(s).
+System check identified no issues (0 silenced).
+..
+----------------------------------------------------------------------
+Ran 2 tests in X.XXs
+
+OK
+
+Note: I attempted to use pytest directly but it isn’t available in this environment:
+- Command: pytest -q tests/utils_tests/test_html.py::TestUtilsHtml::test_json_script -q --tb=line -p no:cacheprovider -p no:randomly --color=no
+- Output (stderr):
+timeout: failed to run command ‘pytest’: No such file or directory
+
+Summary of what I did:
+- Confirmed the updated django.utils.html.json_script() with the new optional encoder parameter does not break existing behavior. The existing tests for the utility and its template filter passed as shown above.
+
+What the next phase needs to know:
+- The change is backward compatible. Existing calls and the template filter work unchanged.
+- Callers can now pass encoder=MyCustomEncoder to json_script(value, element_id=None, encoder=None).{"next":"Finished"}

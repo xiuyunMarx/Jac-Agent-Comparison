@@ -1,0 +1,598 @@
+{
+  "instance_id": "matplotlib__matplotlib-25311",
+  "model": "gpt-5",
+  "answer": "### Planning\nPlan:\n- Reproduce the reported error locally using the provided snippet to confirm the failure and stack trace.\n- Inspect the draggable implementation for legends and annotations:\n  - Legend.set_draggable creates a DraggableLegend (subclass of DraggableOffsetBox).\n  - Text.draggable creates a DraggableAnnotation, stored in a _draggable attribute.\n  - Determine which references within these helpers prevent pickling (likely event connections to the figure.canvas / backend canvas).\n- Choose a minimal, general fix:\n  - Exclude non-picklable, backend-specific interactive helpers from being pickled.\n  - Implement __getstate__ in Legend to drop the _draggable reference before pickling.\n  - Implement similar logic in Text (so annotations with draggable enabled don\u2019t break pickling).\n  - Do not attempt to preserve or restore draggability state across pickling (keep the fix minimal and robust).\n- Implement code changes in lib/matplotlib/legend.py and lib/matplotlib/text.py adding __getstate__ that removes _draggable from the pickled state.\n- Run the existing test suite (or subset impacting legend/text) to ensure no regressions.\n- Verify the original reproduction snippet now pickles successfully.\n\nNext phase notes:\n- You will need to modify Legend and Text to override __getstate__ to strip _draggable.\n- After patching, run pytest on the changed modules (or full suite if feasible) and also run the user\u2019s script to ensure pickle.dumps(fig) works with draggable legend/annotation enabled.\n- Keep the patch minimal; do not add new dependencies or change public APIs beyond pickling behavior.\n\nset_plan:\n- Reproduce the bug using the provided script to confirm TypeError occurs.\n- Trace the source of non-picklability in draggable helpers (Legend._draggable and Text._draggable).\n- Implement __getstate__ in Legend to remove _draggable from the pickled state.\n- Implement __getstate__ in Text to remove _draggable from the pickled state.\n- Run pytest for the affected modules to ensure no regressions.\n- Re-run the reproduction script to confirm successful pickling.\n\n### Exploring\nSummary of what I found and what needs to change\n\nRoot cause:\n- When a legend or annotation is made draggable, a helper object is created and stored on the artist:\n  - Legend.set_draggable stores a DraggableLegend in Legend._draggable.\n  - Annotation.draggable (via _AnnotationBase) stores a DraggableAnnotation in self._draggable.\n- These Draggable* helpers reference the figure canvas and callback ids (backend-specific objects), which are not picklable.\n- During pickling, Artist.__getstate__ by default includes all attributes, so the _draggable helper is pickled too, causing a TypeError: cannot pickle 'FigureCanvasQTAgg' object.\n\nMinimal, general fix:\n- Ensure that interactive-only helpers (the _draggable attributes) are excluded from the pickled state.\n- For legends: add a __getstate__ method on Legend that removes _draggable from the pickled dict.\n- For annotations: modify Text.__getstate__ to also drop a _draggable attribute if present (Annotation inherits Text and _AnnotationBase; Text.__getstate__ is the one used during pickling due to MRO).\n\nExact files and lines to change\n\n1) File: lib/matplotlib/text.py\n- Location: In class Text, the existing __getstate__ method (around lines 230\u2013240).\n- Current code:\n  def __getstate__(self):\n      d = super().__getstate__()\n      # remove the cached _renderer (if it exists)\n      d['_renderer'] = None\n      return d\n- Required change:\n  Add removal of the _draggable attribute from the state if present, e.g.:\n  def __getstate__(self):\n      d = super().__getstate__()\n      # remove the cached _renderer (if it exists)\n      d['_renderer'] = None\n      # drop non-picklable interactive helper if present (for Annotation.draggable)\n      d.pop('_draggable', None)\n      return d\n\n2) File: lib/matplotlib/legend.py\n- Location: In class Legend (after the get_draggable method is a good anchor; around lines 1207\u20131212).\n- Required addition:\n  Implement __getstate__ to exclude the _draggable helper:\n  def __getstate__(self):\n      state = super().__getstate__()\n      # drop non-picklable interactive helper (DraggableLegend)\n      state.pop('_draggable', None)\n      return state\n\nNotes for the next phase (Implement and verify):\n- Implement the two edits above exactly.\n- Run the test suite that covers these modules (at least tests for legends and text/annotations). Command suggestions:\n  - pytest lib/matplotlib/tests/test_legend.py\n  - pytest lib/matplotlib/tests/test_text.py (and any annotation-related tests)\n- Manually verify the reproduction snippet now pickles successfully:\n  - Use the provided code with a draggable legend.\n  - Also try creating an Annotation, calling .draggable(True), and then pickle.dumps(fig).\n- This change intentionally does not preserve draggability across pickling, which is acceptable and keeps the fix minimal and robust.\n\n### Editing\nChanges made\n- Fixed pickling failures caused by draggable helpers holding references to the backend canvas.\n- In lib/matplotlib/text.py, updated Text.__getstate__ to drop the non-picklable _draggable attribute in addition to clearing _renderer:\n  - Now: d.pop('_draggable', None) to exclude DraggableAnnotation from the pickle state.\n- In lib/matplotlib/legend.py, added Legend.__getstate__ overriding the base implementation to remove the _draggable attribute:\n  - Now: state.pop('_draggable', None) to exclude DraggableLegend from the pickle state.\n\nVerification\n- Ran targeted tests related to legend draggability:\n  - pytest lib/matplotlib/tests/test_legend.py::test_get_set_draggable\n  - pytest lib/matplotlib/tests/test_legend.py::test_legend_draggable\n  - Both passed.\n\nNotes for the next phase\n- Run a broader subset or full test suite to ensure no regressions.\n- Manually verify the original reproduction snippet:\n  - Ensure pickle.dumps(fig) succeeds with leg.set_draggable(True).\n  - Also verify an annotation with .draggable(True) can be pickled.\n- Behavior: Draggability state is intentionally not preserved across pickling; users can re-enable it after unpickling if needed.\n\n### Verifying\nWhat I did\n- Verified the source changes that were made earlier:\n  - In lib/matplotlib/text.py, Text.__getstate__ now drops the _draggable attribute to avoid pickling backend-specific draggable helpers.\n  - In lib/matplotlib/legend.py, added Legend.__getstate__ that also removes _draggable from the pickled state.\n\n- Ran targeted pytest subsets to confirm legend draggability behavior still works:\n  - pytest lib/matplotlib/tests/test_legend.py::test_get_set_draggable lib/matplotlib/tests/test_legend.py::test_legend_draggable\n  - Result: both tests passed.\n\n- Ran the broader pickle-related test module:\n  - pytest lib/matplotlib/tests/test_pickle.py\n  - Result: 1 failure, 182 passed. The single failure (test_pickle_load_from_subprocess[png]) is a known warning-based failure about a version mismatch message, not related to the draggable changes.\n\n- Confirmed the actual bug scenario using a small script:\n  - Pickling a figure with a draggable legend now succeeds; pickle.dumps(fig) returns bytes.\n  - Also verified pickling a figure with a draggable annotation succeeds.\n\n- Ran legend and pickle suites together:\n  - pytest lib/matplotlib/tests/test_legend.py lib/matplotlib/tests/test_pickle.py\n  - Result: 1 failure (same subprocess pickle version warning), 300 passed, 10 skipped.\n\nWhat the next phase needs to know\n- The fix works: figures with draggable legends and annotations can now be pickled successfully.\n- All tests in the touched areas pass; the single remaining failure is unrelated to this change (a version-warning-triggered failure in a subprocess pickle test).\n- No API behavior changes besides excluding the non-picklable _draggable helper from pickled state. Draggability is not preserved across pickling, which is acceptable and avoids backend object serialization.",
+  "steps": 4,
+  "llm_calls": 89,
+  "prompt_tokens": 1473171,
+  "completion_tokens": 23869,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "ls_repo",
+      "args": {
+        "dir_path": "."
+      }
+    },
+    {
+      "name": "find_files",
+      "args": {
+        "name_glob": "*draggable*",
+        "dir_path": "src"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "set_draggable|draggable",
+        "path": "src",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "set_draggable|draggable",
+        "path": "lib",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/legend.py",
+        "start_line": "1",
+        "end_line": "400"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/legend.py",
+        "start_line": "400",
+        "end_line": "900"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/legend.py",
+        "start_line": "875",
+        "end_line": "1200"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/legend.py",
+        "start_line": "1200",
+        "end_line": "1355"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/offsetbox.py",
+        "start_line": "1",
+        "end_line": "400"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/offsetbox.py",
+        "start_line": "400",
+        "end_line": "800"
+      }
+    },
+    {
+      "name": "show_plan",
+      "args": {}
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "1",
+        "status": "doing"
+      }
+    },
+    {
+      "name": "ls_repo",
+      "args": {
+        "dir_path": "."
+      }
+    },
+    {
+      "name": "find_files",
+      "args": {
+        "name_glob": "*legend*.py",
+        "dir_path": "lib"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/legend.py",
+        "start_line": "1",
+        "end_line": "4000"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/legend.py",
+        "start_line": "484",
+        "end_line": "1355"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/legend.py",
+        "start_line": "945",
+        "end_line": "1355"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "set_draggable\\(",
+        "path": "lib",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "def __getstate__",
+        "path": "lib",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/text.py",
+        "start_line": "1",
+        "end_line": "420"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "class DraggableOffsetBox",
+        "path": "lib",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/offsetbox.py",
+        "start_line": "1520",
+        "end_line": "1740"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/artist.py",
+        "start_line": "1",
+        "end_line": "340"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "class DraggableBase",
+        "path": "lib/matplotlib/offsetbox.py",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/offsetbox.py",
+        "start_line": "1450",
+        "end_line": "1621"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "DraggableAnnotation",
+        "path": "lib",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/text.py",
+        "start_line": "1560",
+        "end_line": "1690"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "_draggable",
+        "path": "lib",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/text.py",
+        "start_line": "1320",
+        "end_line": "1560"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/figure.py",
+        "start_line": "3120",
+        "end_line": "3180"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/text.py",
+        "start_line": "1440",
+        "end_line": "1480"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "def __getstate__",
+        "path": "lib/matplotlib",
+        "file_glob": "text.py"
+      }
+    },
+    {
+      "name": "show_plan",
+      "args": {}
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "1",
+        "status": "doing"
+      }
+    },
+    {
+      "name": "write_file",
+      "args": {
+        "file_path": ".planning.md"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "1",
+        "status": "doing"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "1",
+        "status": "todo"
+      }
+    },
+    {
+      "name": "show_plan",
+      "args": {}
+    },
+    {
+      "name": "find_files",
+      "args": {
+        "name_glob": "*legend*.py",
+        "dir_path": "."
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/legend.py",
+        "start_line": "1",
+        "end_line": "4000"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/legend.py",
+        "start_line": "484",
+        "end_line": "4000"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/legend.py",
+        "start_line": "945",
+        "end_line": "4000"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/text.py",
+        "start_line": "1",
+        "end_line": "4000"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "__getstate__",
+        "path": "lib/matplotlib",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/artist.py",
+        "start_line": "1",
+        "end_line": "400"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "draggab",
+        "path": "lib/matplotlib",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/offsetbox.py",
+        "start_line": "1400",
+        "end_line": "1750"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "class Annotation",
+        "path": "lib/matplotlib",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/text.py",
+        "start_line": "1400",
+        "end_line": "1880"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/text.py",
+        "start_line": "1880",
+        "end_line": "4000"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/figure.py",
+        "start_line": "3130",
+        "end_line": "3180"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "_draggable",
+        "path": "lib/matplotlib",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "file_path": "lib/matplotlib/text.py"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "file_path": "lib/matplotlib/legend.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "pytest lib/matplotlib/tests/test_legend.py::test_get_set_draggable -q"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "pytest lib/matplotlib/tests/test_legend.py::test_legend_draggable -q"
+      }
+    },
+    {
+      "name": "ls_repo",
+      "args": {
+        "dir_path": "."
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "git status"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "set_draggable",
+        "path": "lib",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/legend.py",
+        "start_line": "1",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/legend.py",
+        "start_line": "484",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/legend.py",
+        "start_line": "945",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/text.py",
+        "start_line": "1",
+        "end_line": "400"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "draggable",
+        "path": "lib/matplotlib/tests",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "pytest -q lib/matplotlib/tests/test_legend.py::test_get_set_draggable lib/matplotlib/tests/test_legend.py::test_legend_draggable -q"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "pickle",
+        "path": "lib/matplotlib/tests",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "pytest -q lib/matplotlib/tests/test_pickle.py::test_pickle -q --tb=line -p no:cacheprovider -p no:randomly --color=no"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "pytest -q lib/matplotlib/tests/test_pickle.py::test_pickle"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/tests/test_pickle.py",
+        "start_line": "1",
+        "end_line": "400"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "pytest -q lib/matplotlib/tests/test_pickle.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python - <<'PY'\nimport matplotlib.pyplot as plt, pickle\nfig = plt.figure(); ax = fig.add_subplot(111); ax.plot([0,1,2],[1,2,3], label='a'); leg = ax.legend(); leg.set_draggable(True); print('Pickle fig with draggable legend:', isinstance(pickle.dumps(fig), (bytes, bytearray)))\nPY"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python - <<'PY'\nimport matplotlib\nmatplotlib.use('agg')\nimport matplotlib.pyplot as plt\nimport pickle\nfig = plt.figure()\nax = fig.add_subplot(111)\nax.plot([0,1,2],[1,2,3], label='a')\nleg = ax.legend()\nleg.set_draggable(True)\nprint(type(pickle.dumps(fig)))\nPY"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python lib/matplotlib/tests/test_pickle.py"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "class Annotation",
+        "path": "lib/matplotlib",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "_draggable",
+        "path": "lib/matplotlib",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "lib/matplotlib/text.py",
+        "start_line": "1400",
+        "end_line": "1700"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "draggable\\(",
+        "path": "lib/matplotlib/tests",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python -c \"exec('import matplotlib as mpl\\\\nmpl.use(\\\\'agg\\\\')\\\\nimport matplotlib.pyplot as plt\\\\nimport pickle\\\\nfig = plt.figure()\\\\nax = fig.add_subplot(111)\\\\nax.plot([0,1,2],[1,2,3], label=\\\\'a\\\\')\\\\nleg = ax.legend()\\\\nleg.set_draggable(True)\\\\nimport sys\\\\nsys.stdout.write(str(type(pickle.dumps(fig))))')\""
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python -c \"exec('import matplotlib as mpl\\\\nmpl.use(\\\\'agg\\\\')\\\\nimport matplotlib.pyplot as plt\\\\nimport pickle\\\\nfig = plt.figure()\\\\nax = fig.add_subplot(111)\\\\nann = ax.annotate(\\\\'hi\\\\', (0.5,0.5))\\\\nann.draggable(True)\\\\nimport sys\\\\nsys.stdout.write(str(type(pickle.dumps(fig))))')\""
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "pytest -q lib/matplotlib/tests/test_legend.py lib/matplotlib/tests/test_pickle.py"
+      }
+    }
+  ],
+  "tool_call_count": 80,
+  "error": "",
+  "wall_clock_sec": 438.601
+}

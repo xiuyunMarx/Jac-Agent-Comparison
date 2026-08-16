@@ -7,6 +7,10 @@ job file, runs this module under `jac run`, and reads the result file back.
 
 Everything interesting is a file rather than stdout because byLLM and litellm
 both log to the console, so stdout is not a channel anything can parse.
+
+The Jac twin of swe_entry.py, which serves both Python implementations. The two
+write the same result keys, so runs.jsonl has one shape on every side and the
+reports are directly comparable.
 """
 
 import json;
@@ -44,6 +48,7 @@ def run_job(job_path: str) -> dict[str, object] {
         "llm_calls": 0,
         "prompt_tokens": 0,
         "completion_tokens": 0,
+        "cached_tokens": 0,
         "tool_calls": [],
         "tool_call_count": 0,
         "error": ""
@@ -59,6 +64,9 @@ def run_job(job_path: str) -> dict[str, object] {
         record["llm_calls"] = outcome.llm_calls;
         record["prompt_tokens"] = outcome.prompt_tokens;
         record["completion_tokens"] = outcome.completion_tokens;
+        # Part of prompt_tokens, not extra to it. Recorded so the cost table can
+        # say what a run actually paid for rather than what it sent.
+        record["cached_tokens"] = int(getattr(outcome, "cached_tokens", 0) or 0);
         record["tool_calls"] = calls;
         record["tool_call_count"] = len(calls);
     } except Exception as e {

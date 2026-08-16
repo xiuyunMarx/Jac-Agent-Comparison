@@ -47,7 +47,36 @@ from tools.explore import ExploreCodeBase
 from tools.plan import PlanTasks
 from tools.verify import VerifyCode
 
-DEFAULT_MODEL = "gpt-4o"
+DEFAULT_MODEL = "gpt-5"
+
+# The only two tools that change the workspace. Every other call, however many
+# of them a phase makes, leaves the tree exactly as it was found.
+WRITE_TOOLS = ("write_file", "replace_in_file")
+
+# What Verifying is told when it is sent back for having verified nothing. It
+# has to name the specific omission: a phase that is only told "try again"
+# repeats itself, because from inside the conversation it already believes the
+# edit was made.
+WRITE_GUARD_NOTE = (
+    "GUARD: no write_file or replace_in_file call has been made in this run, "
+    "so the workspace is still exactly as it was found and the commands above "
+    "prove nothing about the objective. Any change described so far was "
+    "planned, not applied. Go back to Editing and issue the edit."
+)
+
+
+def workspace_written() -> bool:
+    """True once this run has actually modified a file in the workspace.
+
+    Asked of the tool log rather than of the phase summary, because those are
+    not the same claim and have been observed to disagree. A phase that reports
+    "Summary of changes made: modified django/db/models/fields/__init__.py"
+    while having called only `grep` and `read_file` is not lying about a file it
+    wrote -- it is describing the edit it decided on and never issued. Only the
+    log knows.
+    """
+    return any(call.name in WRITE_TOOLS for call in get_tool_calls())
+
 
 # ---------------------------------------------------------------------------
 # Model. Constructed lazily and reachable only through this seam, so importing
@@ -64,10 +93,27 @@ def build_model() -> BaseChatModel:
     # orchestrator` fail in a keyless environment.
     from langchain_openai import ChatOpenAI
 
+    # Pinned to match byLLM's `by` clause, and gpt-5-shaped throughout.
+    #
+    # temperature 1: gpt-5 rejects every other value outright ("Unsupported
+    # value: 'temperature' does not support 0.0 with this model"), so the 0.0
+    # this used to send was a hard 400 rather than a quiet downgrade.
+    #
+    # max_tokens 16384: a reasoning model bills its hidden reasoning against the
+    # completion budget. One trivial turn measured 3264 reasoning tokens; at the
+    # old 4096 the model stops mid-tool-call, which corrupts the edit rather
+    # than shortening the prose.
+    #
+    # streaming with stream_usage: streaming alone would zero the token counts,
+    # because ChatOpenAI only attaches usage_metadata to a streamed response
+    # when explicitly asked. Without it this side would report 0 tokens per call
+    # and the A/B would compare a real number against nothing.
     return ChatOpenAI(
         model=os.environ.get("CODEAGENT_MODEL", DEFAULT_MODEL),
-        temperature=0.0,
-        max_tokens=4096,
+        temperature=1.0,
+        max_tokens=16384,
+        streaming=True,
+        stream_usage=True,
     )
 
 
@@ -285,7 +331,18 @@ def make_phase_node(
             "phase_msgs": {**state["phase_msgs"], phase.title: produced},
         }
         if phase.title == "Editing":
-            update["edits_made"] = True
+            # Asked of the tool log, not assumed from having run. This used to
+            # be an unconditional True, which recorded "Editing was visited"
+            # under a name that reads as "an edit was made" -- and nothing ever
+            # read it, so the untruth stayed invisible until a run reported a
+            # fix it had never written.
+            update["edits_made"] = workspace_written()
+        if phase.title == "Verifying" and not workspace_written():
+            # Appended, not substituted: the summary is what the phase believes
+            # and the note is what the log says, and the next Editing visit
+            # needs to see both to understand what it is being sent back for.
+            # `ledger` accumulates through operator.add, so this is one entry.
+            update["ledger"] = [*update["ledger"], f"### {phase.title}\n{WRITE_GUARD_NOTE}"]
         return update
 
     return node
@@ -386,6 +443,15 @@ def build_app(
     def route_verifying(state: AgentState) -> str:
         if exhausted(state):
             return FINISHED
+        # Nothing was written, so nothing was verified -- whatever the run just
+        # observed, it observed about the unmodified tree. This is settled
+        # before the classifier is asked, not by it, because the evidence that
+        # fools it is exactly the evidence it is looking at: a repository's
+        # existing suite passes on an unfixed tree, since the test that would
+        # catch the bug is the one being held back. Green tests here mean "I
+        # changed nothing", and the classifier reads them as proof.
+        if not state["edits_made"]:
+            return "Editing"
         met = objective_met(model_ref(), usage, state["objective"], state["last_summary"])
         return FINISHED if met else "Editing"
 
