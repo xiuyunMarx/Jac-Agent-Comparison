@@ -1,0 +1,334 @@
+### Planning
+Plan:
+1. Search for and open src/_pytest/skipping.py, focusing on pytest_runtest_makereport and handling of --runxfail.
+2. Identify how skip location is determined and why --runxfail affects it; trace logic for skip/xfail in the hook.
+3. Design a minimal, targeted change so that --runxfail does not alter skip reporting locations while keeping xfail behavior intact.
+4. Implement the code fix in src/_pytest/skipping.py.
+5. Run a small reproduction (a marked skip test) with -rs and with -rs --runxfail to confirm behavior manually.
+6. Run the repository’s tests related to skipping/xfail to ensure no regressions.
+7. Summarize the fix and prepare notes for the implementation phase.
+
+Next phase notes:
+- Focus on pytest_runtest_makereport in src/_pytest/skipping.py; check how skip outcomes and locations are built.
+- Ensure logic that adjusts report location for xfail under --runxfail does not apply to skip/skipif.
+- Keep changes minimal and well-contained; avoid touching tests or configuration.
+- After code change, verify with a simple skip test and run relevant test subsets for skipping/xfail.
+
+### Exploring
+Files and lines to change:
+
+1) src/_pytest/skipping.py
+   Function: pytest_runtest_makereport
+   Affected region: around lines 270–305
+
+What needs to change:
+- The current short-circuit for --runxfail prevents the skip-location adjustment from running:
+  - Remove the branch:
+    - At ~line 273: `elif item.config.option.runxfail: pass  # don't interfere`
+- Ensure xfail-specific handling is skipped when --runxfail is active, but the skip-location adjustment still runs:
+  - Add a guard to the xfail-specific branches so they only execute when not running with --runxfail:
+    - Change at ~line 275:
+      From: `elif call.excinfo and isinstance(call.excinfo.value, xfail.Exception):`
+      To:   `elif (not item.config.option.runxfail) and call.excinfo and isinstance(call.excinfo.value, xfail.Exception):`
+    - Change at ~line 279:
+      From: `elif not rep.skipped and xfailed:`
+      To:   `elif (not item.config.option.runxfail) and not rep.skipped and xfailed:`
+- Make the skip-location fix always run (independent of --runxfail and prior branches):
+  - Change at ~line 296:
+    From: `elif (item._store.get(skipped_by_mark_key, True) and rep.skipped and type(rep.longrepr) is tuple):`
+    To:   `if (item._store.get(skipped_by_mark_key, True) and rep.skipped and type(rep.longrepr) is tuple):`
+
+Why:
+- With --runxfail, we still need to adjust the reported location for @pytest.mark.skip/skipif to point to the test item itself, but must not perform any xfail transformations.
+
+### Editing
+Made changes to src/_pytest/skipping.py to ensure --runxfail does not interfere with skip location reporting:
+- In pytest_runtest_makereport:
+  - Removed the early-pass behavior for --runxfail by guarding only xfail-specific handling with not item.config.option.runxfail.
+  - Changed the skip-location adjustment from an elif to an if so it always runs when appropriate, even under --runxfail.
+
+Verification:
+- Ran testing/test_skipping.py: all tests passed.
+- Manual repro with a @pytest.mark.skip test:
+  - pytest -rs reports correct file:line.
+  - pytest -rs --runxfail also reports the correct file:line (fixed behavior).
+- Ran xfail-related tests in testing/test_skipping.py::TestXFail: all passed.
+
+Next phase:
+- Optionally run a broader subset of the test suite (excluding tests requiring unavailable optional dependencies) to confirm no regressions.
+- No additional configuration or dependency changes are needed.
+
+### Verifying
+Summary of verification runs and outputs:
+
+- Command: pytest -q zz_temp_test_skip.py -rs
+  Output:
+  s                                                                        [100%]
+  =========================== short test summary info ============================
+  SKIPPED [1] zz_temp_test_skip.py:3: unconditional skip
+  1 skipped in X.XXs
+
+- Command: pytest -q zz_temp_test_skip.py -rs --runxfail
+  Output:
+  s                                                                        [100%]
+  =========================== short test summary info ============================
+  SKIPPED [1] zz_temp_test_skip.py:3: unconditional skip
+  1 skipped in X.XXs
+
+- Command: pytest -q testing/test_skipping.py -q
+  Output:
+  ........................................................................ [ 93%]
+  .....                                                                    [100%]
+
+- Command (exploratory): pytest -q testing/test_skipping.py -q --runxfail
+  Output (excerpt):
+  ......................FF..............................................F. [ 93%]
+  .....                                                                    [100%]
+  =================================== FAILURES ===================================
+  testing/test_skipping.py:331: Failed: nomatch: '*1 xfailed*'
+  testing/test_skipping.py:349: Failed: nomatch: '*1 xfailed*'
+  testing/test_skipping.py:1083: assert []
+  =========================== short test summary info ============================
+  FAILED testing/test_skipping.py::TestXFail::test_xfail_imperative - Failed: n...
+  FAILED testing/test_skipping.py::TestXFail::test_xfail_imperative_in_setup_function
+  FAILED testing/test_skipping.py::test_xfail_item - assert []
+
+Conclusions:
+- The specific issue is fixed: with -rs and with -rs --runxfail, a test marked with @pytest.mark.skip reports the skip location at the test item (zz_temp_test_skip.py:3), not inside pytest internals.
+- The existing skipping/xfail tests pass under normal conditions.
+- Running the entire skipping test module with a global --runxfail is expected to fail some tests because that flag changes global behavior and those tests assert outputs without it.
+
+Next phase notes:
+- The change is localized to pytest_runtest_makereport so that skip-location adjustment always applies, while xfail-specific behavior is skipped under --runxfail. No further modifications are needed.
+[swe_entry] pytest-dev__pytest-7432 ok steps=4 tools=41
+
+  -> set_plan({'steps': ['Search for and open src/_pytest/skipping.py, focusing on pytest_runtest_makereport and handling of --runxfail.', 'Identify how skip location is dete... [+530 chars])
+  <- 744 chars: OK: plan set with 7 steps. [ ] 1. Search for and open src/_pytest/skipping.py, focusing on pytest_runtest_makereport and handling of --runxfail. [ ] 2. Identify... [+584 chars]
+Plan:
+1. Search for and open src/_pytest/skipping.py, focusing on pytest_runtest_makereport and handling of --runxfail.
+2. Identify how skip location is determined and why --runxfail affects it; trace logic for skip/xfail in the hook.
+3. Design a minimal, targeted change so that --runxfail does not alter skip reporting locations while keeping xfail behavior intact.
+4. Implement the code fix in src/_pytest/skipping.py.
+5. Run a small reproduction (a marked skip test) with -rs and with -rs --runxfail to confirm behavior manually.
+6. Run the repository’s tests related to skipping/xfail to ensure no regressions.
+7. Summarize the fix and prepare notes for the implementation phase.
+
+Next phase notes:
+- Focus on pytest_runtest_makereport in src/_pytest/skipping.py; check how skip outcomes and locations are built.
+- Ensure logic that adjusts report location for xfail under --runxfail does not apply to skip/skipif.
+- Keep changes minimal and well-contained; avoid touching tests or configuration.
+- After code change, verify with a simple skip test and run relevant test subsets for skipping/xfail.Plan:
+1. Search for and open src/_pytest/skipping.py, focusing on pytest_runtest_makereport and handling of --runxfail.
+2. Identify how skip location is determined and why --runxfail affects it; trace logic for skip/xfail in the hook.
+3. Design a minimal, targeted change so that --runxfail does not alter skip reporting locations while keeping xfail behavior intact.
+4. Implement the code fix in src/_pytest/skipping.py.
+5. Run a small reproduction (a marked skip test) with -rs and with -rs --runxfail to confirm behavior manually.
+6. Run the repository’s tests related to skipping/xfail to ensure no regressions.
+7. Summarize the fix and prepare notes for the implementation phase.
+
+Next phase notes:
+- Focus on pytest_runtest_makereport in src/_pytest/skipping.py; check how skip outcomes and locations are built.
+- Ensure logic that adjusts report location for xfail under --runxfail does not apply to skip/skipif.
+- Keep changes minimal and well-contained; avoid touching tests or configuration.
+- After code change, verify with a simple skip test and run relevant test subsets for skipping/xfail.
+  -> find_files({'name_glob': 'skipping.py', 'dir_path': '.'})
+  <- 23 chars: src/_pytest/skipping.py
+
+  -> read_file({'file_path': 'src/_pytest/skipping.py', 'start_line': 1, 'end_line': 0})
+  <- 10759 chars: # src/_pytest/skipping.py - lines 1-314 of 314 """ support for skip/xfail functions and markers. """ import os import platform import sys import traceback from ... [+8661 chars]
+
+  -> grep({'pattern': 'elif item\\.config\\.option\\.runxfail', 'path': 'src/_pytest/skipping.py', 'file_glob': '*'})
+  <- 62 chars: src/_pytest/skipping.py:273: elif item.config.option.runxfail:
+
+  -> grep({'pattern': 'skipped by mark\\.skipif', 'path': 'src/_pytest/skipping.py', 'file_glob': '*'})
+  <- 89 chars: src/_pytest/skipping.py:299: # skipped by mark.skipif; change the location of the failure
+
+  -> grep({'pattern': 'elif call\\.excinfo and isinstance\\(call\\.excinfo\\.value, xfail\\.Exception\\)', 'path': 'src/_pytest/skipping.py', 'file_glob': '*'})
+  <- 99 chars: src/_pytest/skipping.py:275: elif call.excinfo and isinstance(call.excinfo.value, xfail.Exception):
+
+  -> read_file({'file_path': 'src/_pytest/skipping.py', 'start_line': 260, 'end_line': 314})
+  <- 271 chars: Error: you already read 'src/_pytest/skipping.py' lines 1-314 in this phase and the file has not changed since, so re-reading returns the same bytes. You have a... [+111 chars]
+
+  -> grep({'pattern': 'elif not rep\\.skipped and xfailed', 'path': 'src/_pytest/skipping.py', 'file_glob': '*'})
+  <- 62 chars: src/_pytest/skipping.py:279: elif not rep.skipped and xfailed:
+
+  -> update_task()
+  <- 327 chars: Tool error: invalid tool arguments (`TypeAdapter[TaskStatus]` is not fully defined; you should define `TaskStatus` and all referenced types, then call `.rebuild... [+166 chars]
+Files and lines to change:
+
+1) src/_pytest/skipping.py
+   Function: pytest_runtest_makereport
+   Affected region: around lines 270–305
+
+What needs to change:
+- The current short-circuit for --runxfail prevents the skip-location adjustment from running:
+  - Remove the branch:
+    - At ~line 273: `elif item.config.option.runxfail: pass  # don't interfere`
+- Ensure xfail-specific handling is skipped when --runxfail is active, but the skip-location adjustment still runs:
+  - Add a guard to the xfail-specific branches so they only execute when not running with --runxfail:
+    - Change at ~line 275:
+      From: `elif call.excinfo and isinstance(call.excinfo.value, xfail.Exception):`
+      To:   `elif (not item.config.option.runxfail) and call.excinfo and isinstance(call.excinfo.value, xfail.Exception):`
+    - Change at ~line 279:
+      From: `elif not rep.skipped and xfailed:`
+      To:   `elif (not item.config.option.runxfail) and not rep.skipped and xfailed:`
+- Make the skip-location fix always run (independent of --runxfail and prior branches):
+  - Change at ~line 296:
+    From: `elif (item._store.get(skipped_by_mark_key, True) and rep.skipped and type(rep.longrepr) is tuple):`
+    To:   `if (item._store.get(skipped_by_mark_key, True) and rep.skipped and type(rep.longrepr) is tuple):`
+
+Why:
+- With --runxfail, we still need to adjust the reported location for @pytest.mark.skip/skipif to point to the test item itself, but must not perform any xfail transformations.
+  -> ls_repo({'dir_path': '.'})
+  <- 337 chars: .coveragerc .gitattributes .gitblameignore .github/ .gitignore .pre-commit-config.yaml .travis.yml AUTHORS CHANGELOG.rst CITATION CODE_OF_CONDUCT.md CONTRIBUTIN... [+177 chars]
+
+  -> find_files({'name_glob': 'skipping.py', 'dir_path': 'src'})
+  <- 23 chars: src/_pytest/skipping.py
+
+  -> read_file({'file_path': 'src/_pytest/skipping.py', 'start_line': 1, 'end_line': 400})
+  <- 10759 chars: # src/_pytest/skipping.py - lines 1-314 of 314 """ support for skip/xfail functions and markers. """ import os import platform import sys import traceback from ... [+8661 chars]
+
+  -> replace_in_file({'file_path': 'src/_pytest/skipping.py', 'old': ' elif (\n item._store.get(skipped_by_mark_key, True)\n and rep.skipped\n and type(rep.longrepr) is tuple\n ):\n... [+827 chars])
+  <- 96 chars: OK: replaced 1 occurrence(s) in src/_pytest/skipping.py at line 294. File is now 314 lines (+0).
+
+  -> ls_repo({'dir_path': 'testing'})
+  <- 919 chars: acceptance_test.py code/ conftest.py deprecated_test.py example_scripts/ examples/ freeze/ io/ logging/ python/ test_argcomplete.py test_assertion.py test_asser... [+759 chars]
+
+  -> run_command({'command': 'pytest -q testing/test_skipping.py -q', 'timeout_sec': 120})
+  <- 306 chars: $ pytest -q testing/test_skipping.py -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 0 --- stdout --- ....................................... [+79 chars]
+
+  -> grep({'pattern': 'runxfail', 'path': 'testing', 'file_glob': '*.py'})
+  <- 218 chars: testing/test_skipping.py:233: result = testdir.runpytest("--runxfail") testing/test_skipping.py:334: result = testdir.runpytest(p, "--runxfail") testing/test_sk... [+58 chars]
+
+  -> run_command({'command': 'pytest -q testing/test_skipping.py::TestXFail -q', 'timeout_sec': 120})
+  <- 237 chars: $ pytest -q testing/test_skipping.py::TestXFail -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 0 --- stdout --- ............................ [+33 chars]
+
+  -> run_command({'command': 'pytest -q testing/test_skipping.py::TestXFail::test_xfail_run_xfail -q', 'timeout_sec': 120})
+  <- 351 chars: $ pytest -q testing/test_skipping.py::TestXFail::test_xfail_run_xfail -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 4 --- stdout --- (em... [+191 chars]
+
+  -> grep({'pattern': 'skip location', 'path': 'testing', 'file_glob': '*.py'})
+  <- 81 chars: No matches for 'skip location' in 'testing (file_glob=*.py', searched 126 files).
+
+  -> run_command({'command': 'pytest -q', 'timeout_sec': 120})
+  <- 1419 chars: $ pytest -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 2 --- stdout --- ==================================== ERRORS ====================... [+1239 chars]
+
+  -> write_file({'file_path': 'zz_temp_test_skip.py', 'content': 'import pytest\n\n@pytest.mark.skip\ndef test_skip_location():\n assert 0\n'})
+  <- 53 chars: OK: Created zz_temp_test_skip.py (5 lines, 72 bytes).
+
+  -> run_command({'command': 'pytest -q zz_temp_test_skip.py -rs', 'timeout_sec': 120})
+  <- 378 chars: $ pytest -q zz_temp_test_skip.py -rs --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 0 --- stdout --- s [100%] =========================== sh... [+147 chars]
+
+  -> run_command({'command': 'pytest -q zz_temp_test_skip.py -rs --runxfail', 'timeout_sec': 120})
+  <- 389 chars: $ pytest -q zz_temp_test_skip.py -rs --runxfail --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 0 --- stdout --- s [100%] ===================... [+158 chars]
+
+  -> replace_in_file({'file_path': 'src/_pytest/skipping.py', 'old': " elif item.config.option.runxfail:\n pass # don't interfere\n elif call.excinfo and isinstance(call.excinfo.val... [+168 chars])
+  <- 96 chars: OK: replaced 1 occurrence(s) in src/_pytest/skipping.py at line 273. File is now 312 lines (-2).
+
+  -> replace_in_file({'file_path': 'src/_pytest/skipping.py', 'old': ' elif not rep.skipped and xfailed:\n', 'new': ' elif (not item.config.option.runxfail) and not rep.skipped and ... [+33 chars])
+  <- 96 chars: OK: replaced 1 occurrence(s) in src/_pytest/skipping.py at line 277. File is now 312 lines (+0).
+
+  -> run_command({'command': 'pytest -q testing/test_skipping.py -q', 'timeout_sec': 120})
+  <- 306 chars: $ pytest -q testing/test_skipping.py -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 0 --- stdout --- ....................................... [+79 chars]
+
+  -> run_command({'command': 'pytest -q zz_temp_test_skip.py -rs --runxfail', 'timeout_sec': 120})
+  <- 389 chars: $ pytest -q zz_temp_test_skip.py -rs --runxfail --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 0 --- stdout --- s [100%] ===================... [+158 chars]
+
+  -> run_command({'command': 'pytest -q testing/test_skipping.py::TestXFail -q', 'timeout_sec': 120})
+  <- 237 chars: $ pytest -q testing/test_skipping.py::TestXFail -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 0 --- stdout --- ............................ [+33 chars]
+
+  -> run_command({'command': 'pytest -q testing/test_skipping.py::TestReporting', 'timeout_sec': 120})
+  <- 328 chars: $ pytest -q testing/test_skipping.py::TestReporting --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 4 --- stdout --- no tests ran in X.XXs --... [+168 chars]
+
+  -> run_command({'command': 'pytest -q testing/test_skipping.py::TestReport -q', 'timeout_sec': 120})
+  <- 308 chars: $ pytest -q testing/test_skipping.py::TestReport -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 4 --- stdout --- (empty) --- stderr --- E... [+148 chars]
+
+  -> run_command({'command': 'pytest -q testing/test_skipping.py -q -k skip', 'timeout_sec': 120})
+  <- 314 chars: $ pytest -q testing/test_skipping.py -q -k skip --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 0 --- stdout --- ............................... [+87 chars]
+Made changes to src/_pytest/skipping.py to ensure --runxfail does not interfere with skip location reporting:
+- In pytest_runtest_makereport:
+  - Removed the early-pass behavior for --runxfail by guarding only xfail-specific handling with not item.config.option.runxfail.
+  - Changed the skip-location adjustment from an elif to an if so it always runs when appropriate, even under --runxfail.
+
+Verification:
+- Ran testing/test_skipping.py: all tests passed.
+- Manual repro with a @pytest.mark.skip test:
+  - pytest -rs reports correct file:line.
+  - pytest -rs --runxfail also reports the correct file:line (fixed behavior).
+- Ran xfail-related tests in testing/test_skipping.py::TestXFail: all passed.
+
+Next phase:
+- Optionally run a broader subset of the test suite (excluding tests requiring unavailable optional dependencies) to confirm no regressions.
+- No additional configuration or dependency changes are needed.
+  -> ls_repo({'dir_path': '.'})
+  <- 358 chars: .coveragerc .gitattributes .gitblameignore .github/ .gitignore .pre-commit-config.yaml .travis.yml AUTHORS CHANGELOG.rst CITATION CODE_OF_CONDUCT.md CONTRIBUTIN... [+198 chars]
+
+  -> read_file({'file_path': 'zz_temp_test_skip.py', 'start_line': 1, 'end_line': 400})
+  <- 111 chars: # zz_temp_test_skip.py - lines 1-5 of 5 import pytest @pytest.mark.skip def test_skip_location(): assert 0
+
+  -> read_file({'file_path': 'src/_pytest/skipping.py', 'start_line': 1, 'end_line': 400})
+  <- 10763 chars: # src/_pytest/skipping.py - lines 1-312 of 312 """ support for skip/xfail functions and markers. """ import os import platform import sys import traceback from ... [+8678 chars]
+
+  -> run_command({'command': 'pytest -q zz_temp_test_skip.py -rs', 'timeout_sec': 120})
+  <- 378 chars: $ pytest -q zz_temp_test_skip.py -rs --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 0 --- stdout --- s [100%] =========================== sh... [+147 chars]
+
+  -> run_command({'command': 'pytest -q zz_temp_test_skip.py -rs --runxfail', 'timeout_sec': 120})
+  <- 389 chars: $ pytest -q zz_temp_test_skip.py -rs --runxfail --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 0 --- stdout --- s [100%] ===================... [+158 chars]
+
+  -> run_command({'command': 'pytest -q testing/test_skipping.py -q', 'timeout_sec': 120})
+  <- 306 chars: $ pytest -q testing/test_skipping.py -q --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 0 --- stdout --- ....................................... [+79 chars]
+
+  -> run_command({'command': 'pytest -q testing/test_skipping.py -q --runxfail', 'timeout_sec': 120})
+  <- 868 chars: $ pytest -q testing/test_skipping.py -q --runxfail --tb=line -p no:cacheprovider -p no:randomly --color=no exit_code: 1 --- stdout --- ......................FF.... [+641 chars]
+
+  -> read_file({'file_path': 'testing/test_skipping.py', 'start_line': 300, 'end_line': 370})
+  <- 2241 chars: # testing/test_skipping.py - lines 300-370 of 1207 def setup_module(mod): raise ValueError(42) """ ) result = testdir.runpytest(p, "-rx") result.stdout.fnmatch_... [+1416 chars]
+
+  -> read_file({'file_path': 'testing/test_skipping.py', 'start_line': 320, 'end_line': 360})
+  <- 1355 chars: # testing/test_skipping.py - lines 320-360 of 1207 assert result.ret == 0 def test_xfail_imperative(self, testdir): p = testdir.makepyfile( """ import pytest de... [+843 chars]
+
+  -> grep({'pattern': 'def test_xfail_item', 'path': 'testing/test_skipping.py', 'file_glob': '*'})
+  <- 60 chars: testing/test_skipping.py:1064: def test_xfail_item(testdir):
+
+  -> read_file({'file_path': 'testing/test_skipping.py', 'start_line': 1040, 'end_line': 1095})
+  <- 1372 chars: # testing/test_skipping.py - lines 1040-1095 of 1207 """ *1 error* """ ) def test_xfail(self, testdir): testdir.makepyfile( """ import pytest @pytest.mark.xfail... [+824 chars]
+Summary of verification runs and outputs:
+
+- Command: pytest -q zz_temp_test_skip.py -rs
+  Output:
+  s                                                                        [100%]
+  =========================== short test summary info ============================
+  SKIPPED [1] zz_temp_test_skip.py:3: unconditional skip
+  1 skipped in X.XXs
+
+- Command: pytest -q zz_temp_test_skip.py -rs --runxfail
+  Output:
+  s                                                                        [100%]
+  =========================== short test summary info ============================
+  SKIPPED [1] zz_temp_test_skip.py:3: unconditional skip
+  1 skipped in X.XXs
+
+- Command: pytest -q testing/test_skipping.py -q
+  Output:
+  ........................................................................ [ 93%]
+  .....                                                                    [100%]
+
+- Command (exploratory): pytest -q testing/test_skipping.py -q --runxfail
+  Output (excerpt):
+  ......................FF..............................................F. [ 93%]
+  .....                                                                    [100%]
+  =================================== FAILURES ===================================
+  testing/test_skipping.py:331: Failed: nomatch: '*1 xfailed*'
+  testing/test_skipping.py:349: Failed: nomatch: '*1 xfailed*'
+  testing/test_skipping.py:1083: assert []
+  =========================== short test summary info ============================
+  FAILED testing/test_skipping.py::TestXFail::test_xfail_imperative - Failed: n...
+  FAILED testing/test_skipping.py::TestXFail::test_xfail_imperative_in_setup_function
+  FAILED testing/test_skipping.py::test_xfail_item - assert []
+
+Conclusions:
+- The specific issue is fixed: with -rs and with -rs --runxfail, a test marked with @pytest.mark.skip reports the skip location at the test item (zz_temp_test_skip.py:3), not inside pytest internals.
+- The existing skipping/xfail tests pass under normal conditions.
+- Running the entire skipping test module with a global --runxfail is expected to fail some tests because that flag changes global behavior and those tests assert outputs without it.
+
+Next phase notes:
+- The change is localized to pytest_runtest_makereport so that skip-location adjustment always applies, while xfail-specific behavior is skipped under --runxfail. No further modifications are needed.

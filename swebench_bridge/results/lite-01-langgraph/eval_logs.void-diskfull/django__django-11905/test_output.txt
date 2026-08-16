@@ -1,0 +1,118 @@
+$ git apply --verbose /testbed/model_patch.diff
+Checking patch django/db/models/lookups.py...
+Applied patch django/db/models/lookups.py cleanly.
+
+>>>>> Applied Patch:
+applied with `git apply --verbose`
++ source /opt/miniconda3/bin/activate
+/testbed/run_eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/testbed/run_eval.sh: line 4: conda: command not found
++ cd /testbed
++ sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen
++ locale-gen
+Generating locales (this might take a while)...
+  en_US.UTF-8... done
+Generation complete.
++ export LANG=en_US.UTF-8
++ LANG=en_US.UTF-8
++ export LANGUAGE=en_US:en
++ LANGUAGE=en_US:en
++ export LC_ALL=en_US.UTF-8
++ LC_ALL=en_US.UTF-8
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+fatal: sha1 file '/testbed/.git/index.lock' write error. Out of diskspace
++ git show
+commit 2f72480fbd27896c986c45193e1603e35c0b19a7
+Author: Jon Dufresne <jon.dufresne@gmail.com>
+Date:   Sun Oct 20 22:52:17 2019 -0700
+
+    Replaced deprecated assertEquals() with assertEqual().
+
+diff --git a/tests/model_fields/test_charfield.py b/tests/model_fields/test_charfield.py
+index 051be2eeec..cf3ce0c4c5 100644
+--- a/tests/model_fields/test_charfield.py
++++ b/tests/model_fields/test_charfield.py
+@@ -40,8 +40,8 @@ class TestCharField(TestCase):
+         self.assertEqual(p1.title, Event.C)
+         self.assertEqual(p1.body, Event.F)
+         p2 = Post.objects.get(title='Carnival!')
+-        self.assertEquals(p1, p2)
+-        self.assertEquals(p2.title, Event.C)
++        self.assertEqual(p1, p2)
++        self.assertEqual(p2.title, Event.C)
+ 
+ 
+ class ValidationTests(SimpleTestCase):
++ git -c core.fileMode=false diff 2f72480fbd27896c986c45193e1603e35c0b19a7
+diff --git a/django/db/models/lookups.py b/django/db/models/lookups.py
+index 9344979c56..36abe49c71 100644
+--- a/django/db/models/lookups.py
++++ b/django/db/models/lookups.py
+@@ -463,6 +463,8 @@ class IsNull(BuiltinLookup):
+     prepare_rhs = False
+ 
+     def as_sql(self, compiler, connection):
++        if not isinstance(self.rhs, bool):
++            raise TypeError("The '__isnull' lookup requires a boolean value.")
+         sql, params = compiler.compile(self.lhs)
+         if self.rhs:
+             return "%s IS NULL" % sql, params
+fatal: sha1 file '/testbed/.git/index.lock' write error. Out of diskspace
++ source /opt/miniconda3/bin/activate
+/testbed/run_eval.sh: line 15: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/testbed/run_eval.sh: line 16: conda: command not found
++ python -m pip install -e .
+ERROR: Exception:
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/pip/_internal/cli/base_command.py", line 165, in exc_logging_wrapper
+    status = run_func(*args)
+  File "/usr/lib/python3/dist-packages/pip/_internal/cli/req_command.py", line 205, in wrapper
+    return func(self, options, args)
+  File "/usr/lib/python3/dist-packages/pip/_internal/commands/install.py", line 294, in run
+    wheel_cache = WheelCache(options.cache_dir, options.format_control)
+  File "/usr/lib/python3/dist-packages/pip/_internal/cache.py", line 219, in __init__
+    self._ephem_cache = EphemWheelCache(format_control)
+  File "/usr/lib/python3/dist-packages/pip/_internal/cache.py", line 191, in __init__
+    self._temp_dir = TempDirectory(
+  File "/usr/lib/python3/dist-packages/pip/_internal/utils/temp_dir.py", line 125, in __init__
+    path = self._create(kind)
+  File "/usr/lib/python3/dist-packages/pip/_internal/utils/temp_dir.py", line 164, in _create
+    path = os.path.realpath(tempfile.mkdtemp(prefix=f"pip-{kind}-"))
+  File "/usr/lib/python3.10/tempfile.py", line 512, in mkdtemp
+    prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+  File "/usr/lib/python3.10/tempfile.py", line 265, in _sanitize_params
+    dir = gettempdir()
+  File "/usr/lib/python3.10/tempfile.py", line 454, in gettempdir
+    return _os.fsdecode(_gettempdir())
+  File "/usr/lib/python3.10/tempfile.py", line 447, in _gettempdir
+    tempdir = _get_default_tempdir()
+  File "/usr/lib/python3.10/tempfile.py", line 362, in _get_default_tempdir
+    raise FileNotFoundError(_errno.ENOENT,
+FileNotFoundError: [Errno 2] No usable temporary directory found in ['/tmp', '/var/tmp', '/usr/tmp', '/testbed']
++ git checkout 2f72480fbd27896c986c45193e1603e35c0b19a7 tests/lookup/models.py tests/lookup/tests.py
+Updated 2 paths from 5facf0d517
++ git apply -v -
+Checking patch tests/lookup/models.py...
+Checking patch tests/lookup/tests.py...
+Applied patch tests/lookup/models.py cleanly.
+Applied patch tests/lookup/tests.py cleanly.
++ : '>>>>> Start Test Output'
++ ./tests/runtests.py --verbosity 2 --settings=test_sqlite --parallel 1 lookup.models lookup.tests
+Traceback (most recent call last):
+  File "/testbed/./tests/runtests.py", line 14, in <module>
+    import django
+ModuleNotFoundError: No module named 'django'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/testbed/./tests/runtests.py", line 16, in <module>
+    raise RuntimeError(
+RuntimeError: Django module not found, reference tests/README.rst for instructions.
++ : '>>>>> End Test Output'
++ git checkout 2f72480fbd27896c986c45193e1603e35c0b19a7 tests/lookup/models.py tests/lookup/tests.py
+Updated 2 paths from 5facf0d517

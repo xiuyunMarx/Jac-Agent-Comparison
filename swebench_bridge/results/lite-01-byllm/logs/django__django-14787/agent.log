@@ -1,0 +1,38 @@
+### Planning
+### Plan
+
+1. **Understand the Issue**: The `method_decorator` function in Django is not preserving the attributes of the function it decorates, leading to an `AttributeError` when trying to access attributes like `__name__`.
+
+2. **Locate the Relevant Code**: We have identified the `method_decorator` function in `django/utils/decorators.py` and its helper functions `_multi_decorate` and `_update_method_wrapper`.
+
+3. **Identify the Root Cause**: The issue arises because the `partial` object created in `_multi_decorate` does not have the function attributes like `__name__`. The `update_wrapper` function is used to copy these attributes, but it seems not to be applied correctly to the final wrapper.
+
+4. **Implement a Fix**: Modify the `_multi_decorate` function to ensure that the `update_wrapper` is correctly applied to the final decorated function, preserving all necessary attributes.
+
+5. **Verify the Fix**: Run the existing Django test suite using the `tests/runtests.py` script to ensure that the fix resolves the issue without introducing new problems.
+
+6. **Document the Changes**: Ensure that any changes made are well-documented within the code to explain why the changes were necessary and how they resolve the issue.
+
+Next, I will proceed to implement the fix in the `_multi_decorate` function and verify it by running the test suite.
+
+### Exploring
+The issue is located in the `django/utils/decorators.py` file. The `_multi_decorate` function is responsible for applying decorators to methods, but it does not correctly preserve the function attributes like `__name__`, `__module__`, etc., when the method is decorated. This is because the `update_wrapper` function is not applied to the final decorated function correctly.
+
+### Files and Lines to Change
+- **File**: `django/utils/decorators.py`
+- **Function**: `_multi_decorate`
+- **Lines**: Around line 22-52
+
+### What Needs to Change
+- Ensure that the `update_wrapper` function is applied to the final decorated function to preserve all necessary attributes, including `__name__`, `__module__`, etc.
+
+Next, I will proceed to implement the fix in the `_multi_decorate` function and verify it by running the test suite.
+
+### Editing
+I modified the `_multi_decorate` function in `django/utils/decorators.py` to ensure that the `update_wrapper` function is applied to the final decorated function before copying any attributes that a decorator adds. This change preserves the function attributes like `__name__`, `__module__`, etc., resolving the issue.
+
+I verified the fix by running the relevant test suite `utils_tests.test_decorators`, which passed all tests successfully, indicating that the issue is resolved without introducing new problems.
+
+### Verifying
+I ran the test suite for `utils_tests.test_decorators` using the command `python tests/runtests.py utils_tests.test_decorators`. All 4 tests passed successfully, indicating that the issue with `method_decorator` not preserving wrapper assignments has been resolved without introducing new problems. The fix is verified to work as intended.
+[swe_entry] django__django-14787 ok steps=4 tools=37

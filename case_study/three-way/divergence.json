@@ -1,0 +1,1263 @@
+{
+  "django__django-11999": {
+    "repo": "django/django",
+    "resolved_by": [
+      "langgraph",
+      "openai"
+    ],
+    "identical_patches": false,
+    "gold_patch": "diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py\n--- a/django/db/models/fields/__init__.py\n+++ b/django/db/models/fields/__init__.py\n@@ -763,8 +763,12 @@ def contribute_to_class(self, cls, name, private_only=False):\n             if not getattr(cls, self.attname, None):\n                 setattr(cls, self.attname, self.descriptor_class(self))\n         if self.choices is not None:\n-            setattr(cls, 'get_%s_display' % self.name,\n-                    partialmethod(cls._get_FIELD_display, field=self))\n+            if not hasattr(cls, 'get_%s_display' % self.name):\n+                setattr(\n+                    cls,\n+                    'get_%s_display' % self.name,\n+                    partialmethod(cls._get_FIELD_display, field=self),\n+                )\n \n     def get_filter_kwargs_for_object(self, obj):\n         \"\"\"\n",
+    "gold_files": [
+      "django/db/models/fields/__init__.py"
+    ],
+    "f2p": [
+      "test_overriding_FIELD_display (model_fields.tests.GetFieldDisplayTests)"
+    ],
+    "byllm": {
+      "status": "EMPTY_PATCH",
+      "patch": "",
+      "patch_bytes": 0,
+      "run_error": "",
+      "steps": 4,
+      "llm_calls": 45,
+      "tool_calls": 33,
+      "sec": 418.3,
+      "tests_status": null
+    },
+    "langgraph": {
+      "status": "RESOLVED",
+      "patch": "diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py\nindex ee45bb941e..f17f98c511 100644\n--- a/django/db/models/fields/__init__.py\n+++ b/django/db/models/fields/__init__.py\n@@ -763,8 +763,9 @@ class Field(RegisterLookupMixin):\n             if not getattr(cls, self.attname, None):\n                 setattr(cls, self.attname, self.descriptor_class(self))\n         if self.choices is not None:\n-            setattr(cls, 'get_%s_display' % self.name,\n-                    partialmethod(cls._get_FIELD_display, field=self))\n+            method_name = 'get_%s_display' % self.name\n+            if not hasattr(cls, method_name):\n+                setattr(cls, method_name, partialmethod(cls._get_FIELD_display, field=self))\n \n     def get_filter_kwargs_for_object(self, obj):\n         \"\"\"\n",
+      "patch_bytes": 816,
+      "run_error": "",
+      "steps": 10,
+      "llm_calls": 63,
+      "tool_calls": 50,
+      "sec": 750.56,
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": [
+            "test_overriding_FIELD_display (model_fields.tests.GetFieldDisplayTests)"
+          ],
+          "failure": []
+        },
+        "PASS_TO_PASS": {
+          "success": [
+            "test_blank_in_choices (model_fields.tests.GetChoicesTests)",
+            "test_blank_in_grouped_choices (model_fields.tests.GetChoicesTests)",
+            "test_empty_choices (model_fields.tests.GetChoicesTests)",
+            "test_lazy_strings_not_evaluated (model_fields.tests.GetChoicesTests)",
+            "test_check (model_fields.tests.ChoicesTests)",
+            "test_choices (model_fields.tests.ChoicesTests)",
+            "test_flatchoices (model_fields.tests.ChoicesTests)",
+            "test_formfield (model_fields.tests.ChoicesTests)",
+            "test_invalid_choice (model_fields.tests.ChoicesTests)",
+            "Can supply a custom choices form class to Field.formfield()",
+            "deconstruct() uses __qualname__ for nested class support.",
+            "Field instances can be pickled.",
+            "test_field_name (model_fields.tests.BasicFieldTests)",
+            "Fields are ordered based on their creation.",
+            "test_field_repr (model_fields.tests.BasicFieldTests)",
+            "__repr__() uses __qualname__ for nested class support.",
+            "test_field_str (model_fields.tests.BasicFieldTests)",
+            "test_field_verbose_name (model_fields.tests.BasicFieldTests)",
+            "Field.formfield() sets disabled for fields with choices.",
+            "test_show_hidden_initial (model_fields.tests.BasicFieldTests)",
+            "test_choices_and_field_display (model_fields.tests.GetFieldDisplayTests)",
+            "test_empty_iterator_choices (model_fields.tests.GetFieldDisplayTests)",
+            "A translated display value is coerced to str.",
+            "test_iterator_choices (model_fields.tests.GetFieldDisplayTests)",
+            "test_get_choices (model_fields.tests.GetChoicesLimitChoicesToTests)",
+            "test_get_choices_reverse_related_field (model_fields.tests.GetChoicesLimitChoicesToTests)",
+            "test_get_choices (model_fields.tests.GetChoicesOrderingTests)",
+            "test_get_choices_default_ordering (model_fields.tests.GetChoicesOrderingTests)",
+            "test_get_choices_reverse_related_field (model_fields.tests.GetChoicesOrderingTests)",
+            "test_get_choices_reverse_related_field_default_ordering (model_fields.tests.GetChoicesOrderingTests)"
+          ],
+          "failure": []
+        },
+        "FAIL_TO_FAIL": {
+          "success": [],
+          "failure": []
+        },
+        "PASS_TO_FAIL": {
+          "success": [],
+          "failure": []
+        }
+      }
+    },
+    "openai": {
+      "status": "RESOLVED",
+      "patch": "diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py\nindex ee45bb941e..1e8fe3f8a2 100644\n--- a/django/db/models/fields/__init__.py\n+++ b/django/db/models/fields/__init__.py\n@@ -763,8 +763,11 @@ class Field(RegisterLookupMixin):\n             if not getattr(cls, self.attname, None):\n                 setattr(cls, self.attname, self.descriptor_class(self))\n         if self.choices is not None:\n-            setattr(cls, 'get_%s_display' % self.name,\n-                    partialmethod(cls._get_FIELD_display, field=self))\n+            method_name = 'get_%s_display' % self.name\n+            # Don't override a user-defined method/attribute with the auto-generated\n+            # get_FIELD_display() helper.\n+            if not hasattr(cls, method_name):\n+                setattr(cls, method_name, partialmethod(cls._get_FIELD_display, field=self))\n \n     def get_filter_kwargs_for_object(self, obj):\n         \"\"\"\n",
+      "patch_bytes": 946,
+      "run_error": "",
+      "steps": 6,
+      "llm_calls": 92,
+      "tool_calls": 82,
+      "sec": 725.39,
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": [
+            "test_overriding_FIELD_display (model_fields.tests.GetFieldDisplayTests)"
+          ],
+          "failure": []
+        },
+        "PASS_TO_PASS": {
+          "success": [
+            "test_blank_in_choices (model_fields.tests.GetChoicesTests)",
+            "test_blank_in_grouped_choices (model_fields.tests.GetChoicesTests)",
+            "test_empty_choices (model_fields.tests.GetChoicesTests)",
+            "test_lazy_strings_not_evaluated (model_fields.tests.GetChoicesTests)",
+            "test_check (model_fields.tests.ChoicesTests)",
+            "test_choices (model_fields.tests.ChoicesTests)",
+            "test_flatchoices (model_fields.tests.ChoicesTests)",
+            "test_formfield (model_fields.tests.ChoicesTests)",
+            "test_invalid_choice (model_fields.tests.ChoicesTests)",
+            "Can supply a custom choices form class to Field.formfield()",
+            "deconstruct() uses __qualname__ for nested class support.",
+            "Field instances can be pickled.",
+            "test_field_name (model_fields.tests.BasicFieldTests)",
+            "Fields are ordered based on their creation.",
+            "test_field_repr (model_fields.tests.BasicFieldTests)",
+            "__repr__() uses __qualname__ for nested class support.",
+            "test_field_str (model_fields.tests.BasicFieldTests)",
+            "test_field_verbose_name (model_fields.tests.BasicFieldTests)",
+            "Field.formfield() sets disabled for fields with choices.",
+            "test_show_hidden_initial (model_fields.tests.BasicFieldTests)",
+            "test_choices_and_field_display (model_fields.tests.GetFieldDisplayTests)",
+            "test_empty_iterator_choices (model_fields.tests.GetFieldDisplayTests)",
+            "A translated display value is coerced to str.",
+            "test_iterator_choices (model_fields.tests.GetFieldDisplayTests)",
+            "test_get_choices (model_fields.tests.GetChoicesLimitChoicesToTests)",
+            "test_get_choices_reverse_related_field (model_fields.tests.GetChoicesLimitChoicesToTests)",
+            "test_get_choices (model_fields.tests.GetChoicesOrderingTests)",
+            "test_get_choices_default_ordering (model_fields.tests.GetChoicesOrderingTests)",
+            "test_get_choices_reverse_related_field (model_fields.tests.GetChoicesOrderingTests)",
+            "test_get_choices_reverse_related_field_default_ordering (model_fields.tests.GetChoicesOrderingTests)"
+          ],
+          "failure": []
+        },
+        "FAIL_TO_FAIL": {
+          "success": [],
+          "failure": []
+        },
+        "PASS_TO_FAIL": {
+          "success": [],
+          "failure": []
+        }
+      }
+    }
+  },
+  "django__django-12983": {
+    "repo": "django/django",
+    "resolved_by": [
+      "byllm",
+      "openai"
+    ],
+    "identical_patches": false,
+    "gold_patch": "diff --git a/django/utils/text.py b/django/utils/text.py\n--- a/django/utils/text.py\n+++ b/django/utils/text.py\n@@ -393,17 +393,18 @@ def unescape_string_literal(s):\n @keep_lazy_text\n def slugify(value, allow_unicode=False):\n     \"\"\"\n-    Convert to ASCII if 'allow_unicode' is False. Convert spaces to hyphens.\n-    Remove characters that aren't alphanumerics, underscores, or hyphens.\n-    Convert to lowercase. Also strip leading and trailing whitespace.\n+    Convert to ASCII if 'allow_unicode' is False. Convert spaces or repeated\n+    dashes to single dashes. Remove characters that aren't alphanumerics,\n+    underscores, or hyphens. Convert to lowercase. Also strip leading and\n+    trailing whitespace, dashes, and underscores.\n     \"\"\"\n     value = str(value)\n     if allow_unicode:\n         value = unicodedata.normalize('NFKC', value)\n     else:\n         value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')\n-    value = re.sub(r'[^\\w\\s-]', '', value.lower()).strip()\n-    return re.sub(r'[-\\s]+', '-', value)\n+    value = re.sub(r'[^\\w\\s-]', '', value.lower())\n+    return re.sub(r'[-\\s]+', '-', value).strip('-_')\n \n \n def camel_case_to_spaces(value):\n",
+    "gold_files": [
+      "django/utils/text.py"
+    ],
+    "f2p": [
+      "test_slugify (utils_tests.test_text.TestUtilsText)"
+    ],
+    "byllm": {
+      "status": "RESOLVED",
+      "patch": "diff --git a/django/utils/text.py b/django/utils/text.py\nindex fb5f6298c4..bb2f84935c 100644\n--- a/django/utils/text.py\n+++ b/django/utils/text.py\n@@ -395,7 +395,8 @@ def slugify(value, allow_unicode=False):\n     \"\"\"\n     Convert to ASCII if 'allow_unicode' is False. Convert spaces to hyphens.\n     Remove characters that aren't alphanumerics, underscores, or hyphens.\n-    Convert to lowercase. Also strip leading and trailing whitespace.\n+    Convert to lowercase. Also strip leading and trailing whitespace, dashes,\n+    and underscores.\n     \"\"\"\n     value = str(value)\n     if allow_unicode:\n@@ -403,7 +404,7 @@ def slugify(value, allow_unicode=False):\n     else:\n         value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')\n     value = re.sub(r'[^\\w\\s-]', '', value.lower()).strip()\n-    return re.sub(r'[-\\s]+', '-', value)\n+    return re.sub(r'[-\\s]+', '-', value).strip('-_')\n \n \n def camel_case_to_spaces(value):\n",
+      "patch_bytes": 960,
+      "run_error": "",
+      "steps": 4,
+      "llm_calls": 53,
+      "tool_calls": 44,
+      "sec": 362.23,
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": [
+            "test_slugify (utils_tests.test_text.TestUtilsText)"
+          ],
+          "failure": []
+        },
+        "PASS_TO_PASS": {
+          "success": [
+            "test_compress_sequence (utils_tests.test_text.TestUtilsText)",
+            "test_format_lazy (utils_tests.test_text.TestUtilsText)",
+            "test_get_text_list (utils_tests.test_text.TestUtilsText)",
+            "test_get_valid_filename (utils_tests.test_text.TestUtilsText)",
+            "test_normalize_newlines (utils_tests.test_text.TestUtilsText)",
+            "test_phone2numeric (utils_tests.test_text.TestUtilsText)",
+            "test_smart_split (utils_tests.test_text.TestUtilsText)",
+            "test_truncate_chars (utils_tests.test_text.TestUtilsText)",
+            "test_truncate_chars_html (utils_tests.test_text.TestUtilsText)",
+            "test_truncate_html_words (utils_tests.test_text.TestUtilsText)",
+            "test_truncate_words (utils_tests.test_text.TestUtilsText)",
+            "test_unescape_entities (utils_tests.test_text.TestUtilsText)",
+            "test_unescape_entities_deprecated (utils_tests.test_text.TestUtilsText)",
+            "test_unescape_string_literal (utils_tests.test_text.TestUtilsText)",
+            "test_wrap (utils_tests.test_text.TestUtilsText)"
+          ],
+          "failure": []
+        },
+        "FAIL_TO_FAIL": {
+          "success": [],
+          "failure": []
+        },
+        "PASS_TO_FAIL": {
+          "success": [],
+          "failure": []
+        }
+      }
+    },
+    "langgraph": {
+      "status": "TESTS_FAIL",
+      "patch": "diff --git a/django/utils/text.py b/django/utils/text.py\nindex fb5f6298c4..cf63ddacec 100644\n--- a/django/utils/text.py\n+++ b/django/utils/text.py\n@@ -403,7 +403,7 @@ def slugify(value, allow_unicode=False):\n     else:\n         value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')\n     value = re.sub(r'[^\\w\\s-]', '', value.lower()).strip()\n-    return re.sub(r'[-\\s]+', '-', value)\n+    return re.sub(r'[-_\\s]+', '-', value).strip('-')\n \n \n def camel_case_to_spaces(value):\n",
+      "patch_bytes": 509,
+      "run_error": "",
+      "steps": 6,
+      "llm_calls": 61,
+      "tool_calls": 53,
+      "sec": 588.89,
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": [],
+          "failure": [
+            "test_slugify (utils_tests.test_text.TestUtilsText)"
+          ]
+        },
+        "PASS_TO_PASS": {
+          "success": [
+            "test_compress_sequence (utils_tests.test_text.TestUtilsText)",
+            "test_format_lazy (utils_tests.test_text.TestUtilsText)",
+            "test_get_text_list (utils_tests.test_text.TestUtilsText)",
+            "test_get_valid_filename (utils_tests.test_text.TestUtilsText)",
+            "test_normalize_newlines (utils_tests.test_text.TestUtilsText)",
+            "test_phone2numeric (utils_tests.test_text.TestUtilsText)",
+            "test_smart_split (utils_tests.test_text.TestUtilsText)",
+            "test_truncate_chars (utils_tests.test_text.TestUtilsText)",
+            "test_truncate_chars_html (utils_tests.test_text.TestUtilsText)",
+            "test_truncate_html_words (utils_tests.test_text.TestUtilsText)",
+            "test_truncate_words (utils_tests.test_text.TestUtilsText)",
+            "test_unescape_entities (utils_tests.test_text.TestUtilsText)",
+            "test_unescape_entities_deprecated (utils_tests.test_text.TestUtilsText)",
+            "test_unescape_string_literal (utils_tests.test_text.TestUtilsText)",
+            "test_wrap (utils_tests.test_text.TestUtilsText)"
+          ],
+          "failure": []
+        },
+        "FAIL_TO_FAIL": {
+          "success": [],
+          "failure": []
+        },
+        "PASS_TO_FAIL": {
+          "success": [],
+          "failure": []
+        }
+      }
+    },
+    "openai": {
+      "status": "RESOLVED",
+      "patch": "diff --git a/django/utils/text.py b/django/utils/text.py\nindex fb5f6298c4..3ba4bbb3f4 100644\n--- a/django/utils/text.py\n+++ b/django/utils/text.py\n@@ -403,7 +403,7 @@ def slugify(value, allow_unicode=False):\n     else:\n         value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')\n     value = re.sub(r'[^\\w\\s-]', '', value.lower()).strip()\n-    return re.sub(r'[-\\s]+', '-', value)\n+    return re.sub(r'[-\\s]+', '-', value).strip('-_')\n \n \n def camel_case_to_spaces(value):\n",
+      "patch_bytes": 509,
+      "run_error": "",
+      "steps": 4,
+      "llm_calls": 61,
+      "tool_calls": 54,
+      "sec": 463.26,
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": [
+            "test_slugify (utils_tests.test_text.TestUtilsText)"
+          ],
+          "failure": []
+        },
+        "PASS_TO_PASS": {
+          "success": [
+            "test_compress_sequence (utils_tests.test_text.TestUtilsText)",
+            "test_format_lazy (utils_tests.test_text.TestUtilsText)",
+            "test_get_text_list (utils_tests.test_text.TestUtilsText)",
+            "test_get_valid_filename (utils_tests.test_text.TestUtilsText)",
+            "test_normalize_newlines (utils_tests.test_text.TestUtilsText)",
+            "test_phone2numeric (utils_tests.test_text.TestUtilsText)",
+            "test_smart_split (utils_tests.test_text.TestUtilsText)",
+            "test_truncate_chars (utils_tests.test_text.TestUtilsText)",
+            "test_truncate_chars_html (utils_tests.test_text.TestUtilsText)",
+            "test_truncate_html_words (utils_tests.test_text.TestUtilsText)",
+            "test_truncate_words (utils_tests.test_text.TestUtilsText)",
+            "test_unescape_entities (utils_tests.test_text.TestUtilsText)",
+            "test_unescape_entities_deprecated (utils_tests.test_text.TestUtilsText)",
+            "test_unescape_string_literal (utils_tests.test_text.TestUtilsText)",
+            "test_wrap (utils_tests.test_text.TestUtilsText)"
+          ],
+          "failure": []
+        },
+        "FAIL_TO_FAIL": {
+          "success": [],
+          "failure": []
+        },
+        "PASS_TO_FAIL": {
+          "success": [],
+          "failure": []
+        }
+      }
+    }
+  },
+  "django__django-14017": {
+    "repo": "django/django",
+    "resolved_by": [
+      "langgraph",
+      "openai"
+    ],
+    "identical_patches": false,
+    "gold_patch": "diff --git a/django/db/models/query_utils.py b/django/db/models/query_utils.py\n--- a/django/db/models/query_utils.py\n+++ b/django/db/models/query_utils.py\n@@ -40,7 +40,7 @@ def __init__(self, *args, _connector=None, _negated=False, **kwargs):\n         super().__init__(children=[*args, *sorted(kwargs.items())], connector=_connector, negated=_negated)\n \n     def _combine(self, other, conn):\n-        if not isinstance(other, Q):\n+        if not(isinstance(other, Q) or getattr(other, 'conditional', False) is True):\n             raise TypeError(other)\n \n         # If the other Q() is empty, ignore it and just use `self`.\n",
+    "gold_files": [
+      "django/db/models/query_utils.py"
+    ],
+    "f2p": [
+      "test_boolean_expression_combined (expressions.tests.BasicExpressionsTests)",
+      "test_boolean_expression_combined_with_empty_Q (expressions.tests.BasicExpressionsTests)"
+    ],
+    "byllm": {
+      "status": "TESTS_FAIL",
+      "patch": "diff --git a/django/db/models/query_utils.py b/django/db/models/query_utils.py\nindex c957ffa564..b985e8eba6 100644\n--- a/django/db/models/query_utils.py\n+++ b/django/db/models/query_utils.py\n@@ -41,7 +41,13 @@ class Q(tree.Node):\n \n     def _combine(self, other, conn):\n         if not isinstance(other, Q):\n-            raise TypeError(other)\n+            # Allow combining with conditional expressions by wrapping them\n+            # in a Q() object. This ensures commutativity with expressions\n+            # like Exists().\n+            if getattr(other, 'conditional', False):\n+                other = Q(other)\n+            else:\n+                raise TypeError(other)\n \n         # If the other Q() is empty, ignore it and just use `self`.\n         if not other:\n",
+      "patch_bytes": 768,
+      "run_error": "",
+      "steps": 4,
+      "llm_calls": 47,
+      "tool_calls": 38,
+      "sec": 447.11,
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": [
+            "test_boolean_expression_combined (expressions.tests.BasicExpressionsTests)"
+          ],
+          "failure": [
+            "test_boolean_expression_combined_with_empty_Q (expressions.tests.BasicExpressionsTests)"
+          ]
+        },
+        "PASS_TO_PASS": {
+          "success": [
+            "test_resolve_output_field (expressions.tests.CombinedExpressionTests)",
+            "test_deconstruct (expressions.tests.FTests)",
+            "test_deepcopy (expressions.tests.FTests)",
+            "test_equal (expressions.tests.FTests)",
+            "test_hash (expressions.tests.FTests)",
+            "test_not_equal_Value (expressions.tests.FTests)",
+            "test_and (expressions.tests.CombinableTests)",
+            "test_negation (expressions.tests.CombinableTests)",
+            "test_or (expressions.tests.CombinableTests)",
+            "test_reversed_and (expressions.tests.CombinableTests)",
+            "test_reversed_or (expressions.tests.CombinableTests)",
+            "test_empty_group_by (expressions.tests.ExpressionWrapperTests)",
+            "test_non_empty_group_by (expressions.tests.ExpressionWrapperTests)",
+            "test_aggregates (expressions.tests.ReprTests)",
+            "test_distinct_aggregates (expressions.tests.ReprTests)",
+            "test_expressions (expressions.tests.ReprTests)",
+            "test_filtered_aggregates (expressions.tests.ReprTests)",
+            "test_functions (expressions.tests.ReprTests)",
+            "test_optimizations (expressions.tests.ExistsTests)",
+            "test_equal (expressions.tests.SimpleExpressionTests)",
+            "test_hash (expressions.tests.SimpleExpressionTests)",
+            "test_month_aggregation (expressions.tests.FieldTransformTests)",
+            "test_multiple_transforms_in_values (expressions.tests.FieldTransformTests)",
+            "test_transform_in_values (expressions.tests.FieldTransformTests)",
+            "Complex expressions of different connection types are possible.",
+            "We can fill a value in all objects with an other value of the",
+            "We can filter for objects, where a value is not equals the value",
+            "We can increment a value of all objects in a query set.",
+            "test_compile_unresolved (expressions.tests.ValueTests)",
+            "test_deconstruct (expressions.tests.ValueTests)",
+            "test_deconstruct_output_field (expressions.tests.ValueTests)",
+            "test_equal (expressions.tests.ValueTests)",
+            "test_equal_output_field (expressions.tests.ValueTests)",
+            "test_hash (expressions.tests.ValueTests)",
+            "test_raise_empty_expressionlist (expressions.tests.ValueTests)",
+            "test_resolve_output_field (expressions.tests.ValueTests)",
+            "test_resolve_output_field_failure (expressions.tests.ValueTests)",
+            "test_update_TimeField_using_Value (expressions.tests.ValueTests)",
+            "test_update_UUIDField_using_Value (expressions.tests.ValueTests)",
+            "test_F_reuse (expressions.tests.ExpressionsTests)",
+            "Special characters (e.g. %, _ and \\) stored in database are",
+            "This tests that SQL injection isn't possible using compilation of",
+            "test_expressions_in_lookups_join_choice (expressions.tests.IterableLookupInnerExpressionsTests)",
+            "test_in_lookup_allows_F_expressions_and_expressions_for_datetimes (expressions.tests.IterableLookupInnerExpressionsTests)",
+            "test_in_lookup_allows_F_expressions_and_expressions_for_integers (expressions.tests.IterableLookupInnerExpressionsTests)",
+            "test_range_lookup_allows_F_expressions_and_expressions_for_integers (expressions.tests.IterableLookupInnerExpressionsTests)",
+            "test_range_lookup_namedtuple (expressions.tests.IterableLookupInnerExpressionsTests)",
+            "test_lefthand_addition (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_and (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_left_shift_operator (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_or (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_right_shift_operator (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_xor (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_xor_null (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_division (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_modulo (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_multiplication (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_power (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_subtraction (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_transformed_field_bitwise_or (expressions.tests.ExpressionOperatorTests)",
+            "test_right_hand_addition (expressions.tests.ExpressionOperatorTests)",
+            "test_right_hand_division (expressions.tests.ExpressionOperatorTests)",
+            "test_right_hand_modulo (expressions.tests.ExpressionOperatorTests)",
+            "test_right_hand_multiplication (expressions.tests.ExpressionOperatorTests)",
+            "test_right_hand_subtraction (expressions.tests.ExpressionOperatorTests)",
+            "test_righthand_power (expressions.tests.ExpressionOperatorTests)",
+            "test_date_case_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_date_comparison (expressions.tests.FTimeDeltaTests)",
+            "test_date_minus_duration (expressions.tests.FTimeDeltaTests)",
+            "test_date_subquery_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_date_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_datetime_subquery_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_datetime_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_datetime_subtraction_microseconds (expressions.tests.FTimeDeltaTests)",
+            "test_delta_add (expressions.tests.FTimeDeltaTests)",
+            "test_delta_subtract (expressions.tests.FTimeDeltaTests)",
+            "test_delta_update (expressions.tests.FTimeDeltaTests)",
+            "test_duration_expressions (expressions.tests.FTimeDeltaTests)",
+            "test_duration_with_datetime (expressions.tests.FTimeDeltaTests)",
+            "test_duration_with_datetime_microseconds (expressions.tests.FTimeDeltaTests)",
+            "test_durationfield_add (expressions.tests.FTimeDeltaTests)",
+            "test_exclude (expressions.tests.FTimeDeltaTests)",
+            "test_invalid_operator (expressions.tests.FTimeDeltaTests)",
+            "test_mixed_comparisons2 (expressions.tests.FTimeDeltaTests)",
+            "test_multiple_query_compilation (expressions.tests.FTimeDeltaTests)",
+            "test_negative_timedelta_update (expressions.tests.FTimeDeltaTests)",
+            "test_query_clone (expressions.tests.FTimeDeltaTests)",
+            "test_time_subquery_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_time_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_aggregate_rawsql_annotation (expressions.tests.BasicExpressionsTests)",
+            "test_aggregate_subquery_annotation (expressions.tests.BasicExpressionsTests)",
+            "test_annotate_values_aggregate (expressions.tests.BasicExpressionsTests)",
+            "test_annotate_values_count (expressions.tests.BasicExpressionsTests)",
+            "test_annotate_values_filter (expressions.tests.BasicExpressionsTests)",
+            "test_annotation_with_nested_outerref (expressions.tests.BasicExpressionsTests)",
+            "test_annotation_with_outerref (expressions.tests.BasicExpressionsTests)",
+            "test_annotations_within_subquery (expressions.tests.BasicExpressionsTests)",
+            "test_arithmetic (expressions.tests.BasicExpressionsTests)",
+            "test_case_in_filter_if_boolean_output_field (expressions.tests.BasicExpressionsTests)",
+            "test_exist_single_field_output_field (expressions.tests.BasicExpressionsTests)",
+            "test_exists_in_filter (expressions.tests.BasicExpressionsTests)",
+            "test_explicit_output_field (expressions.tests.BasicExpressionsTests)",
+            "test_filter_inter_attribute (expressions.tests.BasicExpressionsTests)",
+            "test_filter_with_join (expressions.tests.BasicExpressionsTests)",
+            "test_filtering_on_annotate_that_uses_q (expressions.tests.BasicExpressionsTests)",
+            "test_filtering_on_q_that_is_boolean (expressions.tests.BasicExpressionsTests)",
+            "test_filtering_on_rawsql_that_is_boolean (expressions.tests.BasicExpressionsTests)",
+            "test_in_subquery (expressions.tests.BasicExpressionsTests)",
+            "test_incorrect_field_in_F_expression (expressions.tests.BasicExpressionsTests)",
+            "test_incorrect_joined_field_in_F_expression (expressions.tests.BasicExpressionsTests)",
+            "test_nested_outerref_with_function (expressions.tests.BasicExpressionsTests)",
+            "test_nested_subquery (expressions.tests.BasicExpressionsTests)",
+            "test_nested_subquery_join_outer_ref (expressions.tests.BasicExpressionsTests)",
+            "test_nested_subquery_outer_ref_2 (expressions.tests.BasicExpressionsTests)",
+            "test_nested_subquery_outer_ref_with_autofield (expressions.tests.BasicExpressionsTests)",
+            "test_new_object_create (expressions.tests.BasicExpressionsTests)",
+            "test_new_object_save (expressions.tests.BasicExpressionsTests)",
+            "test_object_create_with_aggregate (expressions.tests.BasicExpressionsTests)",
+            "test_object_update (expressions.tests.BasicExpressionsTests)",
+            "test_object_update_fk (expressions.tests.BasicExpressionsTests)",
+            "test_object_update_unsaved_objects (expressions.tests.BasicExpressionsTests)",
+            "test_order_by_exists (expressions.tests.BasicExpressionsTests)",
+            "test_order_by_multiline_sql (expressions.tests.BasicExpressionsTests)",
+            "test_order_of_operations (expressions.tests.BasicExpressionsTests)",
+            "test_outerref (expressions.tests.BasicExpressionsTests)",
+            "test_outerref_mixed_case_table_name (expressions.tests.BasicExpressionsTests)",
+            "test_outerref_with_operator (expressions.tests.BasicExpressionsTests)",
+            "test_parenthesis_priority (expressions.tests.BasicExpressionsTests)",
+            "test_pickle_expression (expressions.tests.BasicExpressionsTests)",
+            "test_subquery (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_eq (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_filter_by_aggregate (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_filter_by_lazy (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_group_by_outerref_in_filter (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_in_filter (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_references_joined_table_twice (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_11722_iexact_lookup (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_16731_startswith_lookup (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_18375_chained_filters (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_18375_join_reuse (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_18375_kwarg_ordering (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_18375_kwarg_ordering_2 (expressions.tests.BasicExpressionsTests)",
+            "test_update (expressions.tests.BasicExpressionsTests)",
+            "test_update_inherited_field_value (expressions.tests.BasicExpressionsTests)",
+            "test_update_with_fk (expressions.tests.BasicExpressionsTests)",
+            "test_update_with_none (expressions.tests.BasicExpressionsTests)",
+            "test_uuid_pk_subquery (expressions.tests.BasicExpressionsTests)"
+          ],
+          "failure": []
+        },
+        "FAIL_TO_FAIL": {
+          "success": [],
+          "failure": []
+        },
+        "PASS_TO_FAIL": {
+          "success": [],
+          "failure": []
+        }
+      }
+    },
+    "langgraph": {
+      "status": "RESOLVED",
+      "patch": "diff --git a/django/db/models/query_utils.py b/django/db/models/query_utils.py\nindex c957ffa564..8b63f56e27 100644\n--- a/django/db/models/query_utils.py\n+++ b/django/db/models/query_utils.py\n@@ -41,7 +41,12 @@ class Q(tree.Node):\n \n     def _combine(self, other, conn):\n         if not isinstance(other, Q):\n-            raise TypeError(other)\n+            # Allow combining Q objects with conditional expressions, e.g.\n+            # Exists(...) & Q(...). Coerce conditional expressions into Q().\n+            if hasattr(other, 'resolve_expression') and getattr(other, 'conditional', False):\n+                other = Q(other)\n+            else:\n+                raise TypeError(other)\n \n         # If the other Q() is empty, ignore it and just use `self`.\n         if not other:\n@@ -85,9 +90,19 @@ class Q(tree.Node):\n         if path.startswith('django.db.models.query_utils'):\n             path = path.replace('django.db.models.query_utils', 'django.db.models')\n         args, kwargs = (), {}\n-        if len(self.children) == 1 and not isinstance(self.children[0], Q):\n+        if len(self.children) == 1:\n             child = self.children[0]\n-            kwargs = {child[0]: child[1]}\n+            if isinstance(child, Q):\n+                args = (child,)\n+                if self.connector != self.default:\n+                    kwargs = {'_connector': self.connector}\n+            elif isinstance(child, tuple):\n+                kwargs = {child[0]: child[1]}\n+            else:\n+                # Single non-Q, non-tuple child (e.g., a conditional expression)\n+                args = (child,)\n+                if self.connector != self.default:\n+                    kwargs = {'_connector': self.connector}\n         else:\n             args = tuple(self.children)\n             if self.connector != self.default:\n",
+      "patch_bytes": 1817,
+      "run_error": "",
+      "steps": 10,
+      "llm_calls": 88,
+      "tool_calls": 74,
+      "sec": 964.42,
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": [
+            "test_boolean_expression_combined (expressions.tests.BasicExpressionsTests)",
+            "test_boolean_expression_combined_with_empty_Q (expressions.tests.BasicExpressionsTests)"
+          ],
+          "failure": []
+        },
+        "PASS_TO_PASS": {
+          "success": [
+            "test_resolve_output_field (expressions.tests.CombinedExpressionTests)",
+            "test_deconstruct (expressions.tests.FTests)",
+            "test_deepcopy (expressions.tests.FTests)",
+            "test_equal (expressions.tests.FTests)",
+            "test_hash (expressions.tests.FTests)",
+            "test_not_equal_Value (expressions.tests.FTests)",
+            "test_and (expressions.tests.CombinableTests)",
+            "test_negation (expressions.tests.CombinableTests)",
+            "test_or (expressions.tests.CombinableTests)",
+            "test_reversed_and (expressions.tests.CombinableTests)",
+            "test_reversed_or (expressions.tests.CombinableTests)",
+            "test_empty_group_by (expressions.tests.ExpressionWrapperTests)",
+            "test_non_empty_group_by (expressions.tests.ExpressionWrapperTests)",
+            "test_aggregates (expressions.tests.ReprTests)",
+            "test_distinct_aggregates (expressions.tests.ReprTests)",
+            "test_expressions (expressions.tests.ReprTests)",
+            "test_filtered_aggregates (expressions.tests.ReprTests)",
+            "test_functions (expressions.tests.ReprTests)",
+            "test_optimizations (expressions.tests.ExistsTests)",
+            "test_equal (expressions.tests.SimpleExpressionTests)",
+            "test_hash (expressions.tests.SimpleExpressionTests)",
+            "test_month_aggregation (expressions.tests.FieldTransformTests)",
+            "test_multiple_transforms_in_values (expressions.tests.FieldTransformTests)",
+            "test_transform_in_values (expressions.tests.FieldTransformTests)",
+            "Complex expressions of different connection types are possible.",
+            "We can fill a value in all objects with an other value of the",
+            "We can filter for objects, where a value is not equals the value",
+            "We can increment a value of all objects in a query set.",
+            "test_compile_unresolved (expressions.tests.ValueTests)",
+            "test_deconstruct (expressions.tests.ValueTests)",
+            "test_deconstruct_output_field (expressions.tests.ValueTests)",
+            "test_equal (expressions.tests.ValueTests)",
+            "test_equal_output_field (expressions.tests.ValueTests)",
+            "test_hash (expressions.tests.ValueTests)",
+            "test_raise_empty_expressionlist (expressions.tests.ValueTests)",
+            "test_resolve_output_field (expressions.tests.ValueTests)",
+            "test_resolve_output_field_failure (expressions.tests.ValueTests)",
+            "test_update_TimeField_using_Value (expressions.tests.ValueTests)",
+            "test_update_UUIDField_using_Value (expressions.tests.ValueTests)",
+            "test_F_reuse (expressions.tests.ExpressionsTests)",
+            "Special characters (e.g. %, _ and \\) stored in database are",
+            "This tests that SQL injection isn't possible using compilation of",
+            "test_expressions_in_lookups_join_choice (expressions.tests.IterableLookupInnerExpressionsTests)",
+            "test_in_lookup_allows_F_expressions_and_expressions_for_datetimes (expressions.tests.IterableLookupInnerExpressionsTests)",
+            "test_in_lookup_allows_F_expressions_and_expressions_for_integers (expressions.tests.IterableLookupInnerExpressionsTests)",
+            "test_range_lookup_allows_F_expressions_and_expressions_for_integers (expressions.tests.IterableLookupInnerExpressionsTests)",
+            "test_range_lookup_namedtuple (expressions.tests.IterableLookupInnerExpressionsTests)",
+            "test_lefthand_addition (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_and (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_left_shift_operator (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_or (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_right_shift_operator (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_xor (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_xor_null (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_division (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_modulo (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_multiplication (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_power (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_subtraction (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_transformed_field_bitwise_or (expressions.tests.ExpressionOperatorTests)",
+            "test_right_hand_addition (expressions.tests.ExpressionOperatorTests)",
+            "test_right_hand_division (expressions.tests.ExpressionOperatorTests)",
+            "test_right_hand_modulo (expressions.tests.ExpressionOperatorTests)",
+            "test_right_hand_multiplication (expressions.tests.ExpressionOperatorTests)",
+            "test_right_hand_subtraction (expressions.tests.ExpressionOperatorTests)",
+            "test_righthand_power (expressions.tests.ExpressionOperatorTests)",
+            "test_date_case_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_date_comparison (expressions.tests.FTimeDeltaTests)",
+            "test_date_minus_duration (expressions.tests.FTimeDeltaTests)",
+            "test_date_subquery_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_date_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_datetime_subquery_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_datetime_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_datetime_subtraction_microseconds (expressions.tests.FTimeDeltaTests)",
+            "test_delta_add (expressions.tests.FTimeDeltaTests)",
+            "test_delta_subtract (expressions.tests.FTimeDeltaTests)",
+            "test_delta_update (expressions.tests.FTimeDeltaTests)",
+            "test_duration_expressions (expressions.tests.FTimeDeltaTests)",
+            "test_duration_with_datetime (expressions.tests.FTimeDeltaTests)",
+            "test_duration_with_datetime_microseconds (expressions.tests.FTimeDeltaTests)",
+            "test_durationfield_add (expressions.tests.FTimeDeltaTests)",
+            "test_exclude (expressions.tests.FTimeDeltaTests)",
+            "test_invalid_operator (expressions.tests.FTimeDeltaTests)",
+            "test_mixed_comparisons2 (expressions.tests.FTimeDeltaTests)",
+            "test_multiple_query_compilation (expressions.tests.FTimeDeltaTests)",
+            "test_negative_timedelta_update (expressions.tests.FTimeDeltaTests)",
+            "test_query_clone (expressions.tests.FTimeDeltaTests)",
+            "test_time_subquery_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_time_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_aggregate_rawsql_annotation (expressions.tests.BasicExpressionsTests)",
+            "test_aggregate_subquery_annotation (expressions.tests.BasicExpressionsTests)",
+            "test_annotate_values_aggregate (expressions.tests.BasicExpressionsTests)",
+            "test_annotate_values_count (expressions.tests.BasicExpressionsTests)",
+            "test_annotate_values_filter (expressions.tests.BasicExpressionsTests)",
+            "test_annotation_with_nested_outerref (expressions.tests.BasicExpressionsTests)",
+            "test_annotation_with_outerref (expressions.tests.BasicExpressionsTests)",
+            "test_annotations_within_subquery (expressions.tests.BasicExpressionsTests)",
+            "test_arithmetic (expressions.tests.BasicExpressionsTests)",
+            "test_case_in_filter_if_boolean_output_field (expressions.tests.BasicExpressionsTests)",
+            "test_exist_single_field_output_field (expressions.tests.BasicExpressionsTests)",
+            "test_exists_in_filter (expressions.tests.BasicExpressionsTests)",
+            "test_explicit_output_field (expressions.tests.BasicExpressionsTests)",
+            "test_filter_inter_attribute (expressions.tests.BasicExpressionsTests)",
+            "test_filter_with_join (expressions.tests.BasicExpressionsTests)",
+            "test_filtering_on_annotate_that_uses_q (expressions.tests.BasicExpressionsTests)",
+            "test_filtering_on_q_that_is_boolean (expressions.tests.BasicExpressionsTests)",
+            "test_filtering_on_rawsql_that_is_boolean (expressions.tests.BasicExpressionsTests)",
+            "test_in_subquery (expressions.tests.BasicExpressionsTests)",
+            "test_incorrect_field_in_F_expression (expressions.tests.BasicExpressionsTests)",
+            "test_incorrect_joined_field_in_F_expression (expressions.tests.BasicExpressionsTests)",
+            "test_nested_outerref_with_function (expressions.tests.BasicExpressionsTests)",
+            "test_nested_subquery (expressions.tests.BasicExpressionsTests)",
+            "test_nested_subquery_join_outer_ref (expressions.tests.BasicExpressionsTests)",
+            "test_nested_subquery_outer_ref_2 (expressions.tests.BasicExpressionsTests)",
+            "test_nested_subquery_outer_ref_with_autofield (expressions.tests.BasicExpressionsTests)",
+            "test_new_object_create (expressions.tests.BasicExpressionsTests)",
+            "test_new_object_save (expressions.tests.BasicExpressionsTests)",
+            "test_object_create_with_aggregate (expressions.tests.BasicExpressionsTests)",
+            "test_object_update (expressions.tests.BasicExpressionsTests)",
+            "test_object_update_fk (expressions.tests.BasicExpressionsTests)",
+            "test_object_update_unsaved_objects (expressions.tests.BasicExpressionsTests)",
+            "test_order_by_exists (expressions.tests.BasicExpressionsTests)",
+            "test_order_by_multiline_sql (expressions.tests.BasicExpressionsTests)",
+            "test_order_of_operations (expressions.tests.BasicExpressionsTests)",
+            "test_outerref (expressions.tests.BasicExpressionsTests)",
+            "test_outerref_mixed_case_table_name (expressions.tests.BasicExpressionsTests)",
+            "test_outerref_with_operator (expressions.tests.BasicExpressionsTests)",
+            "test_parenthesis_priority (expressions.tests.BasicExpressionsTests)",
+            "test_pickle_expression (expressions.tests.BasicExpressionsTests)",
+            "test_subquery (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_eq (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_filter_by_aggregate (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_filter_by_lazy (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_group_by_outerref_in_filter (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_in_filter (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_references_joined_table_twice (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_11722_iexact_lookup (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_16731_startswith_lookup (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_18375_chained_filters (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_18375_join_reuse (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_18375_kwarg_ordering (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_18375_kwarg_ordering_2 (expressions.tests.BasicExpressionsTests)",
+            "test_update (expressions.tests.BasicExpressionsTests)",
+            "test_update_inherited_field_value (expressions.tests.BasicExpressionsTests)",
+            "test_update_with_fk (expressions.tests.BasicExpressionsTests)",
+            "test_update_with_none (expressions.tests.BasicExpressionsTests)",
+            "test_uuid_pk_subquery (expressions.tests.BasicExpressionsTests)"
+          ],
+          "failure": []
+        },
+        "FAIL_TO_FAIL": {
+          "success": [],
+          "failure": []
+        },
+        "PASS_TO_FAIL": {
+          "success": [],
+          "failure": []
+        }
+      }
+    },
+    "openai": {
+      "status": "RESOLVED",
+      "patch": "diff --git a/django/db/models/query_utils.py b/django/db/models/query_utils.py\nindex c957ffa564..66adcfb6f6 100644\n--- a/django/db/models/query_utils.py\n+++ b/django/db/models/query_utils.py\n@@ -41,7 +41,13 @@ class Q(tree.Node):\n \n     def _combine(self, other, conn):\n         if not isinstance(other, Q):\n-            raise TypeError(other)\n+            # Allow combining Q() with conditional expressions (e.g. Exists,\n+            # WhereNode, etc.) by coercing them into Q(). This mirrors the\n+            # behavior of combining from the right-hand side via Combinable.\n+            if getattr(other, 'conditional', False) and hasattr(other, 'resolve_expression'):\n+                other = Q(other)\n+            else:\n+                raise TypeError(other)\n \n         # If the other Q() is empty, ignore it and just use `self`.\n         if not other:\n@@ -85,9 +91,15 @@ class Q(tree.Node):\n         if path.startswith('django.db.models.query_utils'):\n             path = path.replace('django.db.models.query_utils', 'django.db.models')\n         args, kwargs = (), {}\n-        if len(self.children) == 1 and not isinstance(self.children[0], Q):\n+        if len(self.children) == 1:\n             child = self.children[0]\n-            kwargs = {child[0]: child[1]}\n+            # If the single child is a (key, value) lookup tuple, represent it\n+            # as kwargs. Otherwise, keep it as a positional argument (e.g.,\n+            # expressions like Exists()).\n+            if isinstance(child, tuple) and len(child) == 2 and isinstance(child[0], str):\n+                kwargs = {child[0]: child[1]}\n+            else:\n+                args = (child,)\n         else:\n             args = tuple(self.children)\n             if self.connector != self.default:\n",
+      "patch_bytes": 1764,
+      "run_error": "",
+      "steps": 4,
+      "llm_calls": 67,
+      "tool_calls": 61,
+      "sec": 658.58,
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": [
+            "test_boolean_expression_combined (expressions.tests.BasicExpressionsTests)",
+            "test_boolean_expression_combined_with_empty_Q (expressions.tests.BasicExpressionsTests)"
+          ],
+          "failure": []
+        },
+        "PASS_TO_PASS": {
+          "success": [
+            "test_resolve_output_field (expressions.tests.CombinedExpressionTests)",
+            "test_deconstruct (expressions.tests.FTests)",
+            "test_deepcopy (expressions.tests.FTests)",
+            "test_equal (expressions.tests.FTests)",
+            "test_hash (expressions.tests.FTests)",
+            "test_not_equal_Value (expressions.tests.FTests)",
+            "test_and (expressions.tests.CombinableTests)",
+            "test_negation (expressions.tests.CombinableTests)",
+            "test_or (expressions.tests.CombinableTests)",
+            "test_reversed_and (expressions.tests.CombinableTests)",
+            "test_reversed_or (expressions.tests.CombinableTests)",
+            "test_empty_group_by (expressions.tests.ExpressionWrapperTests)",
+            "test_non_empty_group_by (expressions.tests.ExpressionWrapperTests)",
+            "test_aggregates (expressions.tests.ReprTests)",
+            "test_distinct_aggregates (expressions.tests.ReprTests)",
+            "test_expressions (expressions.tests.ReprTests)",
+            "test_filtered_aggregates (expressions.tests.ReprTests)",
+            "test_functions (expressions.tests.ReprTests)",
+            "test_optimizations (expressions.tests.ExistsTests)",
+            "test_equal (expressions.tests.SimpleExpressionTests)",
+            "test_hash (expressions.tests.SimpleExpressionTests)",
+            "test_month_aggregation (expressions.tests.FieldTransformTests)",
+            "test_multiple_transforms_in_values (expressions.tests.FieldTransformTests)",
+            "test_transform_in_values (expressions.tests.FieldTransformTests)",
+            "Complex expressions of different connection types are possible.",
+            "We can fill a value in all objects with an other value of the",
+            "We can filter for objects, where a value is not equals the value",
+            "We can increment a value of all objects in a query set.",
+            "test_compile_unresolved (expressions.tests.ValueTests)",
+            "test_deconstruct (expressions.tests.ValueTests)",
+            "test_deconstruct_output_field (expressions.tests.ValueTests)",
+            "test_equal (expressions.tests.ValueTests)",
+            "test_equal_output_field (expressions.tests.ValueTests)",
+            "test_hash (expressions.tests.ValueTests)",
+            "test_raise_empty_expressionlist (expressions.tests.ValueTests)",
+            "test_resolve_output_field (expressions.tests.ValueTests)",
+            "test_resolve_output_field_failure (expressions.tests.ValueTests)",
+            "test_update_TimeField_using_Value (expressions.tests.ValueTests)",
+            "test_update_UUIDField_using_Value (expressions.tests.ValueTests)",
+            "test_F_reuse (expressions.tests.ExpressionsTests)",
+            "Special characters (e.g. %, _ and \\) stored in database are",
+            "This tests that SQL injection isn't possible using compilation of",
+            "test_expressions_in_lookups_join_choice (expressions.tests.IterableLookupInnerExpressionsTests)",
+            "test_in_lookup_allows_F_expressions_and_expressions_for_datetimes (expressions.tests.IterableLookupInnerExpressionsTests)",
+            "test_in_lookup_allows_F_expressions_and_expressions_for_integers (expressions.tests.IterableLookupInnerExpressionsTests)",
+            "test_range_lookup_allows_F_expressions_and_expressions_for_integers (expressions.tests.IterableLookupInnerExpressionsTests)",
+            "test_range_lookup_namedtuple (expressions.tests.IterableLookupInnerExpressionsTests)",
+            "test_lefthand_addition (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_and (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_left_shift_operator (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_or (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_right_shift_operator (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_xor (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_bitwise_xor_null (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_division (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_modulo (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_multiplication (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_power (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_subtraction (expressions.tests.ExpressionOperatorTests)",
+            "test_lefthand_transformed_field_bitwise_or (expressions.tests.ExpressionOperatorTests)",
+            "test_right_hand_addition (expressions.tests.ExpressionOperatorTests)",
+            "test_right_hand_division (expressions.tests.ExpressionOperatorTests)",
+            "test_right_hand_modulo (expressions.tests.ExpressionOperatorTests)",
+            "test_right_hand_multiplication (expressions.tests.ExpressionOperatorTests)",
+            "test_right_hand_subtraction (expressions.tests.ExpressionOperatorTests)",
+            "test_righthand_power (expressions.tests.ExpressionOperatorTests)",
+            "test_date_case_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_date_comparison (expressions.tests.FTimeDeltaTests)",
+            "test_date_minus_duration (expressions.tests.FTimeDeltaTests)",
+            "test_date_subquery_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_date_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_datetime_subquery_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_datetime_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_datetime_subtraction_microseconds (expressions.tests.FTimeDeltaTests)",
+            "test_delta_add (expressions.tests.FTimeDeltaTests)",
+            "test_delta_subtract (expressions.tests.FTimeDeltaTests)",
+            "test_delta_update (expressions.tests.FTimeDeltaTests)",
+            "test_duration_expressions (expressions.tests.FTimeDeltaTests)",
+            "test_duration_with_datetime (expressions.tests.FTimeDeltaTests)",
+            "test_duration_with_datetime_microseconds (expressions.tests.FTimeDeltaTests)",
+            "test_durationfield_add (expressions.tests.FTimeDeltaTests)",
+            "test_exclude (expressions.tests.FTimeDeltaTests)",
+            "test_invalid_operator (expressions.tests.FTimeDeltaTests)",
+            "test_mixed_comparisons2 (expressions.tests.FTimeDeltaTests)",
+            "test_multiple_query_compilation (expressions.tests.FTimeDeltaTests)",
+            "test_negative_timedelta_update (expressions.tests.FTimeDeltaTests)",
+            "test_query_clone (expressions.tests.FTimeDeltaTests)",
+            "test_time_subquery_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_time_subtraction (expressions.tests.FTimeDeltaTests)",
+            "test_aggregate_rawsql_annotation (expressions.tests.BasicExpressionsTests)",
+            "test_aggregate_subquery_annotation (expressions.tests.BasicExpressionsTests)",
+            "test_annotate_values_aggregate (expressions.tests.BasicExpressionsTests)",
+            "test_annotate_values_count (expressions.tests.BasicExpressionsTests)",
+            "test_annotate_values_filter (expressions.tests.BasicExpressionsTests)",
+            "test_annotation_with_nested_outerref (expressions.tests.BasicExpressionsTests)",
+            "test_annotation_with_outerref (expressions.tests.BasicExpressionsTests)",
+            "test_annotations_within_subquery (expressions.tests.BasicExpressionsTests)",
+            "test_arithmetic (expressions.tests.BasicExpressionsTests)",
+            "test_case_in_filter_if_boolean_output_field (expressions.tests.BasicExpressionsTests)",
+            "test_exist_single_field_output_field (expressions.tests.BasicExpressionsTests)",
+            "test_exists_in_filter (expressions.tests.BasicExpressionsTests)",
+            "test_explicit_output_field (expressions.tests.BasicExpressionsTests)",
+            "test_filter_inter_attribute (expressions.tests.BasicExpressionsTests)",
+            "test_filter_with_join (expressions.tests.BasicExpressionsTests)",
+            "test_filtering_on_annotate_that_uses_q (expressions.tests.BasicExpressionsTests)",
+            "test_filtering_on_q_that_is_boolean (expressions.tests.BasicExpressionsTests)",
+            "test_filtering_on_rawsql_that_is_boolean (expressions.tests.BasicExpressionsTests)",
+            "test_in_subquery (expressions.tests.BasicExpressionsTests)",
+            "test_incorrect_field_in_F_expression (expressions.tests.BasicExpressionsTests)",
+            "test_incorrect_joined_field_in_F_expression (expressions.tests.BasicExpressionsTests)",
+            "test_nested_outerref_with_function (expressions.tests.BasicExpressionsTests)",
+            "test_nested_subquery (expressions.tests.BasicExpressionsTests)",
+            "test_nested_subquery_join_outer_ref (expressions.tests.BasicExpressionsTests)",
+            "test_nested_subquery_outer_ref_2 (expressions.tests.BasicExpressionsTests)",
+            "test_nested_subquery_outer_ref_with_autofield (expressions.tests.BasicExpressionsTests)",
+            "test_new_object_create (expressions.tests.BasicExpressionsTests)",
+            "test_new_object_save (expressions.tests.BasicExpressionsTests)",
+            "test_object_create_with_aggregate (expressions.tests.BasicExpressionsTests)",
+            "test_object_update (expressions.tests.BasicExpressionsTests)",
+            "test_object_update_fk (expressions.tests.BasicExpressionsTests)",
+            "test_object_update_unsaved_objects (expressions.tests.BasicExpressionsTests)",
+            "test_order_by_exists (expressions.tests.BasicExpressionsTests)",
+            "test_order_by_multiline_sql (expressions.tests.BasicExpressionsTests)",
+            "test_order_of_operations (expressions.tests.BasicExpressionsTests)",
+            "test_outerref (expressions.tests.BasicExpressionsTests)",
+            "test_outerref_mixed_case_table_name (expressions.tests.BasicExpressionsTests)",
+            "test_outerref_with_operator (expressions.tests.BasicExpressionsTests)",
+            "test_parenthesis_priority (expressions.tests.BasicExpressionsTests)",
+            "test_pickle_expression (expressions.tests.BasicExpressionsTests)",
+            "test_subquery (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_eq (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_filter_by_aggregate (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_filter_by_lazy (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_group_by_outerref_in_filter (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_in_filter (expressions.tests.BasicExpressionsTests)",
+            "test_subquery_references_joined_table_twice (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_11722_iexact_lookup (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_16731_startswith_lookup (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_18375_chained_filters (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_18375_join_reuse (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_18375_kwarg_ordering (expressions.tests.BasicExpressionsTests)",
+            "test_ticket_18375_kwarg_ordering_2 (expressions.tests.BasicExpressionsTests)",
+            "test_update (expressions.tests.BasicExpressionsTests)",
+            "test_update_inherited_field_value (expressions.tests.BasicExpressionsTests)",
+            "test_update_with_fk (expressions.tests.BasicExpressionsTests)",
+            "test_update_with_none (expressions.tests.BasicExpressionsTests)",
+            "test_uuid_pk_subquery (expressions.tests.BasicExpressionsTests)"
+          ],
+          "failure": []
+        },
+        "FAIL_TO_FAIL": {
+          "success": [],
+          "failure": []
+        },
+        "PASS_TO_FAIL": {
+          "success": [],
+          "failure": []
+        }
+      }
+    }
+  },
+  "sympy__sympy-13031": {
+    "repo": "sympy/sympy",
+    "resolved_by": [
+      "langgraph",
+      "openai"
+    ],
+    "identical_patches": false,
+    "gold_patch": "diff --git a/sympy/matrices/sparse.py b/sympy/matrices/sparse.py\n--- a/sympy/matrices/sparse.py\n+++ b/sympy/matrices/sparse.py\n@@ -985,8 +985,10 @@ def col_join(self, other):\n         >>> C == A.row_insert(A.rows, Matrix(B))\n         True\n         \"\"\"\n-        if not self:\n-            return type(self)(other)\n+        # A null matrix can always be stacked (see  #10770)\n+        if self.rows == 0 and self.cols != other.cols:\n+            return self._new(0, other.cols, []).col_join(other)\n+\n         A, B = self, other\n         if not A.cols == B.cols:\n             raise ShapeError()\n@@ -1191,8 +1193,10 @@ def row_join(self, other):\n         >>> C == A.col_insert(A.cols, B)\n         True\n         \"\"\"\n-        if not self:\n-            return type(self)(other)\n+        # A null matrix can always be stacked (see  #10770)\n+        if self.cols == 0 and self.rows != other.rows:\n+            return self._new(other.rows, 0, []).row_join(other)\n+\n         A, B = self, other\n         if not A.rows == B.rows:\n             raise ShapeError()\n",
+    "gold_files": [
+      "sympy/matrices/sparse.py"
+    ],
+    "f2p": [
+      "test_sparse_matrix"
+    ],
+    "byllm": {
+      "status": "TESTS_FAIL",
+      "patch": "diff --git a/check_stack.py b/check_stack.py\nnew file mode 100644\nindex 000000000..a324d7b73\n--- /dev/null\n+++ b/check_stack.py\n@@ -0,0 +1,31 @@\n+import sys\n+sys.path.insert(0, '.')\n+import sympy as sy\n+\n+# Test hstack with zero rows\n+M1 = sy.Matrix.zeros(0, 0)\n+M2 = sy.Matrix.zeros(0, 1)\n+M3 = sy.Matrix.zeros(0, 2)\n+M4 = sy.Matrix.zeros(0, 3)\n+print('hstack_zero_rows_shape', sy.Matrix.hstack(M1, M2, M3, M4).shape)\n+\n+# Test hstack with one row\n+M1 = sy.Matrix.zeros(1, 0)\n+M2 = sy.Matrix.zeros(1, 1)\n+M3 = sy.Matrix.zeros(1, 2)\n+M4 = sy.Matrix.zeros(1, 3)\n+print('hstack_one_row_shape', sy.Matrix.hstack(M1, M2, M3, M4).shape)\n+\n+# Test vstack with zero cols\n+N1 = sy.Matrix.zeros(0, 1)\n+N2 = sy.Matrix.zeros(1, 1)\n+N3 = sy.Matrix.zeros(2, 1)\n+N4 = sy.Matrix.zeros(3, 1)\n+print('vstack_zero_cols_shape', sy.Matrix.vstack(N1, N2, N3, N4).shape)\n+\n+# Test vstack with one col zero width\n+P1 = sy.Matrix.zeros(0, 0)\n+P2 = sy.Matrix.zeros(1, 0)\n+P3 = sy.Matrix.zeros(2, 0)\n+P4 = sy.Matrix.zeros(3, 0)\n+print('vstack_zero_width_shape', sy.Matrix.vstack(P1, P2, P3, P4).shape)\ndiff --git a/sympy/matrices/common.py b/sympy/matrices/common.py\nindex 7ef51bc84..6900ecae1 100644\n--- a/sympy/matrices/common.py\n+++ b/sympy/matrices/common.py\n@@ -377,8 +377,7 @@ def hstack(cls, *args):\n         if len(args) == 0:\n             return cls._new()\n \n-        kls = type(args[0])\n-        return reduce(kls.row_join, args)\n+        return reduce(lambda a, b: a.row_join(b), args)\n \n     def reshape(self, rows, cols):\n         \"\"\"Reshape the matrix. Total number of elements must remain the same.\n@@ -600,8 +599,7 @@ def vstack(cls, *args):\n         if len(args) == 0:\n             return cls._new()\n \n-        kls = type(args[0])\n-        return reduce(kls.col_join, args)\n+        return reduce(lambda a, b: a.col_join(b), args)\n \n \n class MatrixSpecial(MatrixRequired):\n",
+      "patch_bytes": 1864,
+      "run_error": "",
+      "steps": 6,
+      "llm_calls": 76,
+      "tool_calls": 62,
+      "sec": 821.1,
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": [],
+          "failure": [
+            "test_sparse_matrix"
+          ]
+        },
+        "PASS_TO_PASS": {
+          "success": [
+            "test_transpose",
+            "test_trace",
+            "test_CL_RL",
+            "test_add",
+            "test_errors",
+            "test_len",
+            "test_sparse_zeros_sparse_eye",
+            "test_copyin",
+            "test_sparse_solve"
+          ],
+          "failure": []
+        },
+        "FAIL_TO_FAIL": {
+          "success": [],
+          "failure": []
+        },
+        "PASS_TO_FAIL": {
+          "success": [],
+          "failure": []
+        }
+      }
+    },
+    "langgraph": {
+      "status": "RESOLVED",
+      "patch": "diff --git a/sympy/matrices/common.py b/sympy/matrices/common.py\nindex 7ef51bc84..a490c02c3 100644\n--- a/sympy/matrices/common.py\n+++ b/sympy/matrices/common.py\n@@ -378,6 +378,14 @@ def hstack(cls, *args):\n             return cls._new()\n \n         kls = type(args[0])\n+\n+        # Special-case: if all inputs have zero rows, the result should have\n+        # zero rows and number of columns equal to the sum of the inputs'\n+        # columns. Using row_join with 0-row matrices can otherwise drop\n+        # information about total columns in some edge cases.\n+        if all(getattr(a, 'rows', None) == 0 for a in args):\n+            return kls._new(0, sum(getattr(a, 'cols', 0) for a in args), [])\n+\n         return reduce(kls.row_join, args)\n \n     def reshape(self, rows, cols):\n@@ -601,6 +609,14 @@ def vstack(cls, *args):\n             return cls._new()\n \n         kls = type(args[0])\n+\n+        # Special-case: if all inputs have zero columns, the result should have\n+        # zero columns and number of rows equal to the sum of the inputs'\n+        # rows. Using col_join with 0-column matrices can otherwise drop\n+        # information about total rows in some edge cases.\n+        if all(getattr(a, 'cols', None) == 0 for a in args):\n+            return kls._new(sum(getattr(a, 'rows', 0) for a in args), 0, [])\n+\n         return reduce(kls.col_join, args)\n \n \ndiff --git a/tmp_check.py b/tmp_check.py\nnew file mode 100644\nindex 000000000..9581bc8fb\n--- /dev/null\n+++ b/tmp_check.py\n@@ -0,0 +1,25 @@\n+import sympy as sy\n+# hstack all zero-rows\n+M1 = sy.Matrix.zeros(0, 0)\n+M2 = sy.Matrix.zeros(0, 1)\n+M3 = sy.Matrix.zeros(0, 2)\n+M4 = sy.Matrix.zeros(0, 3)\n+print('hstack1', sy.Matrix.hstack(M1, M2, M3, M4).shape)\n+# hstack non-zero rows\n+M1 = sy.Matrix.zeros(1, 0)\n+M2 = sy.Matrix.zeros(1, 1)\n+M3 = sy.Matrix.zeros(1, 2)\n+M4 = sy.Matrix.zeros(1, 3)\n+print('hstack2', sy.Matrix.hstack(M1, M2, M3, M4).shape)\n+# vstack all zero-cols\n+N1 = sy.Matrix.zeros(0, 1)\n+N2 = sy.Matrix.zeros(1, 1)\n+print('mixed hstack', sy.Matrix.hstack(N1, N2).shape)\n+N1 = sy.Matrix.zeros(1, 0)\n+N2 = sy.Matrix.zeros(1, 0)\n+N3 = sy.Matrix.zeros(1, 0)\n+print('vstack1', sy.Matrix.vstack(N1, N2, N3).shape)\n+# vstack non-zero cols\n+P1 = sy.Matrix.zeros(0, 1)\n+P2 = sy.Matrix.zeros(2, 1)\n+print('mixed vstack', sy.Matrix.vstack(P1, P2).shape)\ndiff --git a/tmp_check2.py b/tmp_check2.py\nnew file mode 100644\nindex 000000000..b12b6b660\n--- /dev/null\n+++ b/tmp_check2.py\n@@ -0,0 +1,6 @@\n+import sympy as sy\n+# vstack with all zero columns\n+A1 = sy.Matrix.zeros(1, 0)\n+A2 = sy.Matrix.zeros(2, 0)\n+A3 = sy.Matrix.zeros(3, 0)\n+print('vstack all zero cols shape', sy.Matrix.vstack(A1, A2, A3).shape)\n",
+      "patch_bytes": 2676,
+      "run_error": "timeout",
+      "steps": 0,
+      "llm_calls": 0,
+      "tool_calls": 0,
+      "sec": 1827.03,
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": [
+            "test_sparse_matrix"
+          ],
+          "failure": []
+        },
+        "PASS_TO_PASS": {
+          "success": [
+            "test_transpose",
+            "test_trace",
+            "test_CL_RL",
+            "test_add",
+            "test_errors",
+            "test_len",
+            "test_sparse_zeros_sparse_eye",
+            "test_copyin",
+            "test_sparse_solve"
+          ],
+          "failure": []
+        },
+        "FAIL_TO_FAIL": {
+          "success": [],
+          "failure": []
+        },
+        "PASS_TO_FAIL": {
+          "success": [],
+          "failure": []
+        }
+      }
+    },
+    "openai": {
+      "status": "RESOLVED",
+      "patch": "diff --git a/sympy/matrices/sparse.py b/sympy/matrices/sparse.py\nindex e6f36cdf3..613a63c6d 100644\n--- a/sympy/matrices/sparse.py\n+++ b/sympy/matrices/sparse.py\n@@ -985,7 +985,7 @@ def col_join(self, other):\n         >>> C == A.row_insert(A.rows, Matrix(B))\n         True\n         \"\"\"\n-        if not self:\n+        if self.rows == 0 and self.cols == 0:\n             return type(self)(other)\n         A, B = self, other\n         if not A.cols == B.cols:\n@@ -1191,7 +1191,7 @@ def row_join(self, other):\n         >>> C == A.col_insert(A.cols, B)\n         True\n         \"\"\"\n-        if not self:\n+        if self.rows == 0 and self.cols == 0:\n             return type(self)(other)\n         A, B = self, other\n         if not A.rows == B.rows:\n",
+      "patch_bytes": 741,
+      "run_error": "",
+      "steps": 6,
+      "llm_calls": 132,
+      "tool_calls": 119,
+      "sec": 1238.24,
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": [
+            "test_sparse_matrix"
+          ],
+          "failure": []
+        },
+        "PASS_TO_PASS": {
+          "success": [
+            "test_transpose",
+            "test_trace",
+            "test_CL_RL",
+            "test_add",
+            "test_errors",
+            "test_len",
+            "test_sparse_zeros_sparse_eye",
+            "test_copyin",
+            "test_sparse_solve"
+          ],
+          "failure": []
+        },
+        "FAIL_TO_FAIL": {
+          "success": [],
+          "failure": []
+        },
+        "PASS_TO_FAIL": {
+          "success": [],
+          "failure": []
+        }
+      }
+    }
+  },
+  "sympy__sympy-16792": {
+    "repo": "sympy/sympy",
+    "resolved_by": [
+      "langgraph",
+      "openai"
+    ],
+    "identical_patches": false,
+    "gold_patch": "diff --git a/sympy/utilities/codegen.py b/sympy/utilities/codegen.py\n--- a/sympy/utilities/codegen.py\n+++ b/sympy/utilities/codegen.py\n@@ -695,6 +695,11 @@ def routine(self, name, expr, argument_sequence=None, global_vars=None):\n         arg_list = []\n \n         # setup input argument list\n+\n+        # helper to get dimensions for data for array-like args\n+        def dimensions(s):\n+            return [(S.Zero, dim - 1) for dim in s.shape]\n+\n         array_symbols = {}\n         for array in expressions.atoms(Indexed) | local_expressions.atoms(Indexed):\n             array_symbols[array.base.label] = array\n@@ -703,11 +708,8 @@ def routine(self, name, expr, argument_sequence=None, global_vars=None):\n \n         for symbol in sorted(symbols, key=str):\n             if symbol in array_symbols:\n-                dims = []\n                 array = array_symbols[symbol]\n-                for dim in array.shape:\n-                    dims.append((S.Zero, dim - 1))\n-                metadata = {'dimensions': dims}\n+                metadata = {'dimensions': dimensions(array)}\n             else:\n                 metadata = {}\n \n@@ -739,7 +741,11 @@ def routine(self, name, expr, argument_sequence=None, global_vars=None):\n                 try:\n                     new_args.append(name_arg_dict[symbol])\n                 except KeyError:\n-                    new_args.append(InputArgument(symbol))\n+                    if isinstance(symbol, (IndexedBase, MatrixSymbol)):\n+                        metadata = {'dimensions': dimensions(symbol)}\n+                    else:\n+                        metadata = {}\n+                    new_args.append(InputArgument(symbol, **metadata))\n             arg_list = new_args\n \n         return Routine(name, arg_list, return_val, local_vars, global_vars)\n",
+    "gold_files": [
+      "sympy/utilities/codegen.py"
+    ],
+    "f2p": [
+      "test_ccode_unused_array_arg"
+    ],
+    "byllm": {
+      "status": "REGRESSION(P2P)",
+      "patch": "diff --git a/_tmp_autowrap_example.py b/_tmp_autowrap_example.py\nnew file mode 100644\nindex 000000000..8a694cfd4\n--- /dev/null\n+++ b/_tmp_autowrap_example.py\n@@ -0,0 +1,8 @@\n+from sympy.utilities.autowrap import autowrap\n+from sympy import MatrixSymbol, S\n+import numpy as np\n+\n+x=MatrixSymbol('x',2,1)\n+expr=S(1.0)\n+f=autowrap(expr, args=(x,), backend='cython')\n+print('wrapped ok, result:', f(np.array([[1.0],[2.0]])))\ndiff --git a/_tmp_check_codegen.py b/_tmp_check_codegen.py\nnew file mode 100644\nindex 000000000..776598545\n--- /dev/null\n+++ b/_tmp_check_codegen.py\n@@ -0,0 +1,21 @@\n+from sympy.utilities.codegen import get_code_generator\n+from sympy import S\n+from sympy.matrices import MatrixSymbol\n+from sympy.tensor import IndexedBase\n+\n+# Test with MatrixSymbol unused arg in expr\n+x = MatrixSymbol('x', 2, 1)\n+expr = S(1.0)\n+\n+for lang in ['C99','F95','C']:\n+    gen = get_code_generator(lang)\n+    r = gen.routine('autofunc', expr, (x,), None)\n+    print(lang, [(type(a).__name__, a.dimensions, str(a.name)) for a in r.arguments])\n+\n+# Test with IndexedBase too\n+A = IndexedBase('A', shape=(3,))\n+try:\n+    r2 = gen.routine('autofunc2', expr, (A,), None)\n+    print('IndexedBase', [(type(a).__name__, a.dimensions, str(a.name)) for a in r2.arguments])\n+except Exception as e:\n+    print('IndexedBase error', type(e).__name__, e)\ndiff --git a/_tmp_proto_check.py b/_tmp_proto_check.py\nnew file mode 100644\nindex 000000000..c83b26b7a\n--- /dev/null\n+++ b/_tmp_proto_check.py\n@@ -0,0 +1,9 @@\n+from sympy.utilities.codegen import get_code_generator\n+from sympy import S\n+from sympy.matrices import MatrixSymbol\n+\n+x=MatrixSymbol('x',2,1)\n+expr=S(1.0)\n+cc= get_code_generator('C99')\n+r= cc.routine('autofunc', expr, (x,), None)\n+print(cc.get_prototype(r))\ndiff --git a/sympy/utilities/codegen.py b/sympy/utilities/codegen.py\nindex f0befb2bd..ef97a6a8b 100644\n--- a/sympy/utilities/codegen.py\n+++ b/sympy/utilities/codegen.py\n@@ -718,10 +718,22 @@ def routine(self, name, expr, argument_sequence=None, global_vars=None):\n \n         if argument_sequence is not None:\n             # if the user has supplied IndexedBase instances, we'll accept that\n+            # Also, record dimensions for array-like arguments so that unused\n+            # array arguments provided in the sequence still get correct\n+            # array metadata (dimensions) in the generated routine.\n+            seq_dims = {}\n             new_sequence = []\n             for arg in argument_sequence:\n                 if isinstance(arg, IndexedBase):\n                     new_sequence.append(arg.label)\n+                    # Infer dimensions from the shape of the IndexedBase\n+                    dims = tuple([(S.Zero, dim - 1) for dim in arg.shape])\n+                    seq_dims[arg.label] = dims\n+                elif isinstance(arg, MatrixSymbol):\n+                    new_sequence.append(arg)\n+                    # Infer dimensions from the shape of the MatrixSymbol\n+                    dims = tuple([(S.Zero, dim - 1) for dim in arg.shape])\n+                    seq_dims[arg] = dims\n                 else:\n                     new_sequence.append(arg)\n             argument_sequence = new_sequence\n@@ -739,7 +751,10 @@ def routine(self, name, expr, argument_sequence=None, global_vars=None):\n                 try:\n                     new_args.append(name_arg_dict[symbol])\n                 except KeyError:\n-                    new_args.append(InputArgument(symbol))\n+                    metadata = {}\n+                    if symbol in seq_dims:\n+                        metadata['dimensions'] = seq_dims[symbol]\n+                    new_args.append(InputArgument(symbol, **metadata))\n             arg_list = new_args\n \n         return Routine(name, arg_list, return_val, local_vars, global_vars)\n",
+      "patch_bytes": 3781,
+      "run_error": "",
+      "steps": 10,
+      "llm_calls": 165,
+      "tool_calls": 146,
+      "sec": 1582.5,
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": [
+            "test_ccode_unused_array_arg"
+          ],
+          "failure": []
+        },
+        "PASS_TO_PASS": {
+          "success": [
+            "test_empty_c_code",
+            "test_empty_c_code_with_comment",
+            "test_empty_c_header",
+            "test_simple_c_code",
+            "test_c_code_reserved_words",
+            "test_numbersymbol_c_code",
+            "test_c_code_argument_order",
+            "test_simple_c_header",
+            "test_simple_c_codegen",
+            "test_multiple_results_c",
+            "test_no_results_c",
+            "test_ansi_math1_codegen",
+            "test_ansi_math2_codegen",
+            "test_complicated_codegen",
+            "test_loops_c",
+            "test_dummy_loops_c",
+            "test_partial_loops_c",
+            "test_output_arg_c",
+            "test_output_arg_c_reserved_words",
+            "test_ccode_results_named_ordered",
+            "test_ccode_matrixsymbol_slice",
+            "test_ccode_cse",
+            "test_empty_f_code",
+            "test_empty_f_code_with_header",
+            "test_empty_f_header",
+            "test_simple_f_code",
+            "test_numbersymbol_f_code",
+            "test_erf_f_code",
+            "test_f_code_argument_order",
+            "test_simple_f_header",
+            "test_simple_f_codegen",
+            "test_multiple_results_f",
+            "test_no_results_f",
+            "test_intrinsic_math_codegen",
+            "test_intrinsic_math2_codegen",
+            "test_complicated_codegen_f95",
+            "test_loops",
+            "test_dummy_loops_f95",
+            "test_loops_InOut",
+            "test_partial_loops_f",
+            "test_output_arg_f",
+            "test_inline_function",
+            "test_f_code_call_signature_wrap",
+            "test_check_case",
+            "test_check_case_false_positive",
+            "test_c_fortran_omit_routine_name",
+            "test_fcode_matrix_output",
+            "test_fcode_results_named_ordered",
+            "test_fcode_matrixsymbol_slice",
+            "test_fcode_matrixsymbol_slice_autoname",
+            "test_global_vars",
+            "test_custom_codegen",
+            "test_c_with_printer"
+          ],
+          "failure": [
+            "test_Routine_argument_order"
+          ]
+        },
+        "FAIL_TO_FAIL": {
+          "success": [],
+          "failure": []
+        },
+        "PASS_TO_FAIL": {
+          "success": [],
+          "failure": []
+        }
+      }
+    },
+    "langgraph": {
+      "status": "RESOLVED",
+      "patch": "diff --git a/check_codegen_indexedbase.py b/check_codegen_indexedbase.py\nnew file mode 100644\nindex 000000000..38e91961e\n--- /dev/null\n+++ b/check_codegen_indexedbase.py\n@@ -0,0 +1,10 @@\n+from sympy import symbols\n+from sympy.tensor import IndexedBase\n+from sympy.utilities.codegen import get_code_generator\n+\n+n,m = symbols('n m', integer=True, positive=True)\n+x = IndexedBase('x', shape=(n,m))\n+cg = get_code_generator('C')\n+r = cg.routine('autofunc', 1.0, argument_sequence=(x,), global_vars=None)\n+print(type(r.arguments[0]).__name__, r.arguments[0].dimensions)\n+print(cg.get_prototype(r))\ndiff --git a/check_codegen_matrixsymbol.py b/check_codegen_matrixsymbol.py\nnew file mode 100644\nindex 000000000..bbb542901\n--- /dev/null\n+++ b/check_codegen_matrixsymbol.py\n@@ -0,0 +1,8 @@\n+from sympy import MatrixSymbol\n+from sympy.utilities.codegen import get_code_generator\n+\n+x = MatrixSymbol('x', 2, 1)\n+cg = get_code_generator('C')\n+r = cg.routine('autofunc', 1.0, argument_sequence=(x,), global_vars=None)\n+print(type(r.arguments[0]).__name__, r.arguments[0].dimensions)\n+print(cg.get_prototype(r))\ndiff --git a/sympy/utilities/codegen.py b/sympy/utilities/codegen.py\nindex f0befb2bd..702e33f5e 100644\n--- a/sympy/utilities/codegen.py\n+++ b/sympy/utilities/codegen.py\n@@ -717,6 +717,18 @@ def routine(self, name, expr, argument_sequence=None, global_vars=None):\n         arg_list.extend(output_args)\n \n         if argument_sequence is not None:\n+            # Preserve dimension metadata for array-like arguments that may not\n+            # appear in the expressions but are requested in the argument list.\n+            dims_by_symbol = {}\n+            for a in argument_sequence:\n+                if isinstance(a, IndexedBase):\n+                    key = a.label\n+                    shp = getattr(a, 'shape', None)\n+                    if shp is not None:\n+                        dims_by_symbol[key] = tuple((S.Zero, d - 1) for d in shp)\n+                elif isinstance(a, MatrixSymbol):\n+                    dims_by_symbol[a] = tuple((S.Zero, d - 1) for d in a.shape)\n+\n             # if the user has supplied IndexedBase instances, we'll accept that\n             new_sequence = []\n             for arg in argument_sequence:\n@@ -739,7 +751,11 @@ def routine(self, name, expr, argument_sequence=None, global_vars=None):\n                 try:\n                     new_args.append(name_arg_dict[symbol])\n                 except KeyError:\n-                    new_args.append(InputArgument(symbol))\n+                    dims = dims_by_symbol.get(symbol)\n+                    if dims is not None:\n+                        new_args.append(InputArgument(symbol, dimensions=dims))\n+                    else:\n+                        new_args.append(InputArgument(symbol))\n             arg_list = new_args\n \n         return Routine(name, arg_list, return_val, local_vars, global_vars)\n",
+      "patch_bytes": 2882,
+      "run_error": "",
+      "steps": 10,
+      "llm_calls": 110,
+      "tool_calls": 96,
+      "sec": 1044.33,
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": [
+            "test_ccode_unused_array_arg"
+          ],
+          "failure": []
+        },
+        "PASS_TO_PASS": {
+          "success": [
+            "test_Routine_argument_order",
+            "test_empty_c_code",
+            "test_empty_c_code_with_comment",
+            "test_empty_c_header",
+            "test_simple_c_code",
+            "test_c_code_reserved_words",
+            "test_numbersymbol_c_code",
+            "test_c_code_argument_order",
+            "test_simple_c_header",
+            "test_simple_c_codegen",
+            "test_multiple_results_c",
+            "test_no_results_c",
+            "test_ansi_math1_codegen",
+            "test_ansi_math2_codegen",
+            "test_complicated_codegen",
+            "test_loops_c",
+            "test_dummy_loops_c",
+            "test_partial_loops_c",
+            "test_output_arg_c",
+            "test_output_arg_c_reserved_words",
+            "test_ccode_results_named_ordered",
+            "test_ccode_matrixsymbol_slice",
+            "test_ccode_cse",
+            "test_empty_f_code",
+            "test_empty_f_code_with_header",
+            "test_empty_f_header",
+            "test_simple_f_code",
+            "test_numbersymbol_f_code",
+            "test_erf_f_code",
+            "test_f_code_argument_order",
+            "test_simple_f_header",
+            "test_simple_f_codegen",
+            "test_multiple_results_f",
+            "test_no_results_f",
+            "test_intrinsic_math_codegen",
+            "test_intrinsic_math2_codegen",
+            "test_complicated_codegen_f95",
+            "test_loops",
+            "test_dummy_loops_f95",
+            "test_loops_InOut",
+            "test_partial_loops_f",
+            "test_output_arg_f",
+            "test_inline_function",
+            "test_f_code_call_signature_wrap",
+            "test_check_case",
+            "test_check_case_false_positive",
+            "test_c_fortran_omit_routine_name",
+            "test_fcode_matrix_output",
+            "test_fcode_results_named_ordered",
+            "test_fcode_matrixsymbol_slice",
+            "test_fcode_matrixsymbol_slice_autoname",
+            "test_global_vars",
+            "test_custom_codegen",
+            "test_c_with_printer"
+          ],
+          "failure": []
+        },
+        "FAIL_TO_FAIL": {
+          "success": [],
+          "failure": []
+        },
+        "PASS_TO_FAIL": {
+          "success": [],
+          "failure": []
+        }
+      }
+    },
+    "openai": {
+      "status": "RESOLVED",
+      "patch": "diff --git a/devcheck_codegen.py b/devcheck_codegen.py\nnew file mode 100644\nindex 000000000..40ee85ce0\n--- /dev/null\n+++ b/devcheck_codegen.py\n@@ -0,0 +1,15 @@\n+from sympy.utilities.codegen import C99CodeGen\n+from sympy import MatrixSymbol, S\n+\n+def main():\n+    cg = C99CodeGen('test')\n+    x = MatrixSymbol('x', 2, 1)\n+    r = cg.routine('autofunc', S.One*1.0, argument_sequence=(x,))\n+    arg = r.arguments[0]\n+    print('ArgClass:', type(arg).__name__)\n+    print('ArgName:', arg.name)\n+    print('Dimensions:', arg.dimensions)\n+    print('Prototype:', cg.get_prototype(r))\n+\n+if __name__ == '__main__':\n+    main()\ndiff --git a/devcheck_cython.py b/devcheck_cython.py\nnew file mode 100644\nindex 000000000..27ae485cd\n--- /dev/null\n+++ b/devcheck_cython.py\n@@ -0,0 +1,16 @@\n+from sympy.utilities.codegen import C99CodeGen\n+from sympy.utilities.autowrap import CythonCodeWrapper\n+from sympy import MatrixSymbol, S\n+\n+def main():\n+    cg = C99CodeGen('test')\n+    x = MatrixSymbol('x', 2, 1)\n+    r = cg.routine('autofunc', S.One*1.0, argument_sequence=(x,))\n+    cw = CythonCodeWrapper(cg, filepath='.')\n+    # private method use to check formatting\n+    arg_proto = cw._prototype_arg(r.arguments[0])\n+    print('C prototype:', cg.get_prototype(r))\n+    print('Cython arg prototype:', arg_proto)\n+\n+if __name__ == '__main__':\n+    main()\ndiff --git a/devcheck_indexed.py b/devcheck_indexed.py\nnew file mode 100644\nindex 000000000..c4b440454\n--- /dev/null\n+++ b/devcheck_indexed.py\n@@ -0,0 +1,18 @@\n+from sympy.utilities.codegen import C99CodeGen\n+from sympy import symbols, Eq\n+from sympy.tensor import IndexedBase, Idx\n+from sympy import S\n+\n+def main():\n+    cg = C99CodeGen('test')\n+    x = IndexedBase('x', shape=(5,))\n+    # routine with expr that does not depend on x\n+    r = cg.routine('autofunc', S(1.0), argument_sequence=(x,))\n+    arg = r.arguments[0]\n+    print('ArgClass:', type(arg).__name__)\n+    print('ArgName:', arg.name)\n+    print('Dimensions:', arg.dimensions)\n+    print('Prototype:', cg.get_prototype(r))\n+\n+if __name__ == '__main__':\n+    main()\ndiff --git a/devtry_autowrap.py b/devtry_autowrap.py\nnew file mode 100644\nindex 000000000..f3472d0b0\n--- /dev/null\n+++ b/devtry_autowrap.py\n@@ -0,0 +1,11 @@\n+from sympy.utilities.autowrap import autowrap\n+from sympy import MatrixSymbol, S\n+import numpy as np\n+\n+def main():\n+    x = MatrixSymbol('x', 2, 1)\n+    f = autowrap(S.One*1.0, args=(x,), backend='cython', tempdir='.')\n+    print(f(np.array([[1.0],[2.0]])))\n+\n+if __name__ == '__main__':\n+    main()\ndiff --git a/sympy/utilities/codegen.py b/sympy/utilities/codegen.py\nindex f0befb2bd..ba5bd3474 100644\n--- a/sympy/utilities/codegen.py\n+++ b/sympy/utilities/codegen.py\n@@ -718,12 +718,16 @@ def routine(self, name, expr, argument_sequence=None, global_vars=None):\n \n         if argument_sequence is not None:\n             # if the user has supplied IndexedBase instances, we'll accept that\n+            # Also keep a mapping to the original objects to infer dimensions\n             new_sequence = []\n+            orig_map = {}\n             for arg in argument_sequence:\n                 if isinstance(arg, IndexedBase):\n                     new_sequence.append(arg.label)\n+                    orig_map[arg.label] = arg\n                 else:\n                     new_sequence.append(arg)\n+                    orig_map[arg] = arg\n             argument_sequence = new_sequence\n \n             missing = [x for x in arg_list if x.name not in argument_sequence]\n@@ -739,7 +743,18 @@ def routine(self, name, expr, argument_sequence=None, global_vars=None):\n                 try:\n                     new_args.append(name_arg_dict[symbol])\n                 except KeyError:\n-                    new_args.append(InputArgument(symbol))\n+                    # Redundant argument: infer dimensions if possible (e.g., MatrixSymbol or IndexedBase)\n+                    obj = orig_map.get(symbol, symbol)\n+                    metadata = {}\n+                    if isinstance(obj, MatrixSymbol):\n+                        dims = tuple([(S.Zero, dim - 1) for dim in obj.shape])\n+                        metadata = {'dimensions': dims}\n+                    elif isinstance(obj, IndexedBase):\n+                        shp = getattr(obj, 'shape', None)\n+                        if shp is not None and len(shp) > 0:\n+                            dims = tuple([(S.Zero, dim - 1) for dim in shp])\n+                            metadata = {'dimensions': dims}\n+                    new_args.append(InputArgument(symbol, **metadata))\n             arg_list = new_args\n \n         return Routine(name, arg_list, return_val, local_vars, global_vars)\n",
+      "patch_bytes": 4650,
+      "run_error": "",
+      "steps": 10,
+      "llm_calls": 181,
+      "tool_calls": 164,
+      "sec": 1236.14,
+      "tests_status": {
+        "FAIL_TO_PASS": {
+          "success": [
+            "test_ccode_unused_array_arg"
+          ],
+          "failure": []
+        },
+        "PASS_TO_PASS": {
+          "success": [
+            "test_Routine_argument_order",
+            "test_empty_c_code",
+            "test_empty_c_code_with_comment",
+            "test_empty_c_header",
+            "test_simple_c_code",
+            "test_c_code_reserved_words",
+            "test_numbersymbol_c_code",
+            "test_c_code_argument_order",
+            "test_simple_c_header",
+            "test_simple_c_codegen",
+            "test_multiple_results_c",
+            "test_no_results_c",
+            "test_ansi_math1_codegen",
+            "test_ansi_math2_codegen",
+            "test_complicated_codegen",
+            "test_loops_c",
+            "test_dummy_loops_c",
+            "test_partial_loops_c",
+            "test_output_arg_c",
+            "test_output_arg_c_reserved_words",
+            "test_ccode_results_named_ordered",
+            "test_ccode_matrixsymbol_slice",
+            "test_ccode_cse",
+            "test_empty_f_code",
+            "test_empty_f_code_with_header",
+            "test_empty_f_header",
+            "test_simple_f_code",
+            "test_numbersymbol_f_code",
+            "test_erf_f_code",
+            "test_f_code_argument_order",
+            "test_simple_f_header",
+            "test_simple_f_codegen",
+            "test_multiple_results_f",
+            "test_no_results_f",
+            "test_intrinsic_math_codegen",
+            "test_intrinsic_math2_codegen",
+            "test_complicated_codegen_f95",
+            "test_loops",
+            "test_dummy_loops_f95",
+            "test_loops_InOut",
+            "test_partial_loops_f",
+            "test_output_arg_f",
+            "test_inline_function",
+            "test_f_code_call_signature_wrap",
+            "test_check_case",
+            "test_check_case_false_positive",
+            "test_c_fortran_omit_routine_name",
+            "test_fcode_matrix_output",
+            "test_fcode_results_named_ordered",
+            "test_fcode_matrixsymbol_slice",
+            "test_fcode_matrixsymbol_slice_autoname",
+            "test_global_vars",
+            "test_custom_codegen",
+            "test_c_with_printer"
+          ],
+          "failure": []
+        },
+        "FAIL_TO_FAIL": {
+          "success": [],
+          "failure": []
+        },
+        "PASS_TO_FAIL": {
+          "success": [],
+          "failure": []
+        }
+      }
+    }
+  }
+}

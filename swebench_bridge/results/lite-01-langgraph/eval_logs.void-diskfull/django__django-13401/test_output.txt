@@ -1,0 +1,127 @@
+$ git apply --verbose /testbed/model_patch.diff
+Checking patch django/db/models/fields/__init__.py...
+Applied patch django/db/models/fields/__init__.py cleanly.
+
+>>>>> Applied Patch:
+applied with `git apply --verbose`
++ source /opt/miniconda3/bin/activate
+/testbed/run_eval.sh: line 3: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/testbed/run_eval.sh: line 4: conda: command not found
++ cd /testbed
++ sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen
++ locale-gen
+Generating locales (this might take a while)...
+  en_US.UTF-8... done
+Generation complete.
++ export LANG=en_US.UTF-8
++ LANG=en_US.UTF-8
++ export LANGUAGE=en_US:en
++ LANGUAGE=en_US:en
++ export LC_ALL=en_US.UTF-8
++ LC_ALL=en_US.UTF-8
++ git config --global --add safe.directory /testbed
++ cd /testbed
++ git status
+On branch main
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   django/db/models/fields/__init__.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	model_patch.diff
+	run_eval.sh
+
+no changes added to commit (use "git add" and/or "git commit -a")
++ git show
+commit bbf90dfb17952fafcc443be75772dcb83622085f
+Author: SWE-bench <setup@swebench.config>
+Date:   Wed Sep 10 11:10:09 2025 +0000
+
+    SWE-bench
++ git -c core.fileMode=false diff 453967477e3ddae704cd739eac2449c0e13d464c
+diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py
+index 28374272f4..e5360e7ba7 100644
+--- a/django/db/models/fields/__init__.py
++++ b/django/db/models/fields/__init__.py
+@@ -516,17 +516,19 @@ class Field(RegisterLookupMixin):
+     def __eq__(self, other):
+         # Needed for @total_ordering
+         if isinstance(other, Field):
+-            return self.creation_counter == other.creation_counter
++            return (self.creation_counter == other.creation_counter) and (self.model == other.model)
+         return NotImplemented
+ 
+     def __lt__(self, other):
+         # This is needed because bisect does not take a comparison function.
+         if isinstance(other, Field):
+-            return self.creation_counter < other.creation_counter
++            if self.model == other.model:
++                return self.creation_counter < other.creation_counter
++            return self.model < other.model
+         return NotImplemented
+ 
+     def __hash__(self):
+-        return hash(self.creation_counter)
++        return hash((self.creation_counter, self.model))
+ 
+     def __deepcopy__(self, memodict):
+         # We don't have to deepcopy very much here, since most things are not
++ source /opt/miniconda3/bin/activate
+/testbed/run_eval.sh: line 15: /opt/miniconda3/bin/activate: No such file or directory
++ conda activate testbed
+/testbed/run_eval.sh: line 16: conda: command not found
++ python -m pip install -e .
+ERROR: Exception:
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/pip/_internal/cli/base_command.py", line 165, in exc_logging_wrapper
+    status = run_func(*args)
+  File "/usr/lib/python3/dist-packages/pip/_internal/cli/req_command.py", line 205, in wrapper
+    return func(self, options, args)
+  File "/usr/lib/python3/dist-packages/pip/_internal/commands/install.py", line 294, in run
+    wheel_cache = WheelCache(options.cache_dir, options.format_control)
+  File "/usr/lib/python3/dist-packages/pip/_internal/cache.py", line 219, in __init__
+    self._ephem_cache = EphemWheelCache(format_control)
+  File "/usr/lib/python3/dist-packages/pip/_internal/cache.py", line 191, in __init__
+    self._temp_dir = TempDirectory(
+  File "/usr/lib/python3/dist-packages/pip/_internal/utils/temp_dir.py", line 125, in __init__
+    path = self._create(kind)
+  File "/usr/lib/python3/dist-packages/pip/_internal/utils/temp_dir.py", line 164, in _create
+    path = os.path.realpath(tempfile.mkdtemp(prefix=f"pip-{kind}-"))
+  File "/usr/lib/python3.10/tempfile.py", line 512, in mkdtemp
+    prefix, suffix, dir, output_type = _sanitize_params(prefix, suffix, dir)
+  File "/usr/lib/python3.10/tempfile.py", line 265, in _sanitize_params
+    dir = gettempdir()
+  File "/usr/lib/python3.10/tempfile.py", line 454, in gettempdir
+    return _os.fsdecode(_gettempdir())
+  File "/usr/lib/python3.10/tempfile.py", line 447, in _gettempdir
+    tempdir = _get_default_tempdir()
+  File "/usr/lib/python3.10/tempfile.py", line 362, in _get_default_tempdir
+    raise FileNotFoundError(_errno.ENOENT,
+FileNotFoundError: [Errno 2] No usable temporary directory found in ['/tmp', '/var/tmp', '/usr/tmp', '/testbed']
++ git checkout 453967477e3ddae704cd739eac2449c0e13d464c tests/model_fields/tests.py
+Updated 0 paths from 7bb7bb97d9
+fatal: sha1 file '/testbed/.git/index.lock' write error. Out of diskspace
++ git apply -v -
+Checking patch tests/model_fields/tests.py...
+Applied patch tests/model_fields/tests.py cleanly.
++ : '>>>>> Start Test Output'
++ ./tests/runtests.py --verbosity 2 --settings=test_sqlite --parallel 1 model_fields.tests
+Traceback (most recent call last):
+  File "/testbed/./tests/runtests.py", line 14, in <module>
+    import django
+ModuleNotFoundError: No module named 'django'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/testbed/./tests/runtests.py", line 16, in <module>
+    raise RuntimeError(
+RuntimeError: Django module not found, reference tests/README.rst for instructions.
++ : '>>>>> End Test Output'
++ git checkout 453967477e3ddae704cd739eac2449c0e13d464c tests/model_fields/tests.py
+error: unable to write file tests/model_fields/tests.py
+Updated 1 path from 7bb7bb97d9
+fatal: sha1 file '/testbed/.git/index.lock' write error. Out of diskspace
