@@ -1,0 +1,98 @@
+{
+  "case_id": "meeting_005",
+  "title": "Noisy incident postmortem with buried action items",
+  "description": "Long, realistic postmortem: seven real action items buried in crosstalk, a lunch-logistics interruption, and a joke about the coffee machine that reads like a task. The chair recaps all seven at the end, so full recall is achievable. Tests recall under noise plus the coffee-machine precision trap.",
+  "transcript_file": "meeting_005.txt",
+  "edge_case": "noisy_transcript",
+  "expected_task_count_range": [6, 9],
+  "expected_tasks": [
+    {
+      "id": "gt_01",
+      "name": "Add queue-depth alerting for the worker fleet",
+      "owner": "Kofi",
+      "due": null,
+      "key_points": [
+        "outage was invisible for 16 minutes because no queue-depth alert exists",
+        "warning at 1,000 jobs, page at 5,000",
+        "apply to the whole worker fleet, not just payment workers"
+      ]
+    },
+    {
+      "id": "gt_02",
+      "name": "Fix retry storm in the payment worker",
+      "owner": "Marta",
+      "due": null,
+      "key_points": [
+        "_process_with_retry in payment_worker.py retries five times with no backoff and re-enqueues failures at the FRONT of the queue",
+        "add exponential backoff with jitter and a retry cap",
+        "failed jobs go to a dead-letter queue, not back to the main queue front",
+        "add tests simulating processor 503s"
+      ]
+    },
+    {
+      "id": "gt_03",
+      "name": "Increase DB connection pool and split worker/API pools",
+      "owner": "Kofi",
+      "due": null,
+      "key_points": [
+        "pool is at default 20; worker pileup exhausted it and took the API down too",
+        "bump to 100 AND separate worker and API pools, one change, same config file"
+      ]
+    },
+    {
+      "id": "gt_04",
+      "name": "Update the payment incident runbook",
+      "owner": "Priya (to be confirmed by Kofi)",
+      "due": null,
+      "key_points": [
+        "runbook still references the old Kibana, dead since March",
+        "add new logging links and document the queue drain procedure improvised during the incident",
+        "verify escalation phone numbers are current"
+      ]
+    },
+    {
+      "id": "gt_05",
+      "name": "Automate status page updates from the checkout alert",
+      "owner": "Marta",
+      "due": null,
+      "key_points": [
+        "status page wasn't updated until minute 30; support got ~50 tickets",
+        "when the checkout error-rate alert fires, flip status page to 'investigating' automatically with a template message via the provider API"
+      ]
+    },
+    {
+      "id": "gt_06",
+      "name": "Draft a game-day plan for payment processor failover",
+      "owner": "Kofi",
+      "due": "plan reviewed in two weeks before any execution",
+      "key_points": [
+        "secondary processor is configured but has never been exercised",
+        "chaos test in staging first, then production in a low-traffic window with a rollback plan",
+        "draft only; no execution until the review"
+      ]
+    },
+    {
+      "id": "gt_07",
+      "name": "Upgrade Redis from EOL 6.0 to 7.2",
+      "owner": "Kofi",
+      "due": "schedule via the infra calendar",
+      "key_points": [
+        "6.0 security fixes ended in June; unrelated to the outage but real debt",
+        "config rename and changed persistence defaults, needs a proper change window"
+      ]
+    }
+  ],
+  "acceptable_extras": [
+    "write and send the incident timeline doc (Ines said she'd do it tonight)"
+  ],
+  "must_not_extract": [
+    {
+      "topic": "fix the coffee machine on floor four",
+      "reason": "offhand joke, dismissed with 'add it to the backlog for 2030'"
+    },
+    {
+      "topic": "Thai restaurant lunch headcount",
+      "reason": "social logistics, explicitly redirected to the channel"
+    }
+  ]
+}
