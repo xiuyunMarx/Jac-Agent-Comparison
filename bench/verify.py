@@ -233,6 +233,18 @@ def check_inputs() -> list[tuple]:
             found = len([l for l in path.read_text().splitlines() if l.strip()]) if path.is_file() else 0
         rows.append((bench, pattern, PASS if found == count else FAIL, "inputs",
                      f"{found} (expected {count})"))
+    # A submodule that was never initialized looks exactly like a missing
+    # directory to everything downstream: `pip install -e CodeAgent/SWE-bench`
+    # says "does not appear to be a Python project", and grading fails hours
+    # into a run. Name the real cause instead.
+    swebench = R / "CodeAgent" / "SWE-bench"
+    if (swebench / "pyproject.toml").is_file():
+        rows.append(("CodeAgent", "SWE-bench submodule", PASS, "inputs", "checked out"))
+    else:
+        rows.append(("CodeAgent", "SWE-bench submodule", FAIL, "inputs",
+                     "not checked out -- run `git submodule update --init --recursive`, "
+                     "then `pip install -e CodeAgent/SWE-bench`"))
+
     extra = [
         ("Email", R / "Email-Auto-response" / "eval" / "out" / "benchmark_slide.pptx"),
         ("RagGPT", R / "RagGPT" / "langgraph" / "faiss_index" / "index.faiss"),

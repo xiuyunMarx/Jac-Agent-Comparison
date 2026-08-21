@@ -154,6 +154,16 @@ against an absolute. `--no-judge` keeps only deterministic metrics.
 
 ## Moving to another machine
 
+0. **Clone with submodules.** `CodeAgent/SWE-bench` is the official grading
+   harness, vendored as a submodule pinned to its upstream. A plain `git clone`
+   leaves that directory empty, and `pip install -e CodeAgent/SWE-bench` then
+   fails with *"does not appear to be a Python project: neither 'setup.py' nor
+   'pyproject.toml' found"*.
+   ```bash
+   git clone --recurse-submodules https://github.com/xiuyunMarx/Jac-Agent-Comparison.git
+   # already cloned without it:
+   git submodule update --init --recursive
+   ```
 1. **Python.** 3.13.x -- not 3.14 (the CrewAI arms cap there), not below 3.13.2
    (YT-Navigator's floor). Create the environment first: installing into a
    system Python gives `Defaulting to user installation because normal
