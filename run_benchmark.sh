@@ -67,6 +67,19 @@ else
 fi
 PY="$(command -v python || command -v python3)"
 
+# A wrong interpreter fails later as a pile of missing packages rather than as
+# one version problem, so say it here instead.
+"$PY" - <<'PYCHECK' || exit 1
+import sys
+major, minor = sys.version_info[:2]
+if (major, minor) < (3, 12):
+    sys.exit(f"Python {major}.{minor} is too old: byllm, scipy and others publish "
+             f"no build for it.\nCreate the environment first -- "
+             f"conda create -n jaseci python=3.13 && conda activate jaseci")
+if (major, minor) >= (3, 14):
+    sys.exit(f"Python {major}.{minor} is too new: both CrewAI arms require <3.14.")
+PYCHECK
+
 # The Jac arms need `jac`, and two evals used to hardcode an absolute path to
 # it. They now discover it, but it still has to be findable.
 if ! command -v jac >/dev/null 2>&1; then
