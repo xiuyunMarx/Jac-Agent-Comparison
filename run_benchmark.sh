@@ -141,11 +141,15 @@ export BENCH_RUN_ID="$RUN_ID"
 
 echo
 echo "--- token ledger ---"
-"$PY" - <<EOF
-from pathlib import Path
+# Quoted delimiter: the body is Python, not shell. Unquoted, bash expands every
+# $NAME inside it -- including ones that only appear in a comment -- and under
+# `set -u` an unset one aborts the run. The run id travels in the environment
+# instead, which is where config.ledger_path() reads it from anyway.
+"$PY" - <<'PYLEDGER'
 from bench import services, config
-# config.ledger_path() is the single definition of where the ledger lives;
-# every arm is handed it as $PROXY_LOG, and RagGPT's scorer joins tokens from it.
+
+# config.ledger_path() is the single definition of where the ledger lives; every
+# arm is handed it as PROXY_LOG, and RagGPT's scorer joins tokens from that file.
 ledger = config.ledger_path()
 ledger.parent.mkdir(parents=True, exist_ok=True)
 services.write_pricing_table(config.RUNS_ROOT / "pricing.json")
@@ -153,7 +157,7 @@ if config.use_proxy():
     services.ensure_proxy(ledger)
 else:
     print("proxy: disabled (BENCH_NO_PROXY)")
-EOF
+PYLEDGER
 
 echo
 "$PY" -m bench.run_all --run-id "$RUN_ID" "${SWEEP_ARGS[@]}" || SWEEP_FAILED=1

@@ -104,6 +104,56 @@ def _has_model(name: str) -> bool:
     return name in tags or f"{name}:latest" in tags
 
 
+def _create_derived(base: str, derived: str, ctx: int) -> str:
+    """Make `derived` = `base` with a bigger num_ctx. Returns "" on success.
+
+    Three ways, because they are not equally available. The HTTP API goes first:
+    `ollama create -f <path>` makes the *daemon* read that path, so a Modelfile
+    in a private temp directory can fail with "no Modelfile or safetensors files
+    found" even though the file plainly exists -- the daemon runs as its own
+    user and cannot see it. The API carries the content in the request instead
+    and sidesteps the question.
+    """
+    attempts: list[str] = []
+
+    for payload in (
+        # Current shape (ollama >= ~0.20).
+        {"model": derived, "from": base, "parameters": {"num_ctx": ctx}, "stream": False},
+        # Older shape, for builds that do not understand `from`/`parameters`.
+        {"name": derived, "modelfile": f"FROM {base}\nPARAMETER num_ctx {ctx}\n",
+         "stream": False},
+    ):
+        try:
+            result = _post_json(f"{ollama_root()}/api/create", payload, timeout=900)
+            if isinstance(result, dict) and result.get("error"):
+                attempts.append(f"api: {result['error'][:80]}")
+                continue
+            if _has_model(derived):
+                return ""
+            attempts.append("api: reported success but the model is not listed")
+        except Exception as exc:
+            attempts.append(f"api: {type(exc).__name__}")
+
+    # Last resort: the CLI, with a world-readable Modelfile so a daemon running
+    # as another user can still read it.
+    if shutil.which("ollama"):
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                Path(tmp).chmod(0o755)
+                modelfile = Path(tmp) / "Modelfile"
+                modelfile.write_text(f"FROM {base}\nPARAMETER num_ctx {ctx}\n")
+                modelfile.chmod(0o644)
+                proc = subprocess.run(["ollama", "create", derived, "-f", str(modelfile)],
+                                      capture_output=True, text=True, timeout=900)
+            if proc.returncode == 0:
+                return ""
+            tail = (proc.stderr or proc.stdout or "").strip().splitlines()
+            attempts.append(f"cli: {tail[-1][:80] if tail else 'failed'}")
+        except Exception as exc:
+            attempts.append(f"cli: {type(exc).__name__}")
+
+    return "; ".join(attempts)
+
 def ensure_model() -> str:
     """Pull the model, then derive a long-context variant. Returns the served id.
 
@@ -127,19 +177,12 @@ def ensure_model() -> str:
         return base
     if not _has_model(derived):
         _log(f"ollama: creating {derived} (num_ctx {ctx})")
-        # A real file, not stdin: `ollama create -f -` is rejected by some
-        # builds with "no Modelfile or safetensors files found".
-        with tempfile.TemporaryDirectory() as tmp:
-            modelfile = Path(tmp) / "Modelfile"
-            modelfile.write_text(f"FROM {base}\nPARAMETER num_ctx {ctx}\n")
-            proc = subprocess.run(["ollama", "create", derived, "-f", str(modelfile)],
-                                  capture_output=True, text=True)
-        if proc.returncode != 0:
-            detail = (proc.stderr or proc.stdout or "").strip().splitlines()
-            _log(f"ollama: could not derive {derived} "
-                  f"({detail[-1][:160] if detail else 'unknown error'}); serving {base} "
-                  f"with its default context window (usually 4096 -- too small for "
-                  f"CodeAgent)")
+        errors = _create_derived(base, derived, ctx)
+        if errors:
+            _log(f"ollama: could not derive {derived} ({errors}); serving {base} with "
+                 f"its default context window (usually 4096 -- far too small for "
+                 f"CodeAgent's tool transcripts). Lower BENCH_CTX and re-run, or set "
+                 f"OLLAMA_CONTEXT_LENGTH on the ollama service.")
             return base
     _log(f"ollama: serving {derived}")
     return derived
