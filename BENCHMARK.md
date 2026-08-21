@@ -185,22 +185,45 @@ against an absolute. `--no-judge` keeps only deterministic metrics.
    against and is not in `requirements.txt`: the toolchain ships its own copy,
    and `pip install jaclang==<that version>` fails with *"Could not find a
    version that satisfies the requirement"* because PyPI's `jaclang` is a
-   different, older lineage. Install the Jac toolchain itself and let it
-   provide the runtime.
+   different, older lineage.
 
-   Then run `jac install` once in each Jac project (`CodeAgent/byLLM`,
-   `Email-Auto-response/byLLM`, `meeting-assistant/byLLM`, `YTNavigator/byLLM`,
-   `RagGPT/Jac-Rag-GPT`, `RagGPT/Jac-Rag-GPT-ByllmRouter`). Packages
-   pip-installed in step 1 are **not** visible to the Jac runtime.
+   The binary is self-contained -- no system Python, pip or uv, and no sudo. It
+   lands in `~/.local/bin`:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/jaseci-labs/jaseci/main/scripts/install.sh | bash
+   export PATH="$HOME/.local/bin:$PATH"     # add to your shell profile too
+   jac --version
+   ```
+   `--version X.Y.Z` pins a release; `--uninstall` removes it.
+
+   > **Check the major version.** This comparison was developed against a jac
+   > built from source at **0.31.1**, where byLLM is bundled *inside* jaclang
+   > (`jaclang/byllm/`) and `import from jaclang.byllm.lib { Model }` -- the line
+   > at the top of five Jac files here -- resolves. The upstream release line is
+   > 2.x. If the version you install keeps byLLM elsewhere, those five files fail
+   > on their first line. `python -m bench.verify` probes this by running a
+   > snippet through your installed runtime and names the files if they
+   > mismatch; run it before anything else. If byLLM does not resolve, try
+   > `jac install byllm`, which installs it as a plugin.
+
+   Then run `jac install` once in each Jac project, to fetch that project's own
+   `[dependencies]` from its `jac.toml`:
+   ```bash
+   for d in CodeAgent/byLLM Email-Auto-response/byLLM meeting-assistant/byLLM \
+            YTNavigator/byLLM RagGPT/Jac-Rag-GPT RagGPT/Jac-Rag-GPT-ByllmRouter; do
+     (cd "$d" && jac install)
+   done
+   ```
+   Packages pip-installed in step 1 are **not** visible to the Jac runtime.
 
    The eval uses whatever `jac` is on `PATH`; no path is hardcoded anywhere. If
    the binary is somewhere unusual, export `JAC_BIN=<the directory holding it>`.
 
-   `python -m bench.verify` reports which `jac` it found, its version, and
-   whether byLLM resolves under it -- byLLM lives at `jaclang.byllm` in a
-   toolchain that bundles it and as the separate `byllm` package alongside a
-   released `jaclang`, and the Jac arms name one of the two. If your runtime
-   provides the other, verify says so and names the files.
+   Nothing here needs `jaclang` importable from *Python*: the two places that
+   import it (`CodeAgent/{langgraph,openai_sdk}/tools/edit.py`, to syntax-check
+   an edited `.jac` file) guard the import and skip the check when it is absent,
+   and SWE-bench Lite contains no Jac.
+
 4. **The model.** `ollama pull $BENCH_MODEL`, or point `BENCH_BASE_URL` at a
    vLLM/llama.cpp server you already run.
 5. **Postgres with pgvector**, for YTNavigator. Its eval starts one itself from
