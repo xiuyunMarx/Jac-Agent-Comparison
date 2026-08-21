@@ -245,6 +245,50 @@ _SCHEMA = {
 }
 
 
+def placement(model: str) -> dict:
+    """Where a loaded model is actually running: GPU, CPU, or split across both.
+
+    Ollama falls back to CPU silently when it cannot fit the weights in VRAM --
+    no error, no warning, just a model that answers perhaps thirty times slower.
+    On a benchmark whose largest stage is already hours on a GPU, that is the
+    difference between a run and a week.
+
+    Read from /api/ps (size_vram against size), falling back to the PROCESSOR
+    column of `ollama ps`. Returns fraction=None rather than guessing when
+    neither is readable, so this can only ever report, never false-alarm.
+    """
+    out = {"fraction": None, "detail": "", "source": ""}
+    try:
+        loaded = (_get_json(f"{ollama_root()}/api/ps", timeout=5) or {}).get("models") or []
+    except Exception:
+        loaded = []
+    for entry in loaded:
+        name = entry.get("name") or entry.get("model") or ""
+        if name.split(":")[0] != model.split(":")[0]:
+            continue
+        total, vram = entry.get("size"), entry.get("size_vram")
+        if isinstance(total, int) and isinstance(vram, int) and total > 0:
+            out.update(fraction=vram / total, source="/api/ps",
+                       detail=f"{vram / 1e9:.1f} GB of {total / 1e9:.1f} GB in VRAM")
+            return out
+
+    if shutil.which("ollama"):
+        proc = subprocess.run(["ollama", "ps"], capture_output=True, text=True, timeout=30)
+        for line in (proc.stdout or "").splitlines():
+            if not line.startswith(model.split(":")[0]):
+                continue
+            for token in line.split():
+                if token.endswith("%"):
+                    try:
+                        pct = float(token.rstrip("%"))
+                    except ValueError:
+                        continue
+                    is_gpu = "GPU" in line.upper().split(token)[-1][:8] or "GPU" in line.upper()
+                    out.update(fraction=(pct / 100) if is_gpu else 0.0,
+                               source="ollama ps", detail=line.strip())
+                    return out
+    return out
+
 def probe(endpoint: str | None = None, model: str | None = None) -> dict:
     """Check the served model can do what all five benchmarks require.
 
@@ -267,6 +311,8 @@ def probe(endpoint: str | None = None, model: str | None = None) -> dict:
         out["error"] = f"{type(exc).__name__}: {exc}"
         return out
     out["reachable"] = True
+    # The completion above forced the load, so placement is readable now.
+    out["placement"] = placement(model)
     usage = r.get("usage") or {}
     out["reports_usage"] = bool(usage.get("total_tokens") or usage.get("prompt_tokens"))
     out["usage"] = usage
@@ -331,12 +377,34 @@ def print_probe(result: dict) -> bool:
     print(f"  strict json_schema   {mark(result.get('json_schema'))}  "
           f"{result.get('json_schema_error', '')}")
     print(f"  num_ctx              {result.get('num_ctx')}")
+    place = result.get("placement") or {}
+    frac, detail = place.get("fraction"), place.get("detail")
+    if frac is None:
+        print(f"  running on           (could not read placement)")
+    elif frac >= 0.99:
+        print(f"  running on           GPU  {detail}")
+    elif frac <= 0.01:
+        print(f"  running on           CPU  {detail}   <-- SEE BELOW")
+    else:
+        print(f"  running on           {frac * 100:.0f}% GPU / {(1 - frac) * 100:.0f}% CPU  "
+              f"{detail}   <-- SEE BELOW")
     if not result.get("tool_calls"):
         print("\n  Tool calling is required by all five benchmarks. Expect near-zero\n"
               "  scores across the board; this measures the model, not the frameworks.")
     if not result.get("json_schema"):
         print("\n  Strict JSON schema is unsupported. The arms have text fallbacks, so the\n"
               "  run will complete -- watch the parse-failure rate in the report.")
+    if frac is not None and frac < 0.99:
+        where = "entirely on CPU" if frac <= 0.01 else f"only {frac * 100:.0f}% on the GPU"
+        print(f"\n  The model is running {where}. Ollama falls back to CPU silently when\n"
+              "  the weights do not fit in VRAM -- no error, just a model perhaps thirty\n"
+              "  times slower. CodeAgent alone is hours on a GPU; on CPU this sweep does\n"
+              "  not finish in any useful time. Usual causes:\n"
+              "    * the GPU is not visible to the ollama service (`nvidia-smi` works for\n"
+              "      you but not for the service -- check `systemctl status ollama`)\n"
+              "    * the model plus $BENCH_CTX exceeds VRAM; lower BENCH_CTX or use a\n"
+              "      smaller model\n"
+              "    * something else already holds the VRAM (`nvidia-smi`)")
     return bool(result.get("ok"))
 
 
