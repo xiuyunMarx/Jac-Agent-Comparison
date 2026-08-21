@@ -228,6 +228,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--workers", type=int, default=4, help="CodeAgent instances in flight")
     ap.add_argument("--eval-workers", type=int, default=2, help="CodeAgent grading workers")
     ap.add_argument("--dry-run", action="store_true", help="print the commands, run nothing")
+    ap.add_argument("--skip-jac-check", action="store_true",
+                    help="run even though the Jac runtime is unusable (byLLM arms will fail)")
     args = ap.parse_args(argv)
 
     only = {s.strip() for s in args.only.split(",") if s.strip()}
@@ -238,6 +240,22 @@ def main(argv: list[str] | None = None) -> int:
     selected = [k for k in STAGE_ORDER if (not only or k in only) and k not in skip]
     if not selected:
         raise SystemExit("no stages selected")
+
+    # Every one of the five benchmarks has a byLLM arm, so a jac that is missing
+    # or incompatible does not degrade the sweep -- it removes one of the three
+    # things being compared, and does it as an identical unhelpful line once per
+    # run. Check once, up front, and say what is wrong.
+    if not args.dry_run and not args.skip_jac_check:
+        from . import verify
+        jac_rows = verify.check_jac_runtime()
+        if any(row[2] == verify.FAIL for row in jac_rows):
+            print("\nThe Jac runtime is not usable, so every byLLM arm would fail:\n")
+            for bench, item, status, kind, detail in jac_rows:
+                print(f"  {status:4}  {item:18s} {detail}")
+            print("\nA three-way comparison missing one arm is not a comparison. Fix this\n"
+                  "first (see BENCHMARK.md step 3), or pass --skip-jac-check to run the\n"
+                  "other two arms anyway and accept the gap.")
+            return 1
 
     run_dir = config.RUNS_ROOT / args.run_id
     run_dir.mkdir(parents=True, exist_ok=True)

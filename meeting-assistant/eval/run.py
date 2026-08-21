@@ -179,6 +179,18 @@ def main():
                 out.write_text(json.dumps(result, indent=2))
                 status = "ok" if result["success"] else f"FAILED ({result['output_error'] or result['exit_code']})"
                 print(f"{status}  {result['wall_time_s']}s")
+                if not result["success"]:
+                    # "tool_outputs.json not written" is the symptom of every
+                    # failure here -- a missing toolchain, an import error, a
+                    # bad key -- so print what the arm actually said. Without
+                    # this a sweep of 90 runs prints the same useless line 90
+                    # times and the cause is only in the per-run JSON.
+                    for stream in ("stderr_tail", "stdout_tail"):
+                        tail = [ln for ln in (result.get(stream) or "").splitlines() if ln.strip()]
+                        for line in tail[-6:]:
+                            print(f"      {line}")
+                        if tail:
+                            break
 
     print(f"\nResults written to {RUNS_DIR}/  ->  score with:")
     print(f"  python {EVAL_DIR / 'score.py'} {RUNS_DIR} --judge")
