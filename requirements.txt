@@ -33,9 +33,19 @@
 # The Email CrewAI arm is NOT installable here -- see requirements-email-crewai.txt.
 # ---------------------------------------------------------------------------
 
-# -- Jac / byLLM ------------------------------------------------------------
-# The Python-side byLLM runtime. The `jac` binary is separate; see above.
-jaclang==0.31.1
+# -- byLLM ------------------------------------------------------------------
+# NOT jaclang. `jaclang` is not a pip dependency of this project and must not be
+# listed here: the version the Jac arms run against ships WITH the toolchain,
+# and on the machine this was built on it is not installed at all -- a
+# `jaclang.pth` in site-packages points at the jaseci source checkout, so
+# `importlib.metadata` reports a version (0.31.1) that exists on no index. PyPI's
+# `jaclang` is a different, older lineage (0.16.x, plus an unrelated 2.0.0).
+# Install the Jac toolchain instead; see "What pip cannot install for you" above.
+#
+# byllm is genuinely on PyPI and depends only on litellm/loguru/httpx/pillow, not
+# on jaclang. It is the fallback import path: the Jac arms ask for
+# `jaclang.byllm.lib` first (where a dev-build toolchain keeps it) and fall back
+# to this package on a released jaclang. Harmless either way.
 byllm==0.6.19
 
 # -- Model access -----------------------------------------------------------
@@ -58,7 +68,11 @@ langchain-huggingface==0.3.1
 langchain-postgres==0.0.17
 langchain-text-splitters==0.3.11
 crewai==1.15.11
-crewai-tools==1.15.11
+# NOT crewai-tools. Nothing here imports it: the only tool usage in either
+# CrewAI arm is `from crewai.tools import tool` (Email's src/crew/tools.py),
+# which is core crewai. meeting-assistant's pyproject asks for crewai[tools],
+# but that extra is unused -- and it drags in lancedb, chromadb and pytube, the
+# last of which pins youtube-transcript-api against YT-Navigator's own pin.
 slack-sdk==3.43.0
 
 # -- Retrieval: embeddings, rerankers, vector stores ------------------------
@@ -96,7 +110,13 @@ aiohttp==3.14.1
 requests==2.34.2
 httpx==0.28.1
 pydantic==2.12.5
-python-dotenv==1.0.1
+# Not YT-Navigator's declared ==1.0.1: crewai 1.15.11 requires >=1.2.2,<2, and
+# the two cannot both be satisfied. YT-Navigator only calls load_dotenv(), whose
+# signature is stable across 1.x, so the floor moves rather than the ceiling.
+# (The env this was pinned from has 1.0.1 AND crewai 1.15.11 installed -- an
+# already-violated constraint that pip tolerated because they arrived
+# separately. A clean install would have failed.)
+python-dotenv>=1.2.2,<2
 
 # -- CodeAgent / SWE-bench --------------------------------------------------
 # The grading harness is vendored; install it editable so `swebench` resolves:

@@ -155,23 +155,42 @@ against an absolute. `--no-judge` keeps only deterministic metrics.
 ## Moving to another machine
 
 1. **Python.** 3.13.x -- not 3.14 (the CrewAI arms cap there), not below 3.13.2
-   (YT-Navigator's floor).
+   (YT-Navigator's floor). Create the environment first: installing into a
+   system Python gives `Defaulting to user installation because normal
+   site-packages is not writeable`, and the pins here will fight whatever the
+   system already has.
    ```bash
    conda create -n jaseci python=3.13 && conda activate jaseci
    pip install -r requirements.txt
    pip install -e CodeAgent/SWE-bench
    ```
+   `requirements.txt` deliberately does **not** list `jaclang` -- see step 3.
 2. **The Email CrewAI arm's own venv.** It pins langgraph 1.x, which cannot
    coexist with the 0.3.5 two other benchmarks need.
    ```bash
    cd Email-Auto-response/CrewAI-LangGraph
    python -m venv .venv && .venv/bin/pip install -r ../../requirements-email-crewai.txt
    ```
-3. **Jac.** Install the toolchain, then `jac install` once in each Jac project
-   (`CodeAgent/byLLM`, `Email-Auto-response/byLLM`, `meeting-assistant/byLLM`,
-   `YTNavigator/byLLM`, `RagGPT/Jac-Rag-GPT`, `RagGPT/Jac-Rag-GPT-ByllmRouter`).
-   Packages pip-installed above are **not** visible to the Jac runtime. If
-   `jac` is not on `PATH`, export `JAC_BIN=<the directory holding it>`.
+3. **Jac.** `jaclang` is not pip-installable at the version this was built
+   against and is not in `requirements.txt`: the toolchain ships its own copy,
+   and `pip install jaclang==<that version>` fails with *"Could not find a
+   version that satisfies the requirement"* because PyPI's `jaclang` is a
+   different, older lineage. Install the Jac toolchain itself and let it
+   provide the runtime.
+
+   Then run `jac install` once in each Jac project (`CodeAgent/byLLM`,
+   `Email-Auto-response/byLLM`, `meeting-assistant/byLLM`, `YTNavigator/byLLM`,
+   `RagGPT/Jac-Rag-GPT`, `RagGPT/Jac-Rag-GPT-ByllmRouter`). Packages
+   pip-installed in step 1 are **not** visible to the Jac runtime.
+
+   The eval uses whatever `jac` is on `PATH`; no path is hardcoded anywhere. If
+   the binary is somewhere unusual, export `JAC_BIN=<the directory holding it>`.
+
+   `python -m bench.verify` reports which `jac` it found, its version, and
+   whether byLLM resolves under it -- byLLM lives at `jaclang.byllm` in a
+   toolchain that bundles it and as the separate `byllm` package alongside a
+   released `jaclang`, and the Jac arms name one of the two. If your runtime
+   provides the other, verify says so and names the files.
 4. **The model.** `ollama pull $BENCH_MODEL`, or point `BENCH_BASE_URL` at a
    vLLM/llama.cpp server you already run.
 5. **Postgres with pgvector**, for YTNavigator. Its eval starts one itself from

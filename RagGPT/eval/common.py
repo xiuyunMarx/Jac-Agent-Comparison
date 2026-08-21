@@ -16,12 +16,12 @@ EVAL_DIR = Path(__file__).resolve().parent
 CODER_DIR = EVAL_DIR.parent
 
 def _jac_bin_dir() -> str:
-    """Directory holding the `jac` binary.
+    """Directory holding the `jac` binary, or "" if there is none.
 
-    Discovered rather than hardcoded: an absolute path baked in here is the
-    first thing to break when this repo is copied to another machine. $JAC_BIN
-    wins, then whatever is on PATH, then the dev-build location this eval was
-    written against.
+    Discovered, never hardcoded: a machine-specific path baked in here is the
+    first thing to break when this repo is copied elsewhere, and it would
+    silently shadow the jac the user actually installed. $JAC_BIN wins, then
+    whatever is on PATH. Nothing else -- the eval uses the installed runtime.
     """
     explicit = os.environ.get("JAC_BIN", "")
     if explicit and Path(explicit).is_dir():
@@ -29,7 +29,7 @@ def _jac_bin_dir() -> str:
     found = shutil.which("jac")
     if found:
         return str(Path(found).resolve().parent)
-    return "/home/xiaoyu/jaseci/jac/zig-out/bin"
+    return ""
 
 
 JAC_BIN_DIR = _jac_bin_dir()
@@ -72,7 +72,10 @@ JUDGE_MODEL = os.environ.get("BENCH_JUDGE_MODEL", "") or "gpt-4.1"
 def setup_env() -> None:
     """Prepend the dev jac binary to PATH and load Coder/.env into os.environ."""
     path = os.environ.get("PATH", "")
-    if JAC_BIN_DIR not in path.split(os.pathsep):
+    # Empty when no jac was found; prepending it would put "" on PATH, which
+    # means the current directory. The Jac systems fail with a clear error
+    # further down instead.
+    if JAC_BIN_DIR and JAC_BIN_DIR not in path.split(os.pathsep):
         os.environ["PATH"] = JAC_BIN_DIR + os.pathsep + path
     env_file = CODER_DIR / ".env"
     if env_file.exists():

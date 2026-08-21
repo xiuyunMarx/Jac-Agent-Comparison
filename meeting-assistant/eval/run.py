@@ -33,23 +33,19 @@ ROOT = EVAL_DIR.parent                        # meeting-assistant/
 DATASETS_DIR = ROOT / "datasets"
 RUNS_DIR = EVAL_DIR / "runs"
 
-# The byLLM implementation is built with the dev-mode jac toolchain. Discovered
-# rather than hardcoded: an absolute path baked in here is the first thing to
-# break when this repo is copied to another machine. $JAC_BIN wins, then
-# whatever `jac` is on PATH, then the dev-build location this eval was written
-# against.
-DEFAULT_JAC_BIN = "/home/xiaoyu/jaseci-gen-sem/jaseci/jac/zig-out/bin"
-
-
+# The byLLM arm runs on whatever jac is installed. Discovered, never hardcoded:
+# a machine-specific path baked in here is the first thing to break when this
+# repo is copied elsewhere, and it would silently shadow the jac the user
+# actually installed. $JAC_BIN wins, then whatever is on PATH.
 def default_jac_bin() -> str:
     found = shutil.which("jac")
-    return str(Path(found).resolve().parent) if found else DEFAULT_JAC_BIN
+    return str(Path(found).resolve().parent) if found else ""
 
 
 def implementations():
     jac_bin = os.environ.get("JAC_BIN", "") or default_jac_bin()
     jac_env = dict(os.environ)
-    if Path(jac_bin).is_dir():
+    if jac_bin and Path(jac_bin).is_dir():
         jac_env["PATH"] = f"{jac_bin}:{jac_env.get('PATH', '')}"
     # The CrewAI project uses a src layout; putting it on PYTHONPATH makes
     # `-m meeting_assistant_flow.main` work even when the package is not

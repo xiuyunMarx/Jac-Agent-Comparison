@@ -24,8 +24,9 @@ Prerequisites:
   a clear error if `crewai` is not importable. The `meeting_assistant_flow`
   package itself needs no install: `run.py` puts `../CrewAI/src` on
   `PYTHONPATH` for the subprocess.
-- **Dev-mode jac toolchain** for the byLLM side (default
-  `~/jaseci-gen-sem/jaseci/jac/zig-out/bin`, override with `JAC_BIN`).
+- **The installed jac runtime** for the byLLM side: whatever `jac` is on PATH,
+  or `$JAC_BIN` if you point it at the directory holding the binary. No path is
+  hardcoded, so the arm runs against the jac you installed.
 - **`OPENAI_API_KEY`** — both implementations call gpt-4o; so does the judge.
 
 ```bash

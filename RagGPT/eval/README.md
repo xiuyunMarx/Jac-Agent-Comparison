@@ -9,10 +9,12 @@ and framework overhead.
 
 1. `OPENAI_API_KEY` in `Coder/.env` (one line: `OPENAI_API_KEY=sk-...`).
    Needed by the systems (gpt-4.1-mini), synthesis and judging (gpt-4.1).
-2. The dev jac binary: scripts prepend `/home/xiaoyu/jaseci/jac/zig-out/bin`
-   to PATH automatically. Project deps are installed (`jac install` was run
-   under this binary for both Jac projects).
-3. Python: `/home/xiaoyu/miniconda3/envs/jaseci/bin/python` for every script.
+2. **The installed jac runtime.** Scripts use whatever `jac` is on PATH, or
+   `$JAC_BIN` if you set it to the directory holding the binary; no path is
+   hardcoded. Run `jac install` once in each Jac project (`Jac-Rag-GPT`,
+   `Jac-Rag-GPT-ByllmRouter`) under that same runtime -- packages pip-installed
+   into your shell's environment are not visible to it.
+3. Python: the environment built from the repo root's `requirements.txt`.
 
 ## Pipeline
 

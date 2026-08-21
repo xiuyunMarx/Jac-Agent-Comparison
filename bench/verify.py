@@ -28,6 +28,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from . import config
@@ -277,6 +278,68 @@ def check_toolchain() -> list[tuple]:
     return rows
 
 
+def check_jac_runtime() -> list[tuple]:
+    """Which jac is installed, and can the Jac arms import byLLM under it?
+
+    byLLM lives in one of two places depending on how jac was installed: inside
+    the toolchain as `jaclang.byllm` (dev builds bundle it), or as the separate
+    pip `byllm` package alongside a released jaclang. The two are mutually
+    exclusive -- on a dev build, importing the pip package fails outright -- and
+    every Jac arm here names one of them at the top of its file. So the layout
+    is probed by actually running a snippet through the installed runtime,
+    rather than importing into this interpreter, which may resolve differently.
+    """
+    rows = []
+    jac = shutil.which("jac")
+    if not jac:
+        return [("jac runtime", "jac", FAIL, "which",
+                 "not on PATH -- every byLLM arm will fail. "
+                 "Install the Jac toolchain, or set $JAC_BIN to its bin directory.")]
+
+    proc = _run([jac, "--version"], timeout=60)
+    version = next((ln.split("Version:")[-1].strip()
+                    for ln in ((proc.stdout or "") + (proc.stderr or "")).splitlines()
+                    if "Version:" in ln), "unknown")
+    rows.append(("jac runtime", "jac", PASS, "which", f"{jac} (version {version})"))
+
+    layouts = {"jaclang.byllm.lib": "jaclang.byllm", "byllm.lib": "byllm"}
+    found = None
+    with tempfile.TemporaryDirectory() as tmp:
+        for module, label in layouts.items():
+            probe = Path(tmp) / f"probe_{label.replace('.', '_')}.jac"
+            probe.write_text(
+                f"import from {module} {{ Model }}\n"
+                f'with entry {{ print("OK"); }}\n')
+            got = _run([jac, "run", probe.name], cwd=Path(tmp), timeout=180)
+            if got.returncode == 0 and "OK" in (got.stdout or ""):
+                found = module
+                break
+
+    if not found:
+        rows.append(("jac runtime", "byLLM import", FAIL, "jac run",
+                     "neither `jaclang.byllm.lib` nor `byllm.lib` resolves under this "
+                     "runtime -- no Jac arm can start. Run `jac install` in each Jac "
+                     "project, or install the matching byllm."))
+        return rows
+    rows.append(("jac runtime", "byLLM import", PASS, "jac run", f"resolves via `{found}`"))
+
+    # Every Jac arm names one layout at the top of its file. If the runtime
+    # provides the other one, those arms fail on their first line.
+    wrong_layout = "byllm.lib" if found == "jaclang.byllm.lib" else "jaclang.byllm.lib"
+    mismatched = []
+    for jac_file in sorted(R.rglob("*.jac")):
+        if "SWE-bench" in jac_file.parts or ".jac" in jac_file.parts:
+            continue
+        text = jac_file.read_text(errors="ignore")
+        if f"import from {wrong_layout}" in text and f"import from {found}" not in text:
+            mismatched.append(jac_file.relative_to(R))
+    rows.append(("jac runtime", "arm import lines", FAIL if mismatched else PASS, "grep",
+                 f"{len(mismatched)} file(s) name `{wrong_layout}`: "
+                 + ", ".join(str(m) for m in mismatched[:4]) if mismatched
+                 else f"all Jac arms name `{found}`, matching this runtime"))
+    return rows
+
+
 def check_endpoint() -> list[tuple]:
     """The endpoint is reachable, and the arms are pointed at it. No completion."""
     import urllib.error
@@ -331,6 +394,7 @@ def main(argv: list[str] | None = None) -> int:
             ("Runners (each knows all three of its arms)",
              check_runners() + [check_raggpt_systems()]),
             ("Inputs (datasets intact after the clean)", check_inputs()),
+            ("Jac runtime (the arms run on the installed one)", check_jac_runtime()),
             ("Toolchain and dependencies", check_toolchain()),
             ("Endpoint", check_endpoint()),
         ]
