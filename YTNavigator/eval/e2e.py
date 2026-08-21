@@ -35,6 +35,7 @@ from pathlib import Path
 EVAL_DIR = Path(__file__).resolve().parent
 ROOT = EVAL_DIR.parent                      # YTNavigator/
 LANGGRAPH_DIR = ROOT / "YT-Navigator"
+OPENAI_SDK_DIR = ROOT / "openai_sdk"
 BYLLM_DIR = ROOT / "byLLM"
 DATASETS_DIR = ROOT / "datasets"
 
@@ -273,7 +274,10 @@ def run_step(cmd, cwd=None, name=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--impl", choices=["both", "byllm", "langgraph"], default="both")
+    parser.add_argument("--impl", choices=["all", "both", "byllm", "langgraph", "openai_sdk"],
+                        default="all",
+                        help="'both' = byllm + langgraph (the historical pair); "
+                             "'all' adds the no-framework openai_sdk baseline")
     parser.add_argument("--questions", default=str(DATASETS_DIR / "questions.jsonl"))
     parser.add_argument("--langgraph-python", default=sys.executable,
                         help="Interpreter with YT-Navigator's deps (default: this one)")
@@ -282,12 +286,15 @@ def main():
                         help="Pipeline smoke without torch - retrieval quality meaningless")
     parser.add_argument("--smoke", action="store_true", help="Stop after the retrieval sanity check (no LLM calls)")
     parser.add_argument("--judge", action="store_true", help="Add LLM-as-judge scoring")
+    parser.add_argument("--judge-model", default=os.environ.get("EVAL_JUDGE_MODEL", ""),
+                        help="litellm model name for the judge "
+                             "(default: $EVAL_JUDGE_MODEL, else evaluate.py's own)")
     args = parser.parse_args()
 
     # ---- Stage 1: prerequisites -------------------------------------------
     stage("Stage 1/7: prerequisites")
     problems = []
-    if args.impl in ("both", "byllm") and not have("jac"):
+    if args.impl in ("all", "both", "byllm") and not have("jac"):
         problems.append("jac binary not on PATH (needed for the byLLM implementation)")
     try:
         import psycopg2  # noqa: F401
@@ -350,13 +357,27 @@ def main():
 
     # ---- Stage 5+6: implementations ---------------------------------------
     results = []
-    if args.impl in ("both", "byllm"):
+    if args.impl in ("all", "both", "byllm"):
         stage("Stage 5/7: byLLM implementation")
         run_step([sys.executable, str(EVAL_DIR / "run.py"), "--impl", "byllm",
                   "--questions", args.questions, "--no-score"], name="byLLM run")
         results.append(EVAL_DIR / "out" / "results_byllm.jsonl")
 
-    if args.impl in ("both", "langgraph"):
+    if args.impl in ("all", "openai_sdk"):
+        stage("Stage 5b/7: openai_sdk implementation")
+        # Runs in this interpreter, which already needed psycopg2 for the
+        # retrieval check above; the only extra is the openai package.
+        probe = subprocess.run([sys.executable, "-c", "import openai"],
+                               capture_output=True, text=True)
+        if probe.returncode != 0:
+            print(f"SKIPPED: `openai` is not importable with {sys.executable}. "
+                  f"Install it (pip install -e {OPENAI_SDK_DIR}) and rerun with --impl openai_sdk.")
+        else:
+            run_step([sys.executable, str(EVAL_DIR / "run.py"), "--impl", "openai_sdk",
+                      "--questions", args.questions, "--no-score"], name="openai_sdk run")
+            results.append(EVAL_DIR / "out" / "results_openai_sdk.jsonl")
+
+    if args.impl in ("all", "both", "langgraph"):
         stage("Stage 6/7: LangGraph implementation")
         probe = subprocess.run(
             [args.langgraph_python, "-c", "import django, langgraph, langchain_openai"],
@@ -383,6 +404,8 @@ def main():
         "--questions", args.questions, "--report", str(EVAL_DIR / "out" / "report.json")]
     if args.judge:
         score_cmd.append("--judge")
+        if args.judge_model:
+            score_cmd += ["--judge-model", args.judge_model]
     run_step(score_cmd, name="scoring")
     print(f"\nDone. Result files: {', '.join(str(r) for r in existing)}")
     print(f"Full report: {EVAL_DIR / 'out' / 'report.json'}")

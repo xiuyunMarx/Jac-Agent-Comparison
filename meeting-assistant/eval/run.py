@@ -33,12 +33,21 @@ ROOT = EVAL_DIR.parent                        # meeting-assistant/
 DATASETS_DIR = ROOT / "datasets"
 RUNS_DIR = EVAL_DIR / "runs"
 
-# The byLLM implementation is built with the dev-mode jac toolchain.
+# The byLLM implementation is built with the dev-mode jac toolchain. Discovered
+# rather than hardcoded: an absolute path baked in here is the first thing to
+# break when this repo is copied to another machine. $JAC_BIN wins, then
+# whatever `jac` is on PATH, then the dev-build location this eval was written
+# against.
 DEFAULT_JAC_BIN = "/home/xiaoyu/jaseci-gen-sem/jaseci/jac/zig-out/bin"
 
 
+def default_jac_bin() -> str:
+    found = shutil.which("jac")
+    return str(Path(found).resolve().parent) if found else DEFAULT_JAC_BIN
+
+
 def implementations():
-    jac_bin = os.environ.get("JAC_BIN", DEFAULT_JAC_BIN)
+    jac_bin = os.environ.get("JAC_BIN", "") or default_jac_bin()
     jac_env = dict(os.environ)
     if Path(jac_bin).is_dir():
         jac_env["PATH"] = f"{jac_bin}:{jac_env.get('PATH', '')}"
@@ -58,6 +67,12 @@ def implementations():
         "byLLM": {
             "cmd": ["jac", "run", str(ROOT / "byLLM" / "main.jac")],
             "env": jac_env,
+        },
+        # The no-framework baseline needs only the openai SDK, importable
+        # from the interpreter running this script.
+        "openai_sdk": {
+            "cmd": [sys.executable, str(ROOT / "openai_sdk" / "main.py")],
+            "env": dict(os.environ),
         },
     }
 
@@ -127,8 +142,9 @@ def run_once(impl_name, impl, case, rep, timeout):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--impl", action="append", choices=["CrewAI", "byLLM"],
-                    help="implementation(s) to run (default: both)")
+    ap.add_argument("--impl", action="append",
+                    choices=["CrewAI", "byLLM", "openai_sdk"],
+                    help="implementation(s) to run (default: all)")
     ap.add_argument("--cases", nargs="+", default=None,
                     help="case ids to run, e.g. meeting_003 (default: all)")
     ap.add_argument("--repeat", type=int, default=1,

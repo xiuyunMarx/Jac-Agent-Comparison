@@ -27,6 +27,7 @@ EVAL_DIR = Path(__file__).resolve().parent
 ROOT = EVAL_DIR.parent                      # YTNavigator/
 LANGGRAPH_DIR = ROOT / "YT-Navigator"
 BYLLM_DIR = ROOT / "byLLM"
+OPENAI_SDK_DIR = ROOT / "openai_sdk"
 EVALUATE = LANGGRAPH_DIR / "benchmark" / "evaluate.py"
 
 
@@ -64,7 +65,10 @@ def run_impl(name, cmd, cwd, env, timeout):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--impl", choices=["both", "byllm", "langgraph"], default="both")
+    parser.add_argument(
+        "--impl", choices=["all", "both", "byllm", "langgraph", "openai_sdk"], default="both",
+        help="Which implementation(s) to run: 'both' = byllm + langgraph (historical name), 'all' adds openai_sdk",
+    )
     parser.add_argument(
         "--questions",
         default=str(ROOT / "datasets" / "questions.jsonl"),
@@ -85,6 +89,9 @@ def main():
     parser.add_argument("--timeout", type=int, default=3600, help="Per-implementation timeout in seconds")
     parser.add_argument("--no-score", action="store_true", help="Skip the scoring step")
     parser.add_argument("--judge", action="store_true", help="Add LLM-as-judge scoring (needs reference answers)")
+    parser.add_argument("--judge-model", default=os.environ.get("EVAL_JUDGE_MODEL", ""),
+                        help="litellm model name for the judge "
+                             "(default: $EVAL_JUDGE_MODEL, else evaluate.py's own)")
     args = parser.parse_args()
 
     questions = Path(args.questions)
@@ -102,7 +109,23 @@ def main():
     env.update({k: v for k, v in parse_env_file(Path(args.env_file)).items() if k not in os.environ})
 
     results = []
-    if args.impl in ("both", "byllm"):
+    if args.impl in ("all", "openai_sdk"):
+        out = out_dir / "results_openai_sdk.jsonl"
+        sdk_env = dict(env)
+        sdk_env.update(
+            {
+                "YTNAV_QUESTIONS": str(questions.resolve()),
+                "YTNAV_OUTPUT": str(out.resolve()),
+                "YTNAV_CHANNEL": args.channel,
+            }
+        )
+        # Runs in this interpreter's env: needs `openai` + psycopg2 (see
+        # openai_sdk/pyproject.toml).
+        ok, _ = run_impl("openai_sdk", [sys.executable, "main.py"], OPENAI_SDK_DIR, sdk_env, args.timeout)
+        if ok:
+            results.append(out)
+
+    if args.impl in ("all", "both", "byllm"):
         out = out_dir / "results_byllm.jsonl"
         byllm_env = dict(env)
         byllm_env.update(
@@ -116,7 +139,7 @@ def main():
         if ok:
             results.append(out)
 
-    if args.impl in ("both", "langgraph"):
+    if args.impl in ("all", "both", "langgraph"):
         out = out_dir / "results_langgraph.jsonl"
         cmd = [
             args.langgraph_python, "manage.py", "benchmark_run",
@@ -143,6 +166,11 @@ def main():
     ]
     if args.judge:
         score_cmd.append("--judge")
+        # evaluate.py judges through litellm, which cannot infer a provider for
+        # a name it has never seen -- so a locally served model has to arrive
+        # here already prefixed.
+        if args.judge_model:
+            score_cmd += ["--judge-model", args.judge_model]
     print()
     subprocess.run(score_cmd, env=env, check=False)
 

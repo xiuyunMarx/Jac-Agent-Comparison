@@ -139,7 +139,7 @@ def llm(messages: list[dict], schema: type[BaseModel], temperature: float = 0.7)
     global client
     if client is None:
         common.require_api_key()
-        client = OpenAI(base_url="https://api.openai.com/v1")
+        client = OpenAI()  # honours $OPENAI_BASE_URL; still outside the token proxy
     parse = getattr(client.chat.completions, "parse", None) or client.beta.chat.completions.parse
     resp = parse(model=common.JUDGE_MODEL, messages=messages,
                  response_format=schema, temperature=temperature)

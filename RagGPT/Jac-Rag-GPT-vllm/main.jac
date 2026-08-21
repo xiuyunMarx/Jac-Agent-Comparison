@@ -20,8 +20,11 @@ import from dotenv { load_dotenv }
 import from rag_engine { RagEngine, AppConfig, load_config }
 
 # Load .env (API keys, MODEL override) before any LLM-backed initialization.
+# override=False: the shell wins. An exported OPENAI_BASE_URL/MODEL is how the
+# eval points every system at one server, and a committed .env that overrode it
+# would silently send this arm somewhere else.
 with entry {
-    load_dotenv(override=True);
+    load_dotenv(override=False);
 }
 
 glob app_config: AppConfig = load_config("faiss_reranking");

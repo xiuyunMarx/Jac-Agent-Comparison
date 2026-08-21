@@ -7,6 +7,7 @@ Run everything with the `jaseci` conda python:
 import json
 import os
 import re
+import shutil
 import subprocess
 import uuid
 from pathlib import Path
@@ -14,32 +15,58 @@ from pathlib import Path
 EVAL_DIR = Path(__file__).resolve().parent
 CODER_DIR = EVAL_DIR.parent
 
-JAC_BIN_DIR = "/home/xiaoyu/jaseci/jac/zig-out/bin"
+def _jac_bin_dir() -> str:
+    """Directory holding the `jac` binary.
+
+    Discovered rather than hardcoded: an absolute path baked in here is the
+    first thing to break when this repo is copied to another machine. $JAC_BIN
+    wins, then whatever is on PATH, then the dev-build location this eval was
+    written against.
+    """
+    explicit = os.environ.get("JAC_BIN", "")
+    if explicit and Path(explicit).is_dir():
+        return explicit
+    found = shutil.which("jac")
+    if found:
+        return str(Path(found).resolve().parent)
+    return "/home/xiaoyu/jaseci/jac/zig-out/bin"
+
+
+JAC_BIN_DIR = _jac_bin_dir()
 
 DATASET_PATH = EVAL_DIR / "dataset" / "dataset.jsonl"
 DATASET_REPORT_PATH = EVAL_DIR / "dataset" / "dataset_report.md"
 RESULTS_DIR = EVAL_DIR / "results"
 RAW_RUNS_PATH = RESULTS_DIR / "raw_runs.jsonl"
-PROXY_LOG_PATH = RESULTS_DIR / "proxy_log.jsonl"
+PROXY_LOG_PATH = Path(os.environ.get("PROXY_LOG", "") or (RESULTS_DIR / "proxy_log.jsonl"))
 JUDGED_PATH = RESULTS_DIR / "judged.jsonl"
 JAC_CHECK_ENV = EVAL_DIR / "harness" / "jac_check_env"
 
-PROXY_PORT = 8899
+# The token-counting proxy. Port, upstream and log are knobs rather than
+# constants so this eval can share one proxy with the other four benchmarks
+# (bench/services.py starts it), instead of each running its own and splitting
+# the ledger. Unset, the values are the ones this eval was written with.
+PROXY_PORT = int(os.environ.get("BENCH_PROXY_PORT", "8899"))
 PROXY_BASE_URL = f"http://127.0.0.1:{PROXY_PORT}/v1"
+PROXY_UPSTREAM = os.environ.get("PROXY_UPSTREAM", "https://api.openai.com").rstrip("/")
 
-# The three systems under test. `kind` picks the driver in harness/drivers.py.
+# The systems under test. `kind` picks the driver in harness/drivers.py.
 SYSTEMS = {
     "langgraph": {"kind": "python", "dir": CODER_DIR / "langgraph"},
     "jac": {"kind": "jac", "dir": CODER_DIR / "Jac-Rag-GPT", "port": 8501},
     "jac-byllm-router": {"kind": "jac", "dir": CODER_DIR / "Jac-Rag-GPT-ByllmRouter", "port": 8502},
+    "openai-sdk": {"kind": "python", "dir": CODER_DIR / "openai_sdk"},
 }
 
 AGENTS = ["RagChat", "CodingChat", "DebuggerChat", "QAChat", "OffTopicChat"]
 
 CATEGORIES = ["rag_qa", "coding", "debugging", "small_talk", "off_topic", "multi_turn"]
 
-# Synthesis + judging model (the systems under test stay on their configured gpt-4.1-mini).
-JUDGE_MODEL = "gpt-4.1"
+# Synthesis + judging model. Normally a stronger frozen model than the systems
+# under test, so the judge is not grading its own family; $BENCH_JUDGE_MODEL
+# points it at the local server for an offline run, where that separation is
+# traded away deliberately and the report says so.
+JUDGE_MODEL = os.environ.get("BENCH_JUDGE_MODEL", "") or "gpt-4.1"
 
 
 def setup_env() -> None:

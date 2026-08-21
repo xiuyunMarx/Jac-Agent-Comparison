@@ -23,12 +23,33 @@ import from dotenv { load_dotenv }
 import from rag_engine { RagEngine, AppConfig, load_config }
 
 # Load .env (API keys, MODEL override) before any LLM-backed initialization.
+# override=False: the shell wins. An exported OPENAI_BASE_URL/MODEL is how the
+# eval points every system at one server, and a committed .env that overrode it
+# would silently send this arm somewhere else.
 with entry {
-    load_dotenv(override=True);
+    load_dotenv(override=False);
 }
 
 glob app_config: AppConfig = load_config("faiss_reranking");
-glob llm = Model(model_name=os.environ.get("MODEL", app_config.model_name));
+# $MODEL is the one knob every system under test reads. This side reaches the
+# provider through litellm, which cannot infer a provider for a name it has
+# never seen (a locally served model, say), so an unprefixed name gets
+# litellm's "openai/". The Python siblings strip the prefix back off.
+def _model_name() -> str {
+    name = str(os.environ.get("MODEL", "") or app_config.model_name);
+    if "/" in name {
+        return name;
+    }
+    return f"openai/{name}";
+}
+
+# ctx_window: litellm carries no context-length metadata for a locally served
+# model, and without it byLLM's auto-compaction misreads the window and errors
+# on histories it should have compacted. 0 keeps litellm's own answer.
+glob llm = Model(
+    model_name=_model_name(),
+    ctx_window=int(os.environ.get("BENCH_CTX", "0"))
+);
 
 glob base_dir: str = os.path.dirname(__file__);
 glob rag_engine: RagEngine = RagEngine(

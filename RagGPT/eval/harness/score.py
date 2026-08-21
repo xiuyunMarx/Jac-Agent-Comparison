@@ -50,7 +50,11 @@ class BinaryJudge(BaseModel):
 
 
 common.require_api_key()
-client = OpenAI(base_url="https://api.openai.com/v1")
+# No explicit base_url: bare OpenAI() reads $OPENAI_BASE_URL, so the judge
+# follows wherever the run is pointed. It still bypasses the token proxy --
+# nothing sets OPENAI_BASE_URL to the proxy in this process -- so judge tokens
+# never land in the systems' ledger.
+client = OpenAI()
 _parse = getattr(client.chat.completions, "parse", None) or client.beta.chat.completions.parse
 
 _cache: dict[str, dict] = {}

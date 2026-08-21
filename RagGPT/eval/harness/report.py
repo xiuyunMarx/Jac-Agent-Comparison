@@ -3,6 +3,7 @@
 Run:  /home/xiaoyu/miniconda3/envs/jaseci/bin/python report.py
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -13,8 +14,12 @@ from scipy import stats
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import common  # noqa: E402
 
-# gpt-4.1-mini pricing, USD per 1M tokens (input, output) — update if OpenAI changes it.
-PRICE_IN, PRICE_OUT = 0.40, 1.60
+# Pricing, USD per 1M tokens (input, output). Defaults to gpt-4.1-mini's, the
+# model this eval was written against. A locally served model costs nothing per
+# token, and reporting it at OpenAI's rates would invent a dollar figure -- so
+# the runner sets both to 0 and the $/1k column reads as the zero it is.
+PRICE_IN = float(os.environ.get("BENCH_PRICE_IN", "0.40"))
+PRICE_OUT = float(os.environ.get("BENCH_PRICE_OUT", "1.60"))
 
 BOOT_ITERS = 2000
 

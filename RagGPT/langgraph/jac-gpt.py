@@ -26,7 +26,10 @@ from langgraph.errors import GraphRecursionError
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import create_react_agent
 
-load_dotenv(override=True)
+# override=False: the shell wins, so an exported OPENAI_BASE_URL/MODEL points
+# this arm at the same server as its siblings rather than being overridden by
+# a committed .env.
+load_dotenv(override=False)
 
 # Jac passes chat_history[-10:] to each agent; one entry here holds a user/bot pair.
 HISTORY_TURNS = 5
@@ -52,12 +55,20 @@ class SessionInfo:
         self.updated_at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
 
+def _bare_model(name: str) -> str:
+    """Drop any provider prefix: "openai/x", "openai:x" and "x" all mean x."""
+    return name.replace(":", "/").split("/")[-1]
+
+
 class JacGPT:
     def __init__(self, session_id: str, rag_engine: RagEngine):
         self.session_id = session_id
         self.session_info: SessionInfo = SessionInfo()
         self.rag_engine = rag_engine
-        self.model_name: str = os.environ.get("MODEL", rag_engine.config.model_name)
+        # $MODEL is shared with the byLLM siblings, which need litellm's
+        # "openai/" prefix on an unfamiliar name. This side puts the string on
+        # the wire as the model id, so the prefix is stripped, not passed on.
+        self.model_name: str = _bare_model(os.environ.get("MODEL", "") or rag_engine.config.model_name)
 
         @tool(description=SEARCH_DOCS_DESCRIPTION)
         def search_docs(query: str) -> str:

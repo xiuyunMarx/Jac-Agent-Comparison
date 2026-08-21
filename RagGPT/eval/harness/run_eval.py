@@ -70,9 +70,12 @@ def _kill_stray_proxies() -> None:
 def ensure_proxy() -> subprocess.Popen | None:
     try:
         health = requests.get(PROXY_HEALTH, timeout=2).json()
-        # A proxy is only trustworthy if it forwards to the real API and logs
-        # where scoring will look — anything else is a stray (test) instance.
-        if (health.get("upstream") == "https://api.openai.com"
+        # A proxy is only trustworthy if it forwards where this run expects and
+        # logs where scoring will look — anything else is a stray (test)
+        # instance. The upstream is compared against the configured one, not a
+        # literal, so a shared proxy in front of a local model is reused rather
+        # than killed and replaced with one pointed at OpenAI.
+        if (health.get("upstream") == common.PROXY_UPSTREAM
                 and health.get("log") == str(common.PROXY_LOG_PATH)):
             print("proxy already running (verified)")
             return None
@@ -83,6 +86,8 @@ def ensure_proxy() -> subprocess.Popen | None:
         pass
     env = dict(os.environ)
     env["PROXY_LOG"] = str(common.PROXY_LOG_PATH)
+    env["PROXY_PORT"] = str(common.PROXY_PORT)
+    env["PROXY_UPSTREAM"] = common.PROXY_UPSTREAM
     proc = subprocess.Popen(
         [sys.executable, str(Path(__file__).parent / "proxy.py")],
         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)

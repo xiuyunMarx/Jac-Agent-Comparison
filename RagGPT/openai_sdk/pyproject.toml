@@ -1,0 +1,37 @@
+# Dependency manifest first, package second: the eval driver execs jac-gpt.py
+# by path (its hyphenated name is deliberate — it must match the LangGraph
+# side's so one driver serves both), so nothing imports this as an installed
+# distribution. `pip install -e .` still works and pulls the four runtime deps.
+[project]
+name = "openai-sdk-jacgpt"
+version = "0.1.0"
+description = "Jac-GPT RAG chatbot with no orchestration framework, for the Jac/byLLM vs Python-framework comparison"
+requires-python = ">=3.11"
+dependencies = [
+    # The whole of the LLM side: router, specialists, ReAct loop.
+    "openai>=1.40",
+    # The retrieval side langchain's FAISS wrapper was fronting: the raw index,
+    # the local embedding model that built it, and the reranker.
+    "faiss-cpu>=1.8",
+    "sentence-transformers>=3.0",
+    "numpy>=1.26",
+    # ../.env holds the key on every side of this comparison.
+    "python-dotenv>=1.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# jac-gpt.py is not a valid module name, so auto-discovery would ship nothing;
+# name the importable siblings explicitly.
+[tool.setuptools]
+py-modules = ["prompts", "rag_engine"]
+
+# The model is pinned identically on all sides of the comparison, or the
+# benchmark measures the model rather than the framework. Overridable per shell
+# with MODEL, exactly as the LangGraph and Jac sides do it. The API key is read
+# from OPENAI_API_KEY by the openai SDK natively and deliberately not
+# configured here.
+[tool.jacgpt]
+default_model = "gpt-4.1-mini"
