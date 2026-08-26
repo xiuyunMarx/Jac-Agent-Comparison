@@ -20,10 +20,8 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from telemetry import TokenUsage
 
-# Pinned identically on all three sides of the comparison, or the benchmark
-# measures the model rather than the framework. Overridable per shell with
-# CODEAGENT_MODEL, exactly as byLLM/jac.toml and langgraph/pyproject.toml do it.
-DEFAULT_MODEL = "gpt-5"
+# Hard-coded identically on every side of the comparison; no env override.
+DEFAULT_MODEL = "ollama_chat/glm-5.2"
 # byLLM's [byllm.call_params], and gpt-5-shaped throughout.
 #
 # temperature 1: gpt-5 rejects every other value ("Unsupported value:
@@ -82,15 +80,11 @@ def set_client(client: Any | None) -> None:
 def active_model_name() -> str:
     """The model this run will call.
 
-    Reads the environment rather than the client, so it answers before any
+    Reads the hard-coded name rather than the client, so it answers before any
     client exists -- the SWE-bench shim asks for it while reporting a failed run,
     where constructing a provider would raise and lose the report.
     """
-    # byLLM and CrewAI need litellm's "openai/" prefix on a name litellm does
-    # not know; the raw SDK wants the bare id, so a provider prefix is stripped
-    # rather than passed through. One $CODEAGENT_MODEL, three shapes.
-    name = _model or os.environ.get("CODEAGENT_MODEL", DEFAULT_MODEL)
-    return name.replace(":", "/").split("/")[-1]
+    return _model or DEFAULT_MODEL
 
 
 def set_model(model: str | None) -> None:

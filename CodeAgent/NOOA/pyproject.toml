@@ -1,0 +1,38 @@
+[project]
+name = "nooa-codeagent"
+version = "0.1.0"
+description = "Coding agent as one NOOA object, for the Jac/byLLM vs Python-framework comparison"
+requires-python = ">=3.11"
+dependencies = [
+    "nooa>=0.0.9",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# Spelled out rather than auto-discovered, for the same reason as
+# ../openai_sdk/pyproject.toml: setuptools' flat-layout scan drops `tools` -- it
+# is on its list of directory names that are usually not packages -- so an
+# editable install would quietly ship the top-level modules and no tool surface,
+# and the first `import tools.common` would fail at runtime.
+[tool.setuptools]
+py-modules = ["orchestrator", "agent", "llm", "telemetry"]
+packages = ["tools"]
+
+[project.scripts]
+codeagent = "orchestrator:main"
+
+# The model is hard-coded identically on every side of the comparison; no env
+# override. The API key is left to the provider: litellm reads OPENAI_API_KEY,
+# ANTHROPIC_API_KEY and the rest natively, and writing `api_key =
+# "${OPENAI_API_KEY}"` here would pass the literal string through when the
+# variable is unset, producing a confusing "Incorrect API key provided:
+# ${OPENAI_API_KEY}" at the provider.
+[tool.codeagent]
+default_model = "ollama_chat/glm-5.2"
+temperature = 1.0
+# One generated-method call may run this many cells. The other three sides call
+# the same number `max_react_iterations` and spend it on tool calls; here a cell
+# can make several tool calls, so the same number buys more work.
+cells_per_step = 25

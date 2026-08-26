@@ -361,8 +361,8 @@ def main():
     ap.add_argument("--judge", action="store_true",
                     help="also run the LLM judge (needs OPENAI_API_KEY)")
     ap.add_argument("--judge-model",
-                    default=os.environ.get("EVAL_JUDGE_MODEL", "gpt-4o"),
-                    help="judge model (default: $EVAL_JUDGE_MODEL or gpt-4o)")
+                    default="ollama_chat/glm-5.2",
+                    help="judge model (default: ollama_chat/glm-5.2)")
     args = ap.parse_args()
 
     if args.judge and not os.environ.get("OPENAI_API_KEY"):

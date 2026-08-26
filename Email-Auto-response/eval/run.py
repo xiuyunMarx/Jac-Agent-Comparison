@@ -9,10 +9,8 @@ implementations, one subprocess per (impl, batch), results left where
 
 Three things this does that the README loop does not:
 
-  * **One model on every side.** $OPENAI_MODEL_NAME is exported to all three
-    arms. Left unset, crewai falls back to gpt-4o-mini and the other two to
-    gpt-4o -- a ~17x per-token price difference that reads as a framework
-    result. See eval/README.md, "Token cost".
+  * **One model on every side.** ollama_chat/glm-5.2 is hard-coded in all
+    three arms. See eval/README.md, "Token cost".
   * **The CrewAI arm gets its own interpreter.** It pins langgraph 1.x, which
     cannot coexist with the 0.3.x the other benchmarks need, so it lives in
     `CrewAI-LangGraph/.venv`. That venv is used when present.
@@ -147,10 +145,6 @@ def main() -> int:
     if not os.environ.get("OPENAI_API_KEY"):
         sys.exit("OPENAI_API_KEY is not set - every arm calls a model. "
                  "Set a dummy value when pointing OPENAI_BASE_URL at a local server.")
-    if not os.environ.get("OPENAI_MODEL_NAME"):
-        print("WARNING: OPENAI_MODEL_NAME is unset. crewai will fall back to "
-              "gpt-4o-mini and the other two to gpt-4o, and the comparison will "
-              "measure the model rather than the framework.", file=sys.stderr)
 
     impls = implementations()
     selected = {n: impls[n] for n in (args.impl or impls)}

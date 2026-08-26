@@ -2,16 +2,9 @@ import os;
 import from jaclang.byllm.lib { Model }
 import from tools { create_trello_card, send_message_to_channel, save_tasks_to_csv }
 
-# One model knob for all three arms. byLLM and CrewAI both reach the provider
-# through litellm, which cannot infer a provider from a name it has never seen,
-# so the prefix goes on here; the openai_sdk arm strips it back off. Unset, all
-# three stay on the gpt-4o this was built against.
+# Hard-coded identically on every side of the comparison; no env override.
 def _model_name() -> str {
-    name = str(os.environ.get("MEETING_MODEL", "") or "gpt-4o");
-    if "/" in name {
-        return name;
-    }
-    return f"openai/{name}";
+    return "ollama_chat/glm-5.2";
 }
 
 # ctx_window: litellm carries no context-length metadata for a locally served

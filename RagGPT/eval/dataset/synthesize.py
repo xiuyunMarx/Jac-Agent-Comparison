@@ -11,8 +11,8 @@ also carry gold answers / reference code validated with `jac check`:
   multi_turn (20)  two-turn scripts whose 2nd turn is unroutable without history
 
 Resumable: appends to dataset.jsonl incrementally and only fills per-category
-deficits on rerun. Synthesis/verification uses gpt-4.1 directly against
-api.openai.com (never through the eval proxy).
+deficits on rerun. Synthesis/verification uses ollama_chat/glm-5.2 (common.JUDGE_MODEL)
+directly (never through the eval proxy).
 
 Run:  /home/xiaoyu/miniconda3/envs/jaseci/bin/python synthesize.py [--smoke]
 """
@@ -88,7 +88,7 @@ JAC_STYLE_HINT = (
     "statement ends with ';', `with entry { ... }` as the entry block, archetypes "
     "declared as `node`/`edge`/`walker`/`obj`, fields with `has name: type;`. If the "
     "program uses an LLM, use exactly:\n"
-    'import from jaclang.byllm.lib { Model }\nglob llm = Model(model_name="gpt-4.1-mini");\n'
+    'import from jaclang.byllm.lib { Model }\nglob llm = Model(model_name="ollama_chat/glm-5.2");\n'
     "and `def fn(...) -> T by llm();`. Do not import any other external package."
 )
 

@@ -4,31 +4,27 @@ Mirrors the original graph topology as an object-spatial graph:
 
     root -> Router -> { StaticReply | DirectReply | ToolReply }
 
-The router classifies each message (same three-way decision and guidelines as
-ROUTE_QUERY_SYSTEM_PROMPT), the direct/tool replies produce the same
+The router is byLLM's visit-by routing: at the Router node the walker runs
+`visit [-->] by llm(...)` and the model picks exactly one of the three reply
+nodes. The candidates are described to the model by the reply nodes' `sem`
+strings (the same three-way guidelines as ROUTE_QUERY_SYSTEM_PROMPT), the
+`intent` carries the router instructions, and `incl_info` passes the channel
+data, conversation and message. The direct/tool replies produce the same
 structured answer shape as AgentOutput, and the tool reply runs byLLM's
-built-in ReAct loop over the same two tools. Models match the original app:
-INSTANT_LLM (default gpt-4o-mini) for routing/direct replies, POWERFUL_LLM
-(default gpt-4o) for the tool agent, both at temperature 0.
+built-in ReAct loop over the same two tools. All calls use the single `llm`
+model at temperature 0.
 """
 
 import os;
 import from jaclang.byllm.lib { Model }
 import from tools { similarity_videos_search, execute_query }
 
-# Same INSTANT_LLM / POWERFUL_LLM values as the original app. Plain names are
-# OpenAI models ("gpt-4o-mini", needs OPENAI_API_KEY); provider prefixes work
-# too - langchain-style "groq:model" is normalized to litellm's "groq/model".
-glob router_llm = Model(model_name=os.environ.get("INSTANT_LLM", "gpt-4o-mini").replace(":", "/"));
-glob agent_llm = Model(model_name=os.environ.get("POWERFUL_LLM", "gpt-4o").replace(":", "/"));
+glob llm = Model(model_name = "ollama_chat/glm-5.2");
 
 glob STATIC_REPLY: str = "I'm sorry, I can't answer, please try again with a different question.";
 
-
-enum Route { YES, NO, NOT_RELEVANT }
-sem Route.YES = "The message asks about specific channel content or channel-related information, might benefit from tool-based information retrieval (searching transcripts, listing or counting videos), or there is any uncertainty about whether tools might help. When unsure, choose YES.";
-sem Route.NO = "The message is a simple greeting or conversational exchange that can be answered without additional information sources, using only general knowledge or the provided channel data.";
-sem Route.NOT_RELEVANT = "The message is unrelated to the channel or available tools, falls outside the assistant's scope, or asks about the assistant's technical details as an LLM.";
+# Goal text for the visit-by routing call (the original ROUTE_QUERY_SYSTEM_PROMPT).
+glob ROUTE_INTENT: str = "You are an intelligent routing assistant for a YouTube-channel Q&A agent. Analyze the user's message and decide which reply node should handle it: ToolReply when answering requires external information from the agent's tools (semantic transcript search and SQL over video metadata), DirectReply for greetings or conversational exchanges answerable from general knowledge or the provided channel data, StaticReply when the message is unrelated to the channel or asks about the assistant's technical details as an LLM. Examples that need tools: 'What is the main channel topic?', 'List the videos about X', 'Explain X', 'How many videos are there in the channel?'. If unsure, choose ToolReply.";
 
 
 obj AnswerTimestamp {
@@ -61,20 +57,14 @@ sem AgentAnswer.placeholder = "A user-friendly message that answers the user's r
 sem AgentAnswer.videos = "The source videos for the answer. Whenever the answer draws on tool results, list the 1-5 videos whose transcript chunks or metadata support it, using their real ids, titles and thumbnail urls exactly as returned by the tools - only the videos actually used, not every search hit. Do not hallucinate videos. Empty only when no video content was used (greetings, refusals).";
 
 
-def route_query(channel: str, conversation: str, message: str) -> Route by router_llm(temperature=0.0);
-sem route_query = "You are an intelligent routing assistant for a YouTube-channel Q&A agent. Analyze the user's message and decide whether answering it requires external information from the agent's tools (semantic transcript search and SQL over video metadata). Examples that need tools: 'What is the main channel topic?', 'List the videos about X', 'Explain X', 'How many videos are there in the channel?'. If unsure, answer YES.";
-sem route_query.channel = "The channel data the assistant serves.";
-sem route_query.conversation = "Recent conversation turns, oldest first (may be empty).";
-sem route_query.message = "The user's latest message to route.";
-
-def direct_reply(channel: str, user: str, conversation: str, message: str) -> AgentAnswer by router_llm(temperature=0.0);
+def direct_reply(channel: str, user: str, conversation: str, message: str) -> AgentAnswer by llm(temperature=0.0);
 sem direct_reply = "You are YTNavigator, an expert YouTube assistant and friendly AI guide. Answer the user's message based on the given channel data. Avoid mentioning the channel id unless necessary. Be friendly and professional. If unsure about the answer, just say 'I don't know'. Do not invent videos; leave videos empty for conversational replies.";
 sem direct_reply.channel = "The channel data to ground the answer in.";
 sem direct_reply.user = "Information about the user being addressed.";
 sem direct_reply.conversation = "Recent conversation turns, oldest first (may be empty).";
 sem direct_reply.message = "The user's latest message to answer.";
 
-def tool_reply(channel: str, user: str, conversation: str, message: str) -> AgentAnswer by agent_llm(
+def tool_reply(channel: str, user: str, conversation: str, message: str) -> AgentAnswer by llm(
     tools=[similarity_videos_search, execute_query],
     temperature=0.0,
     max_react_iterations=6
@@ -122,10 +112,18 @@ def coerce_answer(result: object) -> AgentAnswer {
 }
 
 
+# The reply nodes' sem strings are what the visit-by router sees for each
+# candidate - they carry the three-way routing guidelines of the original
+# ROUTE_QUERY_SYSTEM_PROMPT (YES -> ToolReply, NO -> DirectReply,
+# NOT_RELEVANT -> StaticReply).
 node Router {}
 node DirectReply {}
 node StaticReply {}
 node ToolReply {}
+sem Router = "Entry point that classifies the user's message and hands it to exactly one reply node.";
+sem ToolReply = "Handles messages that ask about specific channel content or channel-related information, might benefit from tool-based information retrieval (searching transcripts, listing or counting videos), or where there is any uncertainty about whether tools might help. When unsure, choose this node.";
+sem DirectReply = "Handles simple greetings or conversational exchanges that can be answered without additional information sources, using only general knowledge or the provided channel data.";
+sem StaticReply = "Handles messages that are unrelated to the channel or available tools, fall outside the assistant's scope, or ask about the assistant's technical details as an LLM; replies with a fixed apology.";
 
 
 walker ChatAgent {
@@ -149,36 +147,35 @@ walker ChatAgent {
     }
 
     can decide with Router entry {
-        visit [-->] by llm(
-            intent=""
-        )
         try {
-            decision = route_query(
-                channel=self.channel_info,
-                conversation=self.conversation,
-                message=self.message
-            );
-            self.route = route_to_string(decision);
+            visit [-->] by llm(
+                select=1,
+                temperature=0.0,
+                intent=ROUTE_INTENT,
+                incl_info={
+                    "Channel data": self.channel_info,
+                    "Recent conversation (oldest first, may be empty)": self.conversation,
+                    "User message to route": self.message
+                }
+            ) else {
+                # The model returned no valid handle: mirror the original
+                # router_condition fallback and take the direct reply.
+                self.fallback_events.append({"event": "router_empty_fallback"});
+                visit [-->][?:DirectReply];
+            }
         } except Exception as e {
-            # Mirrors the original router_condition error fallback: default to
-            # a direct reply, but make the recovery visible to the benchmark.
             self.fallback_events.append({"event": "router_error_fallback", "error": str(e)});
-            self.route = "No";
-        }
-        if self.route == "Yes" {
-            visit [-->][?:ToolReply];
-        } elif self.route == "Not relevant" {
-            visit [-->][?:StaticReply];
-        } else {
             visit [-->][?:DirectReply];
         }
     }
 
     can reply_static with StaticReply entry {
+        self.route = "Not relevant";
         self.answer = AgentAnswer(placeholder=STATIC_REPLY, videos=[]);
     }
 
     can reply_direct with DirectReply entry {
+        self.route = "No";
         try {
             result = direct_reply(
                 channel=self.channel_info,
@@ -191,8 +188,6 @@ walker ChatAgent {
             }
             self.answer = coerce_answer(result);
         } except Exception as e {
-            # Mirrors the original parse fallback: wrap whatever text came
-            # back as the answer, and record the recovery.
             self.fallback_events.append({"event": "output_parse_fallback", "node": "direct_reply", "error": str(e)});
             raw = str(getattr(e, "raw_output", "") or "");
             self.answer = AgentAnswer(placeholder=(raw if raw else "I'm sorry, I couldn't generate a valid answer."), videos=[]);
@@ -200,6 +195,7 @@ walker ChatAgent {
     }
 
     can reply_tools with ToolReply entry {
+        self.route = "Yes";
         try {
             result = tool_reply(
                 channel=self.channel_info,

@@ -24,15 +24,9 @@ def _resolve_model() -> any {
 glob Model: any = _resolve_model();
 
 
-# One model knob for both implementations: crewai resolves OPENAI_MODEL_NAME
-# through litellm, so setting it once keeps the comparison apples-to-apples.
-# Defaults to the gpt-4o this was built on.
+# Hard-coded identically on every side of the comparison; no env override.
 def _model_name() -> str {
-    name = str(os.environ.get("OPENAI_MODEL_NAME", "") or "gpt-4o");
-    if "/" in name {
-        return name;
-    }
-    return f"openai/{name}";
+    return "ollama_chat/glm-5.2";
 }
 
 glob llm = Model(_model_name());

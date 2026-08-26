@@ -525,8 +525,8 @@ def main():
     ap.add_argument("--judge", action="store_true",
                     help="also run the LLM judge on drafted replies (needs OPENAI_API_KEY)")
     ap.add_argument("--judge-model",
-                    default=os.environ.get("EVAL_JUDGE_MODEL", "gpt-4o"),
-                    help="judge model (default: $EVAL_JUDGE_MODEL or gpt-4o)")
+                    default="ollama_chat/glm-5.2",
+                    help="judge model (default: ollama_chat/glm-5.2)")
     ap.add_argument("--label", default=None,
                     help="override the implementation label for all scored files")
     args = ap.parse_args()

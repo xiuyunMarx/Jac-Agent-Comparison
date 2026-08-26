@@ -9,8 +9,8 @@ results JSON:
 
     eval/runs/results_<impl>_<case_id>_r<k>.json
 
-Score the results with score.py. Both implementations call OpenAI gpt-4o, so
-OPENAI_API_KEY must be set. Agent pipelines are noisy even at temperature 0 -
+Score the results with score.py. Both implementations call ollama_chat/glm-5.2
+(hard-coded); OPENAI_API_KEY must still be set. Agent pipelines are noisy even at temperature 0 -
 use --repeat 3 (or more) and compare means.
 
 Usage:
@@ -150,7 +150,7 @@ def main():
     args = ap.parse_args()
 
     if not os.environ.get("OPENAI_API_KEY"):
-        sys.exit("OPENAI_API_KEY is not set - both implementations call gpt-4o.")
+        sys.exit("OPENAI_API_KEY is not set - both implementations call ollama_chat/glm-5.2.")
 
     if (not args.impl or "CrewAI" in args.impl) and not importlib.util.find_spec("crewai"):
         sys.exit(

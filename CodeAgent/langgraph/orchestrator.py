@@ -47,7 +47,7 @@ from tools.explore import ExploreCodeBase
 from tools.plan import PlanTasks
 from tools.verify import VerifyCode
 
-DEFAULT_MODEL = "gpt-5"
+DEFAULT_MODEL = "ollama_chat/glm-5.2"
 
 # The only two tools that change the workspace. Every other call, however many
 # of them a phase makes, leaves the tree exactly as it was found.
@@ -108,10 +108,7 @@ def build_model() -> BaseChatModel:
     # because ChatOpenAI only attaches usage_metadata to a streamed response
     # when explicitly asked. Without it this side would report 0 tokens per call
     # and the A/B would compare a real number against nothing.
-    # $CODEAGENT_MODEL is shared with the other two sides, which reach the
-    # provider through litellm and so want a "openai/" prefix on an unfamiliar
-    # name. ChatOpenAI puts the string on the wire as the model id, so the
-    # prefix is stripped rather than passed through.
+    # The model is hard-coded (DEFAULT_MODEL) on every side; no env override.
     #
     # Streaming is a knob rather than a constant because stream_usage puts
     # `stream_options.include_usage` on the wire, and not every
@@ -120,7 +117,7 @@ def build_model() -> BaseChatModel:
     # zero tokens for this side alone.
     stream = os.environ.get("CODEAGENT_STREAM", "1") not in ("0", "false", "no")
     return ChatOpenAI(
-        model=os.environ.get("CODEAGENT_MODEL", DEFAULT_MODEL).replace(":", "/").split("/")[-1],
+        model=DEFAULT_MODEL,
         temperature=float(os.environ.get("CODEAGENT_TEMPERATURE", "1.0")),
         max_tokens=int(os.environ.get("CODEAGENT_MAX_TOKENS", "16384")),
         streaming=stream,

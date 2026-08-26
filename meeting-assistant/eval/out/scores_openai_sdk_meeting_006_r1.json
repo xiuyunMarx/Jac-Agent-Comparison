@@ -1,0 +1,89 @@
+{
+  "implementation": "openai_sdk",
+  "case_id": "meeting_006",
+  "repetition": 1,
+  "edge_case": "duplicate_discussion",
+  "results_file": "/home/xiaoyu/JacAgentComparison/meeting-assistant/eval/runs/results_openai_sdk_meeting_006_r1.json",
+  "completed": true,
+  "wall_time_s": 26.886,
+  "llm_calls": 1,
+  "prompt_tokens": 1185,
+  "completion_tokens": 517,
+  "total_tokens": 1702,
+  "tasks_extracted": 3,
+  "count_in_range": true,
+  "expected_task_count_range": [
+    3,
+    4
+  ],
+  "malformed_tasks": 0,
+  "literal_duplicates": 0,
+  "pipeline_consistent": true,
+  "judge": {
+    "model": "muse-glimmer",
+    "recall": 1.0,
+    "precision": 1.0,
+    "f1": 1.0,
+    "key_point_coverage": 1.0,
+    "semantic_duplicates": 0,
+    "hallucinations": 0,
+    "forbidden_hits": 0,
+    "owner_capture": 1.0,
+    "due_capture": 1.0,
+    "injection_safe": null,
+    "clarity": 5,
+    "faithfulness": 5,
+    "overall": 5,
+    "issues": [],
+    "verdict": {
+      "user": "A system read the meeting transcript below and extracted a list of tasks.\nEvaluate the extraction against the ground truth.\n\nMEETING TRANSCRIPT\n------------------\nYuki: Infra sync, let's keep it tight. Top of my list: certificates. The wildcard SSL cert for api.ourapp.com expires September 1st. I want it renewed and deployed well before that, let's say by August 22nd, so we have a buffer. Ben, that's yours, and please also set up the auto-renewal this time so we stop doing this dance every year.\n\nBen: On it. Renew, deploy to the load balancers, and I'll move it onto cert-manager so it auto-renews going forward.\n\nYuki: Second thing: the PDF export feature for reports. Customers keep asking. Aisha, you scoped this last week, where did we land?\n\nAisha: It's one deliverable with two halves. Backend renders the report to PDF with headless Chrome, frontend adds the export button and a progress state, since big reports take a few seconds. I'll do both halves myself, it doesn't make sense to split it. Target is end of month.\n\nYuki: One task then, PDF export for reports, Aisha, end of month. Third: the staging environment drift. Staging is three migrations behind production and it keeps burning QA.\n\nBen: I'll write a nightly job that diffs staging schema against production and posts to the infra channel if they diverge. That plus actually running the three pending migrations today.\n\nYuki: Good, that's one item, staging parity, both parts. Anything else before we close?\n\nAisha: Yeah, one thing. The export feature, when I ship it, marketing wants a short demo GIF for the changelog. I can record it as part of finishing the feature, just flagging it so it's in the notes.\n\nYuki: Fine, fold it into your export task, not a separate item. Oh, and before I forget, the certificates thing we talked about at the start, when Ben renews them, that's also the moment to rotate the internal CA cert that signs the service mesh, it expires two weeks after the public one. Same task, same window, just don't forget the internal one.\n\nBen: Noted, both certs, one change window, cert-manager for both.\n\nYuki: Then we're done. Three items on the board: certs, PDF export, staging parity. Short and sweet.\n\n\nGROUND TRUTH: EXPECTED TASKS\n----------------------------\ngt_01: Renew SSL certificates and set up auto-renewal\n  owner: Ben\n  due: deployed by August 22 (cert expires September 1)\n  - wildcard cert for api.ourapp.com, deploy to load balancers\n  - move onto cert-manager for auto-renewal\n  - also rotate the internal CA cert for the service mesh in the same change window (expires two weeks after the public one)\ngt_02: Build PDF export for reports\n  owner: Aisha\n  due: end of month\n  - backend renders report to PDF with headless Chrome\n  - frontend export button with a progress state for large reports\n  - record a short demo GIF for the changelog as part of finishing\ngt_03: Fix staging schema drift and add nightly parity check\n  owner: Ben\n  due: pending migrations run today\n  - staging is three migrations behind production\n  - run the pending migrations now\n  - nightly job diffs staging schema vs production and posts to the infra channel on divergence\n\nACCEPTABLE EXTRAS (count as neither hit nor hallucination)\n(none)\n\nFORBIDDEN (extracting any of these is an explicit error)\n- separate task for the internal CA cert rotation (explicitly folded into the SSL renewal task ('same task, same window'))\n- separate task for the demo GIF (explicitly folded into the PDF export task ('fold it into your export task, not a separate item'))\n- separate frontend and backend tasks for PDF export (explicitly one deliverable ('one task then'), one owner)\n\nEXTRACTED TASKS (the system under test)\n---------------------------------------\n[0] Renew wildcard SSL and internal CA certificates with auto-renewal: Renew and deploy certificates before expiry and enable automated renewal.\nOwner: Ben.\nScope:\n- Renew wildcard SSL certificate for api.ourapp.com which expires September 1st. Deploy to load balancers no later than August 22nd to provide buffer.\n- Rotate internal CA certificate that signs the service mesh, which expires two weeks after the public wildcard cert, in the same change window as the public cert renewal.\n- Migrate both certificates to cert-manager for auto-renewal to avoid manual annual renewal.\nAcceptance criteria:\n- New wildcard SSL cert is issued, validated, and deployed to all relevant load balancers by August 22nd.\n- Internal CA cert is rotated and service mesh is verified healthy with new CA.\n- cert-manager Issuer/ClusterIssuer and Certificate resources are created for both certs with successful auto-renewal simulation.\n- No manual renewal steps remain for these certificates.\n[1] Implement PDF export for reports with demo GIF: Deliver end-to-end PDF export for reports and provide marketing demo asset.\nOwner: Aisha.\nScope:\n- Backend: Render reports to PDF using headless Chrome.\n- Frontend: Add export button and progress state UI for reports that take a few seconds to generate.\n- Record a short demo GIF of the export flow for the changelog, as requested by marketing.\nTarget: End of month.\nAcceptance criteria:\n- Export endpoint successfully generates accurate PDF for sample reports including large reports.\n- Frontend export button triggers request and shows progress state until completion/download.\n- Feature is tested and merged by end of month.\n- Demo GIF is recorded and provided for marketing changelog.\n[2] Restore staging parity with production and prevent drift: Bring staging schema in sync with production and add automated drift detection.\nOwner: Ben.\nScope:\n- Run the three pending migrations on staging today to bring staging schema up to date with production.\n- Create a nightly job that diffs staging schema against production schema and posts an alert to the infra Slack channel if divergence is detected.\nAcceptance criteria:\n- Staging database schema matches production schema after migrations are applied.\n- Nightly drift detection job runs successfully and posts to infra channel on any future divergence.\n- QA confirms staging is no longer blocking due to migration drift.\n\nInstructions:\n- Match extracted tasks to expected tasks SEMANTICALLY, on topic - names will\ndiffer. An expected task may be matched by more than one extracted task\n(that is a duplicate); an extracted task matches at most one expected task.\n- For each expected task, judge each of its key points: covered means the\nfact appears in the matched extracted task(s) name or description.\nIf an expected task has no match, no key point is covered.\n- owner_mentioned / due_mentioned: does the matched extracted task text name\nthe listed owner / deadline? Use null when ground truth lists none.\n- Classify every UNMATCHED extracted task: \"acceptable\" (matches an\nacceptable-extra topic or is a reasonable, transcript-grounded extra),\n\"hallucination\" (not grounded in the transcript), or \"forbidden\" (matches\na forbidden topic).\n\nAnswer with this exact JSON shape:\n{\n  \"matches\": [\n    {\"expected_id\": \"<id>\", \"extracted_indices\": [<int>, ...],\n      \"key_points_covered\": [true|false, ...],\n      \"owner_mentioned\": true|false|null, \"due_mentioned\": true|false|null},\n    ...one entry per expected task, in order...\n  ],\n  \"extras\": [\n    {\"extracted_index\": <int>, \"classification\": \"acceptable|hallucination|forbidden\",\n      \"reason\": \"<short>\"},\n    ...one entry per unmatched extracted task...\n  ],\n  \"safety_checks\": [{\"check\": \"<name>\", \"passed\": true|false}, ...],\n  \"clarity\": <1-5, 5 = every task name is crisp and each description is actionable>,\n  \"faithfulness\": <1-5, 5 = no invented facts, owners, numbers, or deadlines>,\n  \"overall\": <1-5, 5 = a team could work from this task list as-is>,\n  \"issues\": [\"<short issue>\", ...]\n}\n\"safety_checks\" must contain one entry per listed safety check (empty list if none).",
+      "matches": [
+        {
+          "expected_id": "gt_01",
+          "extracted_indices": [
+            0
+          ],
+          "key_points_covered": [
+            true,
+            true,
+            true
+          ],
+          "owner_mentioned": true,
+          "due_mentioned": true
+        },
+        {
+          "expected_id": "gt_02",
+          "extracted_indices": [
+            1
+          ],
+          "key_points_covered": [
+            true,
+            true,
+            true
+          ],
+          "owner_mentioned": true,
+          "due_mentioned": true
+        },
+        {
+          "expected_id": "gt_03",
+          "extracted_indices": [
+            2
+          ],
+          "key_points_covered": [
+            true,
+            true,
+            true
+          ],
+          "owner_mentioned": true,
+          "due_mentioned": true
+        }
+      ],
+      "extras": [],
+      "safety_checks": [],
+      "clarity": 5,
+      "faithfulness": 5,
+      "overall": 5,
+      "issues": []
+    }
+  }
+}

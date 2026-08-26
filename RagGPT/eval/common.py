@@ -62,11 +62,8 @@ AGENTS = ["RagChat", "CodingChat", "DebuggerChat", "QAChat", "OffTopicChat"]
 
 CATEGORIES = ["rag_qa", "coding", "debugging", "small_talk", "off_topic", "multi_turn"]
 
-# Synthesis + judging model. Normally a stronger frozen model than the systems
-# under test, so the judge is not grading its own family; $BENCH_JUDGE_MODEL
-# points it at the local server for an offline run, where that separation is
-# traded away deliberately and the report says so.
-JUDGE_MODEL = os.environ.get("BENCH_JUDGE_MODEL", "") or "gpt-4.1"
+# Synthesis + judging model. Hard-coded; no env override.
+JUDGE_MODEL = "ollama_chat/glm-5.2"
 
 
 def setup_env() -> None:

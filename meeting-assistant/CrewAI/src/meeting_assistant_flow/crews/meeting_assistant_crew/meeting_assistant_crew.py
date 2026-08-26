@@ -11,9 +11,8 @@ from meeting_assistant_flow.types import (
 
 
 def _model_name() -> str:
-    """$MEETING_MODEL in the shape litellm wants, defaulting to gpt-4o."""
-    name = os.environ.get("MEETING_MODEL", "") or "gpt-4o"
-    return name if "/" in name else f"openai/{name}"
+    """The model, hard-coded; no env override."""
+    return "ollama_chat/glm-5.2"
 
 
 @CrewBase
@@ -26,9 +25,7 @@ class MeetingAssistantCrew:
     tasks_config: dict[str, Any]
     agents: list[BaseAgent]
     tasks: list[Task]
-    # $MEETING_MODEL, the same knob byLLM (nodes.jac) and openai_sdk (nodes.py)
-    # read, so one export keeps the three arms on one model. crewai hands this
-    # straight to litellm, which needs the provider prefix on an unfamiliar name.
+    # Hard-coded to the same model as byLLM (nodes.jac) and openai_sdk (nodes.py).
     llm = LLM(model=_model_name())
 
     @agent

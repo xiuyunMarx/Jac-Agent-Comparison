@@ -51,7 +51,7 @@ def configured_model() -> str:
     try:
         return active_model_name()
     except Exception:
-        return os.environ.get("CODEAGENT_MODEL", DEFAULT_MODEL)
+        return DEFAULT_MODEL
 
 
 def run_job(job_path: str) -> dict:

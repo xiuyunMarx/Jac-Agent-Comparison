@@ -28,16 +28,9 @@ with entry {
 }
 
 glob app_config: AppConfig = load_config("faiss_reranking");
-# $MODEL is the one knob every system under test reads. This side reaches the
-# provider through litellm, which cannot infer a provider for a name it has
-# never seen (a locally served model, say), so an unprefixed name gets
-# litellm's "openai/". The Python siblings strip the prefix back off.
+# Hard-coded identically on every side of the comparison; no env override.
 def _model_name() -> str {
-    name = str(os.environ.get("MODEL", "") or app_config.model_name);
-    if "/" in name {
-        return name;
-    }
-    return f"openai/{name}";
+    return "ollama_chat/glm-5.2";
 }
 
 # ctx_window: litellm carries no context-length metadata for a locally served

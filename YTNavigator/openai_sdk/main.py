@@ -12,8 +12,7 @@ Configuration (env, same names as the other two sides):
     YTNAV_OUTPUT     results JSONL   (default results_openai_sdk.jsonl)
     YTNAV_CHANNEL    channel id      (default: the only channel in the database)
     POSTGRES_*       database connection (same names as YT-Navigator's .env)
-    OPENAI_API_KEY   OpenAI access for both models (default gpt-4o-mini / gpt-4o)
-    INSTANT_LLM / POWERFUL_LLM   model overrides (same names as the original)
+    Model: ollama_chat/glm-5.2, hard-coded in llm.py (no env override).
 
 Run:  python main.py   (from this directory)
 """

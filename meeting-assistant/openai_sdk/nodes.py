@@ -23,12 +23,8 @@ from tools import (
     token_usage,
 )
 
-# Pinned identically on all three sides of the comparison, or the benchmark
-# measures the model rather than the framework: $MEETING_MODEL is the one knob
-# all three read. byLLM and CrewAI need litellm's "openai/" prefix on an
-# unfamiliar name; the raw SDK wants the bare id, so a prefix is stripped rather
-# than passed through. Unset, every side stays on gpt-4o.
-MODEL = os.environ.get("MEETING_MODEL", "").replace(":", "/").split("/")[-1] or "gpt-4o"
+# Hard-coded identically on every side of the comparison; no env override.
+MODEL = "ollama_chat/glm-5.2"
 # byLLM's default: its jac.toml sets no [byllm.call_params], and the byllm
 # runtime then sends temperature=0.7 on every call. CrewAI's LLM(model=
 # "gpt-4o") sends none at all (provider default 1.0); the fidelity target is

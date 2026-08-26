@@ -9,13 +9,8 @@ and usage arrives on the response object on this thread, so the per-call
 record is complete the moment `complete()` returns -- no callback, no settle
 loop.
 
-Models are the original app's pair: INSTANT_LLM (default gpt-4o-mini) for
-routing and direct replies, POWERFUL_LLM (default gpt-4o) for the tool agent,
-both at temperature 0. The same env values configure all three sides:
-langchain-style "provider:model" and litellm-style "provider/model" are both
-accepted; the "openai" prefix is stripped for the raw SDK, and any other
-provider's bare model name is used against OPENAI_BASE_URL (every provider the
-other two sides can reach speaks the OpenAI wire format at some base URL).
+Models: both roles (INSTANT / POWERFUL) are hard-coded to ollama_chat/glm-5.2,
+at temperature 0; no env override.
 """
 
 from __future__ import annotations
@@ -25,8 +20,8 @@ import sys
 import time
 from typing import Any, Iterable, Mapping, Sequence
 
-DEFAULT_INSTANT_MODEL = "gpt-4o-mini"
-DEFAULT_POWERFUL_MODEL = "gpt-4o"
+DEFAULT_INSTANT_MODEL = "ollama_chat/glm-5.2"
+DEFAULT_POWERFUL_MODEL = "ollama_chat/glm-5.2"
 # Pinned identically on all three sides, or the benchmark measures the model
 # rather than the framework.
 TEMPERATURE = 0.0
@@ -65,12 +60,12 @@ def normalize_model(name: str) -> str:
 
 def instant_model() -> str:
     """The router / direct-reply model (the original's settings.INSTANT_LLM)."""
-    return normalize_model(os.environ.get("INSTANT_LLM", DEFAULT_INSTANT_MODEL))
+    return DEFAULT_INSTANT_MODEL
 
 
 def powerful_model() -> str:
     """The tool agent's model (the original's settings.POWERFUL_LLM)."""
-    return normalize_model(os.environ.get("POWERFUL_LLM", DEFAULT_POWERFUL_MODEL))
+    return DEFAULT_POWERFUL_MODEL
 
 
 def build_client() -> Any:

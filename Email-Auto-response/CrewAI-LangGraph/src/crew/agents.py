@@ -1,7 +1,10 @@
 from textwrap import dedent
-from crewai import Agent
+from crewai import Agent, LLM
 
 from .tools import build_tools
+
+# Hard-coded model on every side of the comparison; no env override.
+MODEL_LLM = LLM(model="ollama_chat/glm-5.2")
 
 class EmailFilterAgents():
 	def __init__(self, mailbox):
@@ -9,6 +12,7 @@ class EmailFilterAgents():
 
 	def email_filter_agent(self):
 		return Agent(
+			llm=MODEL_LLM,
 			role='Senior Email Analyst',
 			goal='Filter out non-essential emails like newsletters and promotional content',
 			backstory=dedent("""\
@@ -22,6 +26,7 @@ class EmailFilterAgents():
 
 	def email_action_agent(self):
 		return Agent(
+			llm=MODEL_LLM,
 			role='Email Action Specialist',
 			goal='Identify action-required emails and compile a list of their IDs',
 			backstory=dedent("""\
@@ -38,6 +43,7 @@ class EmailFilterAgents():
 
 	def email_response_writer(self):
 		return Agent(
+			llm=MODEL_LLM,
 			role='Email Response Writer',
 			goal='Draft responses to action-required emails',
 			backstory=dedent("""\

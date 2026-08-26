@@ -7,12 +7,8 @@ pair. Here the request is written out.
 
 Two deliberate choices:
 
-  * The model knob is `OPENAI_MODEL_NAME`, exactly the variable the other two
-    sides read (crewai resolves it through litellm, byLLM in nodes.jac), so one
-    export keeps the comparison apples-to-apples. The default is byLLM's
-    gpt-4o -- byLLM is the fidelity target. byLLM prefixes "openai/" for
-    litellm's sake; the raw SDK wants the bare id, so a provider prefix is
-    stripped rather than passed through.
+  * The model is hard-coded to ollama_chat/glm-5.2, the same as the other two
+    sides (crewai and byLLM in nodes.jac); no env override.
   * No streaming. Neither of the other implementations streams, and the shared
     token meter (../mock_mailbox/token_meter.py) cannot read usage off a
     streamed response -- it would count the call under `streamed_calls` and
@@ -29,11 +25,8 @@ from __future__ import annotations
 import os
 from typing import Any, Iterable, Mapping, Sequence
 
-# Pinned identically on all three sides of the comparison, or the benchmark
-# measures the model rather than the framework. gpt-4o is byLLM's default;
-# crewai left unset falls back to gpt-4o-mini, which is why the shared knob
-# matters (see eval/README.md, "Token cost").
-DEFAULT_MODEL = "gpt-4o"
+# Hard-coded identically on every side of the comparison; no env override.
+DEFAULT_MODEL = "ollama_chat/glm-5.2"
 
 # byLLM runs its stages with byllm's default call params (jac.toml declares
 # none): temperature 0.7, no max_tokens. Matched here rather than "improved" --
@@ -69,15 +62,8 @@ def set_client(client: Any | None) -> None:
 
 
 def active_model_name() -> str:
-    """The model this run will call: $OPENAI_MODEL_NAME or byLLM's default.
-
-    'openai/gpt-4o' -> 'gpt-4o': byLLM writes the litellm provider prefix,
-    which the raw SDK neither needs nor accepts.
-    """
-    name = os.environ.get("OPENAI_MODEL_NAME", "") or DEFAULT_MODEL
-    if "/" in name:
-        name = name.rsplit("/", 1)[-1]
-    return name
+    """The model this run will call: hard-coded, no env override."""
+    return DEFAULT_MODEL
 
 
 def complete(

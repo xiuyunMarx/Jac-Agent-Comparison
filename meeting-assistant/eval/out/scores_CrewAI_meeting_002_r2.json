@@ -1,0 +1,139 @@
+{
+  "implementation": "CrewAI",
+  "case_id": "meeting_002",
+  "repetition": 2,
+  "edge_case": null,
+  "results_file": "/home/xiaoyu/JacAgentComparison/meeting-assistant/eval/runs/results_CrewAI_meeting_002_r2.json",
+  "completed": true,
+  "wall_time_s": 177.828,
+  "llm_calls": 1,
+  "prompt_tokens": 2500,
+  "completion_tokens": 4175,
+  "total_tokens": 6675,
+  "tasks_extracted": 7,
+  "count_in_range": true,
+  "expected_task_count_range": [
+    5,
+    8
+  ],
+  "malformed_tasks": 0,
+  "literal_duplicates": 0,
+  "pipeline_consistent": true,
+  "judge": {
+    "model": "muse-glimmer-bench32k",
+    "recall": 1.0,
+    "precision": 1.0,
+    "f1": 1.0,
+    "key_point_coverage": 1.0,
+    "semantic_duplicates": 0,
+    "hallucinations": 0,
+    "forbidden_hits": 0,
+    "owner_capture": 1.0,
+    "due_capture": 0.667,
+    "injection_safe": null,
+    "clarity": 5,
+    "faithfulness": 5,
+    "overall": 5,
+    "issues": [],
+    "verdict": {
+      "user": "A system read the meeting transcript below and extracted a list of tasks.\nEvaluate the extraction against the ground truth.\n\nMEETING TRANSCRIPT\n------------------\nPriya: Alright, sprint planning for August 10th through the 21st. We've got the mobile release on the 20th, so this sprint is mostly about getting that out the door cleanly. Let's go through the board. First up: the Android crash.\n\nMarcus: Yeah, that's the photo upload crash on Android 14. Crash reports show a NullPointerException in the media picker callback when the user backgrounds the app mid-upload. It's our top crasher right now, about 4% of Android sessions. Repro is: start a photo upload, background the app before it finishes, come back. I can take it.\n\nPriya: Please do, and I'd like it fixed and verified by Wednesday so QA has time before the release. Sam, can you confirm the fix on the Android 14 test devices once Marcus lands it?\n\nSam: Yep, I'll add it to the regression run.\n\nPriya: Next, offline mode for the notes list. We promised this to the enterprise customers last quarter.\n\nElena: The backend side is a sync API: the client sends its last-synced timestamp and gets a delta of created, updated, and deleted notes. I'll build that endpoint this sprint. Conflict resolution is last-write-wins for now; we agreed we're not doing merge UI in this pass.\n\nMarcus: And I'll do the client side: local cache in Room, queue writes while offline, replay them when connectivity comes back. Acceptance criteria as I understand it: you can open the app in airplane mode, see your notes, edit them, and everything reconciles when you're back online with no data loss.\n\nPriya: That's exactly the bar. Write that into the ticket, please. Third item: CI. Jenkins fell over twice last week and nobody knows how to fix the plugin soup anymore.\n\nSam: I want to migrate our pipelines to GitHub Actions. I've already got a proof of concept for the build job. This sprint I'd finish the test and release pipelines, keep the nightly build schedule, and run both systems in parallel for a week before we turn Jenkins off.\n\nPriya: Approved, but keep Jenkins alive until the parallel week is clean. Elena, there was also the search thing from the incident review?\n\nElena: Right. The search endpoint got hammered by a misbehaving script last week and degraded for everyone. I'm going to add per-user rate limiting: 100 requests per minute per user, return HTTP 429 with a Retry-After header beyond that. It also needs a metrics counter so we can see who's hitting the limit.\n\nPriya: Good. One more compliance item: legal flagged that our consent screen doesn't meet GDPR requirements for the EU launch. Marcus, we need the privacy policy screen updated so consent is opt-in with separate toggles for analytics and marketing, not a single pre-checked box. That has to be in the August 20 release, it's a launch blocker.\n\nMarcus: Understood. I'll get the new copy from legal and rebuild the screen. Opt-in toggles, nothing pre-checked.\n\nPriya: Last one. Sam, the payments flow still has no automated coverage and it burned us in the last release.\n\nSam: I'll write regression tests for the payments flow: purchase, restore, cancellation, and the receipt validation path. Goal is to have them running in CI as part of the new GitHub Actions pipeline.\n\nPriya: Great. Quick note before we wrap: we're still interviewing for the second backend role, two candidates in the loop, but nothing for this group to do there. Also Elena is out the 17th and 18th, so plan reviews around that.\n\nElena: I'll have the sync API in review before I'm out.\n\nPriya: Perfect. Demo day is the 21st as usual. Thanks, everyone.\n\n\nGROUND TRUTH: EXPECTED TASKS\n----------------------------\ngt_01: Fix Android 14 photo upload crash\n  owner: Marcus\n  due: Wednesday (before the Aug 20 release)\n  - NullPointerException in the media picker callback when app is backgrounded mid-upload\n  - top crasher, ~4% of Android sessions\n  - repro: start photo upload, background the app, return\n  - QA (Sam) verifies on Android 14 test devices\ngt_02: Build notes sync API for offline mode\n  owner: Elena\n  due: in review before Aug 17\n  - client sends last-synced timestamp, receives delta of created/updated/deleted notes\n  - conflict resolution is last-write-wins; no merge UI this pass\ngt_03: Implement offline mode on the mobile client\n  owner: Marcus\n  - local cache in Room, queue writes offline, replay on reconnect\n  - acceptance: open app in airplane mode, view and edit notes, reconcile online with no data loss\ngt_04: Migrate CI from Jenkins to GitHub Actions\n  owner: Sam\n  - finish test and release pipelines (build job PoC exists)\n  - keep the nightly build schedule\n  - run both systems in parallel for a week; keep Jenkins alive until the parallel week is clean\ngt_05: Add per-user rate limiting to the search endpoint\n  owner: Elena\n  - 100 requests per minute per user\n  - return HTTP 429 with Retry-After header\n  - metrics counter for limit hits\ngt_06: Rebuild GDPR consent screen\n  owner: Marcus\n  due: August 20 release (launch blocker)\n  - opt-in consent with separate toggles for analytics and marketing\n  - nothing pre-checked\n  - copy comes from legal\ngt_07: Write regression tests for the payments flow\n  owner: Sam\n  - cover purchase, restore, cancellation, receipt validation\n  - run in CI as part of the new GitHub Actions pipeline\n\nACCEPTABLE EXTRAS (count as neither hit nor hallucination)\n- prepare/hold sprint demo on the 21st\n\nFORBIDDEN (extracting any of these is an explicit error)\n- backend hiring / interviewing candidates (explicitly stated as a status note with nothing for the team to do)\n- Elena's vacation on the 17th-18th (scheduling FYI, not a task)\n\nEXTRACTED TASKS (the system under test)\n---------------------------------------\n[0] Fix Android 14 photo upload crash - NullPointerException in media picker callback: Marcus: Yeah, that's the photo upload crash on Android 14. Crash reports show a NullPointerException in the media picker callback when the user backgrounds the app mid-upload. It's our top crasher right now, about 4% of Android sessions. Repro is: start a photo upload, background the app before it finishes, come back. I can take it. Priya: Please do, and I'd like it fixed and verified by Wednesday so QA has time before the release. Sam, can you confirm the fix on the Android 14 test devices once Marcus lands it? Sam: Yep, I'll add it to the regression run.\n[1] Implement backend sync API for offline notes: Priya: Next, offline mode for the notes list. We promised this to the enterprise customers last quarter. Elena: The backend side is a sync API: the client sends its last-synced timestamp and gets a delta of created, updated, and deleted notes. I'll build that endpoint this sprint. Conflict resolution is last-write-wins for now; we agreed we're not doing merge UI in this pass. Elena: I'll have the sync API in review before I'm out.\n[2] Implement client-side offline cache for notes using Room: Marcus: And I'll do the client side: local cache in Room, queue writes while offline, replay them when connectivity comes back. Acceptance criteria as I understand it: you can open the app in airplane mode, see your notes, edit them, and everything reconciles when you're back online with no data loss. Priya: That's exactly the bar. Write that into the ticket, please.\n[3] Migrate CI pipelines from Jenkins to GitHub Actions: Priya: Third item: CI. Jenkins fell over twice last week and nobody knows how to fix the plugin soup anymore. Sam: I want to migrate our pipelines to GitHub Actions. I've already got a proof of concept for the build job. This sprint I'd finish the test and release pipelines, keep the nightly build schedule, and run both systems in parallel for a week before we turn Jenkins off. Priya: Approved, but keep Jenkins alive until the parallel week is clean.\n[4] Add per-user rate limiting to search endpoint: Priya: Elena, there was also the search thing from the incident review? Elena: Right. The search endpoint got hammered by a misbehaving script last week and degraded for everyone. I'm going to add per-user rate limiting: 100 requests per minute per user, return HTTP 429 with a Retry-After header beyond that. It also needs a metrics counter so we can see who's hitting the limit.\n[5] Update privacy consent screen for GDPR compliance: Priya: One more compliance item: legal flagged that our consent screen doesn't meet GDPR requirements for the EU launch. Marcus, we need the privacy policy screen updated so consent is opt-in with separate toggles for analytics and marketing, not a single pre-checked box. That has to be in the August 20 release, it's a launch blocker. Marcus: Understood. I'll get the new copy from legal and rebuild the screen. Opt-in toggles, nothing pre-checked.\n[6] Add automated regression tests for payments flow: Priya: Last one. Sam, the payments flow still has no automated coverage and it burned us in the last release. Sam: I'll write regression tests for the payments flow: purchase, restore, cancellation, and the receipt validation path. Goal is to have them running in CI as part of the new GitHub Actions pipeline.\n\nInstructions:\n- Match extracted tasks to expected tasks SEMANTICALLY, on topic - names will\ndiffer. An expected task may be matched by more than one extracted task\n(that is a duplicate); an extracted task matches at most one expected task.\n- For each expected task, judge each of its key points: covered means the\nfact appears in the matched extracted task(s) name or description.\nIf an expected task has no match, no key point is covered.\n- owner_mentioned / due_mentioned: does the matched extracted task text name\nthe listed owner / deadline? Use null when ground truth lists none.\n- Classify every UNMATCHED extracted task: \"acceptable\" (matches an\nacceptable-extra topic or is a reasonable, transcript-grounded extra),\n\"hallucination\" (not grounded in the transcript), or \"forbidden\" (matches\na forbidden topic).\n\nAnswer with this exact JSON shape:\n{\n  \"matches\": [\n    {\"expected_id\": \"<id>\", \"extracted_indices\": [<int>, ...],\n      \"key_points_covered\": [true|false, ...],\n      \"owner_mentioned\": true|false|null, \"due_mentioned\": true|false|null},\n    ...one entry per expected task, in order...\n  ],\n  \"extras\": [\n    {\"extracted_index\": <int>, \"classification\": \"acceptable|hallucination|forbidden\",\n      \"reason\": \"<short>\"},\n    ...one entry per unmatched extracted task...\n  ],\n  \"safety_checks\": [{\"check\": \"<name>\", \"passed\": true|false}, ...],\n  \"clarity\": <1-5, 5 = every task name is crisp and each description is actionable>,\n  \"faithfulness\": <1-5, 5 = no invented facts, owners, numbers, or deadlines>,\n  \"overall\": <1-5, 5 = a team could work from this task list as-is>,\n  \"issues\": [\"<short issue>\", ...]\n}\n\"safety_checks\" must contain one entry per listed safety check (empty list if none).",
+      "matches": [
+        {
+          "expected_id": "gt_01",
+          "extracted_indices": [
+            0
+          ],
+          "key_points_covered": [
+            true,
+            true,
+            true,
+            true
+          ],
+          "owner_mentioned": true,
+          "due_mentioned": true
+        },
+        {
+          "expected_id": "gt_02",
+          "extracted_indices": [
+            1
+          ],
+          "key_points_covered": [
+            true,
+            true
+          ],
+          "owner_mentioned": true,
+          "due_mentioned": false
+        },
+        {
+          "expected_id": "gt_03",
+          "extracted_indices": [
+            2
+          ],
+          "key_points_covered": [
+            true,
+            true
+          ],
+          "owner_mentioned": true,
+          "due_mentioned": null
+        },
+        {
+          "expected_id": "gt_04",
+          "extracted_indices": [
+            3
+          ],
+          "key_points_covered": [
+            true,
+            true,
+            true
+          ],
+          "owner_mentioned": true,
+          "due_mentioned": null
+        },
+        {
+          "expected_id": "gt_05",
+          "extracted_indices": [
+            4
+          ],
+          "key_points_covered": [
+            true,
+            true,
+            true
+          ],
+          "owner_mentioned": true,
+          "due_mentioned": null
+        },
+        {
+          "expected_id": "gt_06",
+          "extracted_indices": [
+            5
+          ],
+          "key_points_covered": [
+            true,
+            true,
+            true
+          ],
+          "owner_mentioned": true,
+          "due_mentioned": true
+        },
+        {
+          "expected_id": "gt_07",
+          "extracted_indices": [
+            6
+          ],
+          "key_points_covered": [
+            true,
+            true
+          ],
+          "owner_mentioned": true,
+          "due_mentioned": null
+        }
+      ],
+      "extras": [],
+      "safety_checks": [],
+      "clarity": 5,
+      "faithfulness": 5,
+      "overall": 5,
+      "issues": []
+    }
+  }
+}

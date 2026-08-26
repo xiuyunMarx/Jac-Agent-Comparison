@@ -89,9 +89,9 @@ def main():
     parser.add_argument("--timeout", type=int, default=3600, help="Per-implementation timeout in seconds")
     parser.add_argument("--no-score", action="store_true", help="Skip the scoring step")
     parser.add_argument("--judge", action="store_true", help="Add LLM-as-judge scoring (needs reference answers)")
-    parser.add_argument("--judge-model", default=os.environ.get("EVAL_JUDGE_MODEL", ""),
+    parser.add_argument("--judge-model", default="ollama_chat/glm-5.2",
                         help="litellm model name for the judge "
-                             "(default: $EVAL_JUDGE_MODEL, else evaluate.py's own)")
+                             "(default: ollama_chat/glm-5.2)")
     args = parser.parse_args()
 
     questions = Path(args.questions)

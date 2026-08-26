@@ -93,10 +93,8 @@ class JacGPT:
         self.session_info = SessionInfo()
         self.rag_engine = rag_engine
         self.client = client
-        # $MODEL is shared with the byLLM siblings, which need litellm's
-        # "openai/" prefix on an unfamiliar name. This side puts the string on
-        # the wire as the model id, so the prefix is stripped, not passed on.
-        self.model_name: str = _bare_model(os.environ.get("MODEL", "") or rag_engine.config.model_name)
+        # Hard-coded to the same model as the byLLM sibling; no env override.
+        self.model_name: str = "ollama_chat/glm-5.2"
 
     # -- the router: one completion constrained to the five agent names --------
 

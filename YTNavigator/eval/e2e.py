@@ -286,9 +286,9 @@ def main():
                         help="Pipeline smoke without torch - retrieval quality meaningless")
     parser.add_argument("--smoke", action="store_true", help="Stop after the retrieval sanity check (no LLM calls)")
     parser.add_argument("--judge", action="store_true", help="Add LLM-as-judge scoring")
-    parser.add_argument("--judge-model", default=os.environ.get("EVAL_JUDGE_MODEL", ""),
+    parser.add_argument("--judge-model", default="ollama_chat/glm-5.2",
                         help="litellm model name for the judge "
-                             "(default: $EVAL_JUDGE_MODEL, else evaluate.py's own)")
+                             "(default: ollama_chat/glm-5.2)")
     args = parser.parse_args()
 
     # ---- Stage 1: prerequisites -------------------------------------------
