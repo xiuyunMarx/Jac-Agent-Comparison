@@ -81,7 +81,16 @@ def infer(args: argparse.Namespace, framework: str, ids: list[str],
     ])
 
 
-def grade_side(args: argparse.Namespace, framework: str) -> int:
+def grade_side(args: argparse.Namespace, framework: str, last: bool) -> int:
+    """Grade one side. `last` decides whether its images may be retired.
+
+    grade.py retires each instance image the moment that instance is decided,
+    which is right for one run and wrong for N sides of one comparison: every
+    side is graded over the *same* instance set, so retiring per side means
+    re-pulling all of them for the next -- 1-2 GB per instance per side, and on
+    a four-way run that is three extra copies of the whole set. So only the last
+    side retires, and the disk floor still governs while it does.
+    """
     run_dir = args.output_dir / side_run_id(args.run_id, framework)
     return grade.main([
         "--predictions", str(run_dir / "predictions.jsonl"),
@@ -90,6 +99,7 @@ def grade_side(args: argparse.Namespace, framework: str) -> int:
         "--runtime", args.runtime,
         "--workers", str(args.eval_workers),
         "--timeout", str(args.eval_timeout),
+        *([] if last else ["--keep-images"]),
     ])
 
 
@@ -159,9 +169,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  python grade.py --predictions {run_dir / 'predictions.jsonl'}")
         return 0
 
-    for framework in args.frameworks:
+    for i, framework in enumerate(args.frameworks):
         banner(f"grading: {framework}")
-        code = grade_side(args, framework)
+        code = grade_side(args, framework, last=i == len(args.frameworks) - 1)
         if code != 0:
             print(f"\n{framework} grading exited {code}", file=sys.stderr)
 

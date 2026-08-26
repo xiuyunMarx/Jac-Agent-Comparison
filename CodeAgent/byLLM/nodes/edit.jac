@@ -69,7 +69,7 @@ node EditCode {
     }
 
     def write_file(file_path: str, content: str) -> str {
-        log_tool_call("write_file", {"file_path": file_path});
+        call = log_tool_call("write_file", {"file_path": file_path}, ok=False);
         target = safe_path(self.repo_root, file_path);
         if target is None {
             return refuse_path(file_path);
@@ -120,6 +120,7 @@ node EditCode {
         new_lines = len(body.splitlines());
         n_bytes = len(body.encode("utf-8"));
         warn = self._syntax_warning(body, rel);
+        call.ok = True;
         if existed {
             # Naming the previous line count is the cheap substitute for a
             # read-before-write gate: clobbering 400 lines with 12 is then
@@ -133,7 +134,7 @@ node EditCode {
     }
 
     def replace_in_file(file_path: str, old: str, new: str, expected_count: int = 1) -> str {
-        log_tool_call("replace_in_file", {"file_path": file_path});
+        call = log_tool_call("replace_in_file", {"file_path": file_path}, ok=False);
         # Checked before the occurrence count: "".count("") is 1 on an empty
         # file, so an empty `old` would pass a uniqueness test and then splice
         # `new` in at byte 0.
@@ -199,6 +200,7 @@ node EditCode {
         } except OSError as e {
             return f"Error: could not write '{rel}': {str(e)}";
         }
+        call.ok = True;
         total = len(updated.splitlines());
         delta = total - len(original.splitlines());
         sign = "+" if delta >= 0 else "";

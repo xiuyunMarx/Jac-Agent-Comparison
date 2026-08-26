@@ -1,0 +1,291 @@
+[swe_entry] mwaskom__seaborn-3010 ok steps=6 tools=92
+
+  -> set_plan({"steps":["Find and read the PolyFit implementation in seaborn/_stats/regression.py","Create reproduction script to confirm the LinAlgError with None values","C...)
+
+  -> update_task({"task_id":1,"status":"doing"})
+
+  -> read_file({"file_path":"seaborn/_stats/regression.py"})
+
+  -> update_task({"task_id":1,"status":"done"})
+
+  -> update_task({"task_id":2,"status":"doing"})
+
+  -> ls_repo({"dir_path":"seaborn/_stats"})
+
+  -> ls_repo({"dir_path":"."})
+
+  -> read_file({"file_path":"seaborn/_core/plot.py","start_line":1,"end_line":50})
+
+  -> find_files({"name_glob":"*regression*"})
+
+  -> read_file({"file_path":"tests/_stats/test_regression.py"})
+
+  -> update_task({"task_id":2,"status":"done"})
+
+  -> update_task({"task_id":3,"status":"doing"})
+
+  -> read_file({"file_path":"seaborn/_stats/base.py"})
+
+  -> read_file({"file_path":"seaborn/_stats/aggregation.py"})
+
+  -> grep({"pattern":"dropna","path":"seaborn/_stats"})
+
+  -> read_file({"file_path":"seaborn/_stats/histogram.py"})
+
+  -> read_file({"file_path":"seaborn/_core/groupby.py"})
+
+  -> update_task({"task_id":3,"status":"done"})
+
+  -> read_file({"file_path":"seaborn/_core/plot.py","start_line":1100,"end_line":1120})
+
+  -> update_task({"task_id":2,"status":"doing"})
+
+  -> read_file({"file_path":"seaborn/_core/plot.py","start_line":260,"end_line":270})
+
+  -> update_task({"task_id":2,"status":"done"})
+
+  -> update_task({"task_id":4,"status":"doing"})
+
+  -> grep({"pattern":"dropna","path":"seaborn/_stats/regression.py"})
+
+  -> read_file({"file_path":"seaborn/_stats/regression.py"})
+I have examined the repository structure and located the relevant code. The `PolyFit` class is defined in `seaborn/_stats/regression.py` and its `_fit_predict` method directly uses `numpy.polyfit` on the raw `x` and `y` series without handling missing values. Other stats in the codebase drop missing data before processing (e.g., `Hist` uses `vals.dropna()` and `Agg`/`Est` use `.dropna()` on results). The next phase should create a reproduction script to confirm the `LinAlgError` with `None` values, then implement robust handling of missing data in `PolyFit._fit_predict` by dropping NA values before fitting, and verify the fix with tests.{"next": "Exploring"}
+  -> read_file({"file_path":"seaborn/_stats/regression.py"})
+
+  -> grep({"pattern":"PolyFit","path":"."})
+
+  -> ls_repo({"dir_path":"."})
+
+  -> read_file({"file_path":"tests/_stats/test_regression.py"})
+
+  -> grep({"pattern":"dropna","path":"seaborn/_stats"})
+
+  -> read_file({"file_path":"seaborn/_stats/aggregation.py"})
+
+  -> read_file({"file_path":"seaborn/_stats/histogram.py"})
+
+  -> read_file({"file_path":"seaborn/_stats/base.py"})
+
+  -> show_plan({})
+
+  -> update_task({"task_id":1,"status":"done","note":"Located PolyFit implementation in seaborn/_stats/regression.py lines 11-47"})
+
+  -> grep({"pattern":"polyfit","path":"."})
+The exact change needs to be made in `seaborn/_stats/regression.py` in the `PolyFit._fit_predict` method (lines 22-30). 
+
+Current code:
+
+```
+def _fit_predict(self, data):
+    x = data["x"]
+    y = data["y"]
+    if x.nunique() <= self.order:
+        xx = yy = []
+    else:
+        p = np.polyfit(x, y, self.order)
+        xx = np.linspace(x.min(), x.max(), self.gridsize)
+        yy = np.polyval(p, xx)
+    return pd.DataFrame(dict(x=xx, y=yy))
+```
+
+The method must drop missing values before calling `np.polyfit` and before computing `x.min()`/`x.max()`. The same handling should be applied to the `x.nunique()` check.
+
+Other stats in the codebase handle missing data by calling `.dropna()` on the relevant series before processing:
+* `seaborn/_stats/aggregation.py` line 39: `.dropna()`
+* `seaborn/_stats/aggregation.py` line 90: `.dropna(subset=["x", "y"])`
+* `seaborn/_stats/histogram.py` line 39: `vals = vals.dropna()`
+
+No other file needs changes for this issue.{"next":"Editing"}
+  -> read_file({"file_path":"seaborn/_stats/regression.py"})
+
+  -> read_file({"file_path":"seaborn/_stats/aggregation.py"})
+
+  -> read_file({"file_path":"seaborn/_stats/histogram.py"})
+
+  -> show_plan({})
+
+  -> update_task({"task_id":4,"status":"doing","note":"Implementing dropna handling in PolyFit._fit_predict"})
+
+  -> write_file({"file_path":"repro_polyfit_missing.py","content":"import seaborn.objects as so\n\ntry:\n    p = so.Plot([1, 2, 3, None, 4], [1, 2, 3, 4, 5]).add(so.Line(), so....)
+
+  -> run_command({"command":"python repro_polyfit_missing.py"})
+
+  -> replace_in_file({"file_path":"seaborn/_stats/regression.py","old":"    def _fit_predict(self, data):\n\n        x = data[\"x\"]\n        y = data[\"y\"]\n        if x.nunique()...)
+
+  -> run_command({"command":"python repro_polyfit_missing.py"})
+
+  -> write_file({"file_path":"repro_polyfit_direct.py","content":"import pandas as pd\nfrom seaborn._stats.regression import PolyFit\nfrom seaborn._core.groupby import GroupBy\...)
+
+  -> run_command({"command":"python repro_polyfit_direct.py"})
+
+  -> write_file({"file_path":"repro_polyfit_direct.py","content":"import pandas as pd\nfrom seaborn._stats.regression import PolyFit\nfrom seaborn._core.groupby import GroupBy\...)
+
+  -> run_command({"command":"python repro_polyfit_direct.py"})
+
+  -> write_file({"file_path":"repro_polyfit_direct.py","content":"import pandas as pd\nfrom seaborn._stats.regression import PolyFit\nfrom seaborn._core.groupby import GroupBy\...)
+
+  -> run_command({"command":"python repro_polyfit_direct.py"})
+
+  -> write_file({"file_path":"repro_polyfit_direct.py","content":"import pandas as pd\nfrom seaborn._stats.regression import PolyFit\n\ndata = pd.DataFrame({\"x\": [1, 2, 3, No...)
+
+  -> run_command({"command":"python repro_polyfit_direct.py"})
+
+  -> update_task({"task_id":4,"status":"done","note":"PolyFit now drops NaNs before polyfit"})
+
+  -> update_task({"task_id":5,"status":"doing","note":"Testing with higher-level API"})
+
+  -> write_file({"file_path":"repro_polyfit_plot.py","content":"import seaborn.objects as so\nimport matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\n\ntry:\...)
+
+  -> run_command({"command":"python repro_polyfit_plot.py"})
+
+  -> grep({"pattern":"use_inf_as_null","path":"."})
+
+  -> run_command({"command":"python -c \"import pandas as pd; print(pd.__version__)\""})
+
+  -> write_file({"file_path":"check_pandas.py","content":"import pandas as pd\nprint(pd.__version__)\n"})
+
+  -> run_command({"command":"python check_pandas.py"})
+I located the `PolyFit._fit_predict` method in `seaborn/_stats/regression.py` and added robust missing-data handling by creating a boolean mask `x.notna() & y.notna()` and filtering both series before the uniqueness check, `np.polyfit`, and the `linspace` range calculation. A direct call to `_fit_predict` on data containing `None` now succeeds and returns a fitted curve, confirming the `LinAlgError` is resolved.
+
+Next phase needs to know:
+- The change is in `seaborn/_stats/regression.py` lines around the `_fit_predict` method.
+- The reproduction scripts exist (`repro_polyfit_direct.py`, `repro_polyfit_plot.py`) and the direct method test passes.
+- The high-level `so.Plot` path still raises an unrelated `OptionError` about `mode.use_inf_as_null`, which appears to be a pandas version compatibility issue in the environment rather than a regression in the fix.
+- Proceed to run the existing regression-related tests to ensure no breakage.
+  -> show_plan({})
+
+  -> ls_repo({"dir_path":"."})
+
+  -> find_files({"name_glob":"*regression*","dir_path":"."})
+
+  -> read_file({"file_path":"seaborn/_stats/regression.py"})
+
+  -> read_file({"file_path":"repro_polyfit_direct.py"})
+
+  -> read_file({"file_path":"repro_polyfit_plot.py"})
+
+  -> read_file({"file_path":"repro_polyfit_missing.py"})
+
+  -> run_command({"command":"python repro_polyfit_direct.py"})
+
+  -> run_command({"command":"python repro_polyfit_plot.py"})
+
+  -> run_command({"command":"python repro_polyfit_missing.py"})
+
+  -> grep({"pattern":"use_inf_as_null","path":"."})
+
+  -> run_command({"command":"python -c \"import pandas; print(pandas.__version__)\""})
+
+  -> run_command({"command":"python -c \"import pandas; print(pandas.__version__)\""})
+
+  -> run_command({"command":"python -c \"import pandas, sys; print(pandas.__version__)\""})
+The verification phase ran the reproduction scripts that were already in the workspace.
+
+* `repro_polyfit_direct.py`
+```
+$ python repro_polyfit_direct.py
+exit_code: 0
+--- stdout ---
+SUCCESS
+      x         y
+0  1.00  1.050000
+1  1.75  1.603125
+2  2.50  2.437500
+3  3.25  3.553125
+4  4.00  4.950000
+--- stderr ---
+(empty)
+```
+Direct call to `PolyFit._fit_predict` on a DataFrame containing `None` now succeeds and returns a fitted curve, confirming the `LinAlgError` from `np.polyfit` is resolved.
+
+* `repro_polyfit_plot.py` and `repro_polyfit_missing.py`
+```
+$ python repro_polyfit_plot.py
+exit_code: 0
+--- stdout ---
+ERROR: OptionError "No such keys(s): 'mode.use_inf_as_null'"
+--- stderr ---
+(empty)
+```
+The high-level `so.Plot([...], [...]).add(so.Line(), so.PolyFit())` path raises `OptionError: No such keys(s): 'mode.use_inf_as_null'`. This is an environment/pandas compatibility issue in `seaborn/_core/plot.py` and is unrelated to the PolyFit missing-data fix; the direct stat test passes.
+
+Next phase needs to know:
+- The change is in `seaborn/_stats/regression.py` where `_fit_predict` now masks `x.notna() & y.notna()` before `nunique`, `np.polyfit`, and `linspace`.
+- The direct stat reproduction succeeds.
+- The Plot-level reproduction is blocked by the pandas `mode.use_inf_as_null` option error, so existing tests should be run with `pytest tests/_stats/test_regression.py` to verify no regression in the stats API.
+{"next": "Editing"}
+  -> show_plan({})
+
+  -> read_file({"file_path":"seaborn/_stats/regression.py"})
+
+  -> run_command({"command":"git status"})
+
+  -> update_task({"task_id":4,"status":"done","note":"Verified PolyFit drops NaNs before polyfit"})
+
+  -> run_command({"command":"python repro_polyfit_direct.py"})
+
+  -> run_command({"command":"pytest tests/_stats/test_regression.py -k PolyFit -q"})
+
+  -> update_task({"task_id":5,"status":"done","note":"Reproduction passes and PolyFit tests pass"})
+
+  -> update_task({"task_id":6,"status":"doing"})
+
+  -> run_command({"command":"pytest tests/_stats/test_regression.py -q"})
+
+  -> update_task({"task_id":6,"status":"done","note":"All regression tests pass"})
+The edit to `seaborn/_stats/regression.py` is complete.
+
+**Change made**
+* `PolyFit._fit_predict` now masks out missing values before any computation. A boolean mask `x.notna() & y.notna()` is applied to both series, then the masked `x`/`y` are used for the `nunique` check, `np.polyfit`, and the `linspace` range. This mirrors how other stats (`Hist`, `Agg`, `Est`) drop NAs and prevents `np.polyfit` from receiving `NaN`/`None` which previously caused `LinAlgError: SVD did not converge`.
+
+**Verification**
+* Direct reproduction `repro_polyfit_direct.py` now prints `SUCCESS` and returns a fitted curve for data containing `None`.
+* `pytest tests/_stats/test_regression.py -k PolyFit` → 2 passed.
+* `pytest tests/_stats/test_regression.py` → 2 passed, no regressions.
+
+No test files were edited. The next phase would be to confirm the high-level `so.Plot` path once the environment `mode.use_inf_as_null` compatibility issue is resolved; the stat-level fix is verified.
+  -> show_plan({})
+
+  -> run_command({"command":"pytest tests/_stats/test_regression.py -q"})
+
+  -> find_files({"name_glob":"repro*.py"})
+
+  -> run_command({"command":"python repro_polyfit_direct.py"})
+
+  -> run_command({"command":"python repro_polyfit_missing.py"})
+
+  -> read_file({"file_path":"repro_polyfit_missing.py"})
+
+  -> read_file({"file_path":"seaborn/_stats/regression.py"})
+
+  -> run_command({"command":"git diff seaborn/_stats/regression.py"})
+
+  -> run_command({"command":"git diff"})
+The verification phase is complete.
+
+**Tests**
+* `pytest tests/_stats/test_regression.py -q` → exit_code 0  
+  `.. [100%]`  
+  `2 passed`
+
+**Reproduction**
+* `python repro_polyfit_direct.py` → exit_code 0  
+  stdout:
+  ```
+  SUCCESS
+        x         y
+  0  1.00  1.050000
+  1  1.75  1.603125
+  2  2.50  2.437500
+  3  3.25  3.553125
+  4  4.00  4.950000
+  ```
+  Direct call to `PolyFit._fit_predict` with `None` values now returns a fitted curve instead of `LinAlgError`.
+
+**Next phase needs to know**
+* Change is in `seaborn/_stats/regression.py`; `_fit_predict` now masks `x.notna() & y.notna()` before `nunique`, `np.polyfit`, and `linspace`.
+* The `repro_polyfit_missing.py` / `repro_polyfit_plot.py` Plot-level script raises `OptionError: No such keys(s): 'mode.use_inf_as_null'`, which is a pandas-option compatibility issue in the environment unrelated to the PolyFit fix; the stat-level fix is verified and existing regression tests pass.{
+
+    "next": "Finished"
+
+}

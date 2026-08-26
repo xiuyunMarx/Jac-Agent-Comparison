@@ -19,6 +19,7 @@ STUDY = HERE.parent
 sys.path.insert(0, str(STUDY))
 
 import build_study  # noqa: E402
+import select_easy as easy  # noqa: E402
 import select_instances as sel  # noqa: E402
 
 
@@ -189,6 +190,67 @@ def test_draw_is_deterministic():
 def test_frameworks_are_read_off_the_header():
     header = ["instance_id", "byllm_status", "openai_status", "gold_patch_bytes"]
     assert sel.frameworks_in(header) == ["byllm", "openai"]
+
+
+# --------------------------------------------------------------------------
+# The easy set, drawn from the leaderboard prior
+# --------------------------------------------------------------------------
+
+
+def scored(**kw):
+    """{instance_id: {rate_recent, rate_all}} from (recent, all) pairs."""
+    return {i: {"rate_recent": r, "rate_all": a, "n_all": 84, "n_recent": 28}
+            for i, (r, a) in kw.items()}
+
+
+def test_easy_draw_ranks_on_the_recent_window():
+    # The all-time rate is the tie-break, never the ranking: a 2023-era baseline
+    # resolving something says less about our runs than a 2025 agent does.
+    s = scored(**{"a__a-1": (0.9, 0.2), "a__a-2": (0.7, 0.99)})
+    assert easy.draw(s, 1, [], max_per_repo=2, min_rate=0.6) == ["a__a-1"]
+
+
+def test_easy_draw_caps_a_dominant_repo():
+    # django holds the whole top of the real ranking -- it is 114 of Lite's 300
+    # -- and eight django instances would measure that project's conventions.
+    s = scored(**{f"django__django-{i}": (0.99 - i / 100, 0.9) for i in range(10)},
+               **{f"sympy__sympy-{i}": (0.85 - i / 100, 0.8) for i in range(4)},
+               **{f"astropy__astropy-{i}": (0.75 - i / 100, 0.7) for i in range(4)})
+    got = easy.draw(s, 6, [], max_per_repo=2, min_rate=0.6)
+    assert len(got) == 6
+    assert sum(1 for i in got if i.startswith("django__")) == 2
+    assert len({i.split("__")[0] for i in got}) == 3
+
+
+def test_easy_draw_relaxes_the_cap_rather_than_returning_fewer():
+    # Asking for 4 out of one repo must give 4. A short set would quietly
+    # change what the run measured.
+    s = scored(**{f"a__a-{i}": (0.9, 0.9) for i in range(6)})
+    assert len(easy.draw(s, 4, [], max_per_repo=2, min_rate=0.6)) == 4
+
+
+def test_easy_draw_honours_the_rate_floor():
+    s = scored(**{"a__a-1": (0.9, 0.9), "b__b-1": (0.1, 0.1)})
+    assert easy.draw(s, 5, [], max_per_repo=2, min_rate=0.6) == ["a__a-1"]
+
+
+def test_easy_keep_pins_past_the_cap_and_the_floor():
+    s = scored(**{"a__a-1": (0.9, 0.9), "a__a-2": (0.9, 0.9), "a__a-3": (0.1, 0.1)})
+    got = easy.draw(s, 3, ["a__a-3"], max_per_repo=1, min_rate=0.6)
+    assert got[0] == "a__a-3"
+
+
+def test_easy_rates_split_the_window_at_since():
+    runs = {"20231010_rag": ["a__a-1"], "20250101_agent": ["a__a-1", "b__b-1"]}
+    r = easy.rates(runs, "2025")
+    assert r["a__a-1"] == {"rate_all": 1.0, "rate_recent": 1.0,
+                           "n_all": 2, "n_recent": 1}
+    assert r["b__b-1"]["rate_all"] == 0.5
+
+
+@pytest.mark.skipif(not easy.CACHE.exists(), reason="no leaderboard snapshot")
+def test_the_checked_in_easy_set_is_what_the_rules_draw():
+    assert easy.main(["--check"]) == 0
 
 
 # --------------------------------------------------------------------------

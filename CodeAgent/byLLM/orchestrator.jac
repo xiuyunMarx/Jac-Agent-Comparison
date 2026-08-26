@@ -98,6 +98,25 @@ glob REPEAT_ABORT_THRESHOLD: int = 3;
 glob SIG_RESULT_CHARS: int = 500;
 glob SAME_TOOL_ABORT_THRESHOLD: int = 6;
 
+# What the ledger says when a `visit ... by` came back with no handle and the
+# walker took the phase's default edge instead. A ledger line rather than a
+# silent visit, because the next phase reads the ledger to know how it got
+# there, and "the model chose" and "the model chose nothing" are not the same.
+glob ROUTER_FALLBACK: str = (
+    "ROUTER: the model returned no next phase; taking the default edge to {target}."
+);
+# What the ledger says when the model tried to take a shortcut to Finished from
+# a phase that cannot write. Observed with qwen3: Planning reads five files,
+# writes a "Root Cause / Resolution / Code Changes" essay describing an edit it
+# never issued, and the router believes it. The objective of a coding task is a
+# change in the tree, and until the tool log shows one, Finished is not an
+# option the model gets to pick -- the same rule Verifying already enforces.
+glob SHORTCUT_GUARD: str = (
+    "GUARD: Finished is not on offer from {phase} -- no write_file or "
+    "replace_in_file call has been made in this run, and a described change "
+    "is not a change. Continuing to {target}."
+);
+
 # The only two tools that change the workspace. Every other call, however many
 # of them a phase makes, leaves the tree exactly as it was found.
 glob WRITE_TOOLS: list[str] = ["write_file", "replace_in_file"];
@@ -113,10 +132,15 @@ the same claim and have been observed to disagree. A phase that reports
 "Summary of changes made: modified django/db/models/fields/__init__.py" while
 having called only `grep` and `read_file` is not lying about a file it wrote --
 it is describing the edit it decided on and never issued. Only the log knows.
+
+And the log is asked whether the write *landed*, not whether it was attempted.
+Observed with qwen3-14b on astropy-14995: three replace_in_file calls, all
+three "no match for 'old'", then a Verifying lap that ran the untouched suite,
+saw 221 passes and finished. Counting attempts let that through.
 """
 def workspace_written() -> bool {
     for call in get_tool_calls() {
-        if call.name in WRITE_TOOLS {
+        if call.name in WRITE_TOOLS and call.ok {
             return True;
         }
     }
@@ -136,7 +160,7 @@ no-edits case never reaches it.
 def ran_since_last_edit() -> bool {
     ran = False;
     for call in get_tool_calls() {
-        if call.name in WRITE_TOOLS {
+        if call.name in WRITE_TOOLS and call.ok {
             ran = False;
         } elif call.name in RUN_TOOLS {
             ran = True;
@@ -423,11 +447,26 @@ impl Planning.run with CodeAgent entry {
         visit [->:Flow:->][?:Finished];
         return;
     }
+    # The shortcut to Finished is for questions, and a coding task is not one:
+    # until something has been written the only edge that can lead anywhere
+    # is the default one, so it is taken without asking -- the model is not
+    # offered a choice it must not make. Verifying enforces the same rule.
+    if not workspace_written() {
+        visitor.record(self.title, SHORTCUT_GUARD.format(phase=self.title, target="Exploring"));
+        visit [->:Flow:->][?:Exploring];
+        return;
+    }
     visit [edge ->:Flow:->] by agent_model(
         select=1,
         intent="Go to Exploring to find the code this task touches. Choose Finished only if this was a question needing no code change and the plan already answers it.",
         incl_info={"Progress so far": visitor.rendered()}
-    );
+    ) else {
+        # The router returned no handle. Without this the walker simply stops:
+        # no Finished, no answer, exit code 0 -- a run that looks like it never
+        # happened. The graph's own default edge is the right answer here.
+        visitor.record(self.title, ROUTER_FALLBACK.format(target="Exploring"));
+        visit [->:Flow:->][?:Exploring];
+    }
 }
 
 
@@ -439,13 +478,21 @@ impl Exploring.run with CodeAgent entry {
         visit [->:Flow:->][?:Finished];
         return;
     }
+    if not workspace_written() {
+        visitor.record(self.title, SHORTCUT_GUARD.format(phase=self.title, target="Editing"));
+        visit [->:Flow:->][?:Editing];
+        return;
+    }
     visit [edge ->:Flow:->] by agent_model(
         select=1,
         intent="Go to Editing to make the change this exploration located. "
                "Choose Finished only if the objective was a question that the "
                "code just read already answers, with nothing left to edit.",
         incl_info={"Progress so far": visitor.rendered()}
-    );
+    ) else {
+        visitor.record(self.title, ROUTER_FALLBACK.format(target="Editing"));
+        visit [->:Flow:->][?:Editing];
+    }
 }
 
 
@@ -511,7 +558,12 @@ impl Verifying.run with CodeAgent entry {
         select=1,
         intent="Choose ```Finished``` only if the repository's own tests covering the changed code were executed after the final edit and passed -- a hand-written reproduction script alone is not verification, and neither is a suite that could not be run. If tests failed, could not be run, were skipped, or the result is ambiguous, go back to Editing.",
         incl_info={"Progress so far": visitor.rendered()}
-    );
+    ) else {
+        # Back into the repair loop rather than out to Finished: an undecided
+        # verification is not a passed one, and the step budget still bounds it.
+        visitor.record(self.title, ROUTER_FALLBACK.format(target="Editing"));
+        visit [->:Flow:->][?:Editing];
+    }
 }
 
 

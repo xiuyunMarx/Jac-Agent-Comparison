@@ -5,11 +5,21 @@ which implementations resolved what, where they disagreed, and what each one's
 patch actually did to the tests.
 
 ```
-build_study.py       graded run dirs -> verdicts.csv, divergence.csv, divergence.json, README.md
-select_instances.py  a divergence.csv -> instances.txt, for the next comparison run
-lite-01/             the byLLM vs LangGraph study, generated
-instances.txt        the 30 instances pinned for the three-way run
+build_study.py         graded run dirs -> verdicts.csv, divergence.csv, divergence.json, README.md
+select_easy.py         the public leaderboard -> instances.txt, the set in use
+select_instances.py    a divergence.csv -> instances-hard.txt, kept but unused
+lite-01/               the byLLM vs LangGraph study, generated
+instances.txt          the 8 instances the four-way run is pinned to
+leaderboard_lite.json  the snapshot select_easy.py draws from
 ```
+
+`instances.txt` holds **8 instances the public leaderboard says are easy**. The
+36-instance hard set that used to live here — every instance one implementation
+had already failed — was deleted: with four implementations to bring up, on a
+local model, against a bridge and a container runtime that had never run
+end to end, a set where everything fails cannot tell a broken container from a
+weak agent. `select_instances.py` still generates that kind of set, now under
+`instances-hard.txt`, for when there is something worth telling apart.
 
 ## Everything here is generated
 
@@ -63,7 +73,7 @@ never ran.
 ## Choosing instances for the next run
 
 ```bash
-python3 select_instances.py --count 30
+python3 select_instances.py --count 30   # -> instances-hard.txt
 ```
 
 Draws from `lite-01/divergence.csv`, because an instance every implementation
@@ -97,33 +107,75 @@ individually got right.
 See [`lite-01/README.md`](lite-01/README.md) for the tables, and
 `lite-01/divergence.json` for the patches and per-test breakdowns.
 
-## The next study: three ways
+## A set that is easy on purpose
 
-`instances.txt` holds the 30 instances selected above. Nothing has been run
-against them yet; `openai_sdk` has never been run against SWE-bench at all.
+A first end-to-end run should not be judged on instances chosen because someone
+already failed them: if everything fails, nothing separates a broken container
+from a weak agent. `select_easy.py` draws the opposite kind of set, from a prior
+nobody here had to generate — **every SWE-bench Lite submission on the official
+leaderboard**, at `SWE-bench/experiments/evaluation/lite/*/results/results.json`,
+each listing exactly which of the 300 instances that system resolved.
+
+```bash
+python3 select_easy.py --count 8          # --refresh to re-fetch the snapshot
+```
+
+84 submissions have landed, and the spread is real: the top instances are
+resolved by ~94% of them, and 35 of the 300 by none. The draw ranks on the
+**recent window** (`--since`, default 2025 — systems built on models of roughly
+the class we run) with the all-time rate as tie-break, applies a rate floor, and
+caps any one repo at `--max-per-repo` (default 2) so django cannot supply the
+whole set.
+
+| instance | resolved by, 2025+ | all time |
+|---|---|---|
+| `django__django-11099` | 100% | 94% |
+| `django__django-16255` | 100% | 94% |
+| `sympy__sympy-13480` | 100% | 90% |
+| `mwaskom__seaborn-3010` | 96% | 89% |
+| `astropy__astropy-14995` | 96% | 82% |
+| `scikit-learn__scikit-learn-13439` | 96% | 81% |
+| `sympy__sympy-13471` | 96% | 63% |
+| `pytest-dev__pytest-5227` | 93% | 88% |
+
+All eight are one-file patches of 12–21 lines with 1–3 FAIL_TO_PASS tests, over
+six repos. As with the hard set, **this is not a sample of the benchmark** — it
+is the top of a difficulty ranking, so a rate measured on it is an upper bound
+and is not comparable to a rate over the full 300. `leaderboard_lite.json` is the
+snapshot it was drawn from, one line per submission, so the draw is reproducible
+offline and `--check` fails if `instances.txt` drifts from the rules.
+
+Five of the eight carry SWE-bench's own `difficulty` annotation, and all five
+say `<15 min fix`; the other three are simply unannotated. That is an
+independent check on the draw — the leaderboard prior and the human annotation
+were produced by different people for different purposes and agree here.
+
+## The run: four ways, one local model
+
+`instances.txt`'s 8 instances, all four implementations, one model —
+**muse-glimmer** (Meta's 30B agentic model, Apache 2.0) served locally by ollama
+rather than a provider key, so the comparison costs GPU time instead of money.
 
 ```bash
 cd ../swebench_bridge
-python compare.py --run-id three-way --frameworks byllm langgraph openai \
-    --instances-file ../case_study/instances.txt --model gpt-5
+export CODEAGENT_MODEL="openai/muse-glimmer"    # /v1, never ollama_chat/ -- see ../swebench_bridge/README.md
+export OPENAI_BASE_URL="http://127.0.0.1:11435/v1" OPENAI_API_BASE="http://127.0.0.1:11435/v1"
+export OPENAI_API_KEY="ollama" CODEAGENT_API_BASE="http://127.0.0.1:11435/v1"
+
+python3 compare.py --run-id local-8 \
+    --frameworks byllm langgraph openai nooa \
+    --instances-file ../case_study/instances.txt \
+    --runtime docker --model "$CODEAGENT_MODEL" \
+    --python <an interpreter with langgraph, openai and nooa in it>
 
 cd ../case_study
-python3 build_study.py --out three-way \
-    ../swebench_bridge/results/three-way-byllm \
-    ../swebench_bridge/results/three-way-langgraph \
-    ../swebench_bridge/results/three-way-openai
+python3 build_study.py --out local-8 \
+    ../swebench_bridge/results/local-8-{byllm,langgraph,openai,nooa}
 ```
 
-That run bills a provider key: on the gpt-5 evidence available (~865k tokens and
-~800s per instance) 30 instances × 3 implementations is on the order of 78M
-tokens and several hours. Smoke-test one instance first — `openai_sdk` has no
-test suite of its own and has never completed an LLM round trip under the
-harness:
-
-```bash
-python run_agent.py --framework openai --run-id smoke \
-    --instance-ids astropy__astropy-12907 --model gpt-5 --workers 1
-```
+`verdicts.csv` is then one row per instance with, per implementation, its status,
+its token spend, its LLM calls and its wall clock — the per-case answer that a
+resolve rate averages away.
 
 ## Tests
 

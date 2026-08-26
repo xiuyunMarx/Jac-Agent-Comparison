@@ -145,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--max-repo-fraction", type=float, default=0.5,
                    help="ceiling on any one repo's share of the draw; the pool "
                         "can force it higher, and the summary says when it did")
-    p.add_argument("--out", type=Path, default=HERE / "instances.txt")
+    p.add_argument("--out", type=Path, default=HERE / "instances-hard.txt")
     p.add_argument("--check", action="store_true",
                    help="verify --out matches the rules; write nothing")
     args = p.parse_args(argv)

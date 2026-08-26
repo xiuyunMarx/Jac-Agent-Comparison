@@ -122,16 +122,6 @@ def coerce_answer(result: object) -> AgentAnswer {
 }
 
 
-def route_to_string(decision: Route) -> str {
-    if decision == Route.YES {
-        return "Yes";
-    } elif decision == Route.NOT_RELEVANT {
-        return "Not relevant";
-    }
-    return "No";
-}
-
-
 node Router {}
 node DirectReply {}
 node StaticReply {}
@@ -159,6 +149,9 @@ walker ChatAgent {
     }
 
     can decide with Router entry {
+        visit [-->] by llm(
+            intent=""
+        )
         try {
             decision = route_query(
                 channel=self.channel_info,

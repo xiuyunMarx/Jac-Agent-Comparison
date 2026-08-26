@@ -192,10 +192,11 @@ test "a full traversal edits a real file" {
     }
     rt.retarget(tmp);
 
-    # Each branching phase spends two outputs: the phase's own reply, then the
-    # handle `visit ... by` routes on. The handle is the target node's type
-    # name. Editing never routes -- it has a single Flow successor -- so it
-    # spends one.
+    # Verifying spends two outputs: the phase's own reply, then the handle
+    # `visit ... by` routes on (the target node's type name). Planning and
+    # Exploring do not ask the router until something has been written, and
+    # Editing never routes -- it has a single Flow successor -- so each of
+    # those spends one.
     set_model(MockLLM(
         model_name="mockllm",
         config={
@@ -203,11 +204,9 @@ test "a full traversal edits a real file" {
                 # Planning
                 MockToolCall(tool=rt.planner.set_plan, args={"steps": ["change the greeting"]}),
                 "Plan written: change the greeting.",
-                "Exploring",
                 # Exploring
                 MockToolCall(tool=rt.explorer.grep, args={"pattern": "hello", "path": "."}),
                 "greet.jac line 2 holds the greeting.",
-                "Editing",
                 # Editing
                 MockToolCall(
                     tool=rt.editor.replace_in_file,
@@ -237,30 +236,115 @@ test "a full traversal edits a real file" {
     }
 }
 
-test "the model can route straight from Planning to Finished" {
-    # Proves the routing is the model's and not the fallback's. Every `visit
-    # ... by` has an `else` that reproduces the fixed successor the phase used
-    # before it routed, so a router that returned nothing would still walk
-    # Planning -> Exploring and every other test would still pass. Only the
-    # shortcut edge distinguishes them: nothing but a model choice reaches
-    # Finished from Planning while steps remain.
+test "Planning cannot shortcut to Finished before anything is written" {
+    # Observed with qwen3-14b on astropy-14995: Planning read five files, wrote
+    # a "Root Cause / Resolution / Code Changes" essay describing an edit it
+    # never issued, and the router believed it -- one phase, empty patch. A
+    # described change is not a change, so while the tool log shows no write
+    # the shortcut is not offered at all: the walk goes on to Exploring and the
+    # ledger says why. The mock's "Finished" answer here is never consumed by
+    # a router, which is the point.
     tmp = os.path.realpath(tempfile.mkdtemp());
+    with open(os.path.join(tmp, "greet.jac"), "w") as f {
+        f.write("with entry {\n    print(\"hello\");\n}\n");
+    }
     rt.retarget(tmp);
 
     set_model(MockLLM(
         model_name="mockllm",
-        config={"outputs": ["read_file returns a greeting; no change needed.", "Finished"]}
+        config={
+            "outputs": [
+                # Planning: an essay, then (guarded, so never a router call)
+                "The fix: change hello to goodbye in greet.jac. Done.",
+                # Exploring: same again -- still nothing written, still guarded
+                "greet.jac line 2 holds the greeting; nothing else to do.",
+                # Editing
+                MockToolCall(
+                    tool=rt.editor.replace_in_file,
+                    args={"file_path": "greet.jac", "old": "hello", "new": "goodbye"}
+                ),
+                "Replaced hello with goodbye.",
+                # Verifying
+                MockToolCall(tool=rt.verifier.run_command, args={"command": "jac run greet.jac"}),
+                "jac run printed goodbye; exit code 0.",
+                "Finished"
+            ]
+        }
     ));
 
-    session = CodeAgent(objective="what does greet.jac print?", max_steps=10);
+    session = CodeAgent(objective="change the greeting to goodbye", max_steps=10);
     root spawn session;
 
-    assert session.steps == 1;
-    assert "Planning" in session.answer;
-    # The phases the fallback would have walked into never ran.
-    assert "Exploring" not in session.answer;
-    assert "Editing" not in session.answer;
+    assert session.steps == 4;
+    assert session.answer.count("GUARD: Finished is not on offer") == 2;
+    assert "Editing" in session.answer and "Verifying" in session.answer;
+    with open(os.path.join(tmp, "greet.jac")) as f {
+        assert "goodbye" in f.read();
+    }
 }
+
+test "a write that failed does not count as a write" {
+    # replace_in_file with an anchor that is not in the file is logged, as
+    # every call is, but it changed nothing -- and the guards must say so, or
+    # a Verifying lap on the untouched tree is taken for proof.
+    tmp = os.path.realpath(tempfile.mkdtemp());
+    with open(os.path.join(tmp, "greet.jac"), "w") as f {
+        f.write("with entry {\n    print(\"hello\");\n}\n");
+    }
+    rt.retarget(tmp);
+    reset_tool_log();
+    assert "Error" in rt.editor.replace_in_file("greet.jac", "not in the file", "x");
+    assert not workspace_written();
+    assert "OK" in rt.editor.replace_in_file("greet.jac", "hello", "goodbye");
+    assert workspace_written();
+    assert not ran_since_last_edit();
+}
+
+test "a router that returns nothing takes the default edge" {
+    # A `visit ... by` whose model answered with no valid handle used to queue
+    # nothing: the walker fell off the graph and the run ended with an empty
+    # answer and exit code 0. Observed against a local model whose routing
+    # reply was `[]`. Only Verifying still routes before an edit-free phase
+    # can finish, so that is where a junk handle must fall through -- back to
+    # Editing, not out to Finished.
+    tmp = os.path.realpath(tempfile.mkdtemp());
+    with open(os.path.join(tmp, "greet.jac"), "w") as f {
+        f.write("with entry {\n    print(\"hello\");\n}\n");
+    }
+    rt.retarget(tmp);
+
+    set_model(MockLLM(
+        model_name="mockllm",
+        config={
+            "outputs": [
+                "Plan: change the greeting.",
+                "greet.jac line 2 holds the greeting.",
+                MockToolCall(
+                    tool=rt.editor.replace_in_file,
+                    args={"file_path": "greet.jac", "old": "hello", "new": "goodbye"}
+                ),
+                "Replaced hello with goodbye.",
+                MockToolCall(tool=rt.verifier.run_command, args={"command": "jac run greet.jac"}),
+                "jac run printed goodbye.",
+                "nowhere",
+                "Nothing more to change.",
+                MockToolCall(tool=rt.verifier.run_command, args={"command": "jac run greet.jac"}),
+                "Still goodbye; exit code 0.",
+                "Finished"
+            ]
+        }
+    ));
+
+    session = CodeAgent(objective="change the greeting to goodbye", max_steps=10);
+    root spawn session;
+
+    assert session.answer != "";
+    # Planning -> Exploring -> Editing -> Verifying -> Editing -> Verifying
+    assert session.steps == 6;
+    assert session.answer.count("ROUTER:") == 1;
+    assert "default edge to Editing" in session.answer;
+}
+
 
 # ---------------------------------------------------------------------------
 # The phase conversation does not survive a re-entry.
@@ -448,10 +532,8 @@ test "a Verifying lap that executes nothing cannot finish" {
                 # Planning
                 MockToolCall(tool=rt.planner.set_plan, args={"steps": ["change the greeting"]}),
                 "Plan written: change the greeting.",
-                "Exploring",
                 # Exploring
                 "greet.jac line 2 holds the greeting.",
-                "Editing",
                 # Editing: writes, runs nothing.
                 MockToolCall(
                     tool=rt.editor.replace_in_file,

@@ -138,6 +138,16 @@ def error_kind(raw: str) -> str:
 # --------------------------------------------------------------------------
 
 
+def test_list(value) -> list[str]:
+    """FAIL_TO_PASS / PASS_TO_PASS, whichever shape the dataset ships them in.
+
+    The 1.x datasets store them as a JSON string; SWE-bench 5's do it as a real
+    list. `json.loads` on the list raises, so a study built against the current
+    dataset would die here rather than anywhere informative.
+    """
+    return value if isinstance(value, list) else json.loads(value)
+
+
 def load_dataset_rows(dataset: str, split: str) -> dict[str, dict]:
     from datasets import load_dataset
 
@@ -227,6 +237,11 @@ def build(run_dirs: list[Path], dataset: str, split: str) -> dict:
                 "llm_calls": run.get("llm_calls"),
                 "tool_calls": run.get("tool_call_count"),
                 "sec": run.get("total_sec"),
+                "prompt_tokens": int(run.get("prompt_tokens", 0) or 0),
+                "completion_tokens": int(run.get("completion_tokens", 0) or 0),
+                "cached_tokens": int(run.get("cached_tokens", 0) or 0),
+                "tokens": (int(run.get("prompt_tokens", 0) or 0)
+                           + int(run.get("completion_tokens", 0) or 0)),
                 "tests_status": (entry or {}).get("tests_status"),
             })
         distinct = {s["patch"] for s in per_side}
@@ -238,8 +253,8 @@ def build(run_dirs: list[Path], dataset: str, split: str) -> dict:
             "identical_patches": len(distinct) == 1 and bool(distinct.pop().strip()),
             "gold_patch": instance["patch"],
             "gold_files": files_touched(instance["patch"]),
-            "f2p": json.loads(instance["FAIL_TO_PASS"]),
-            "p2p": json.loads(instance["PASS_TO_PASS"]),
+            "f2p": test_list(instance["FAIL_TO_PASS"]),
+            "p2p": test_list(instance["PASS_TO_PASS"]),
             "sides": per_side,
         }
 
@@ -264,6 +279,9 @@ def write_verdicts(study: dict, out: Path) -> int:
     names = study["frameworks"]
     header = (["instance_id", "repo", "resolved_by", "diverged"]
               + [f"{n}_status" for n in names]
+              + [f"{n}_tokens" for n in names]
+              + [f"{n}_llm_calls" for n in names]
+              + [f"{n}_sec" for n in names]
               + [f"{n}_patch_bytes" for n in names]
               + [f"{n}_run_error" for n in names]
               + ["gold_patch_bytes", "f2p", "p2p"])
@@ -276,6 +294,9 @@ def write_verdicts(study: dict, out: Path) -> int:
                 [row["instance_id"], row["repo"], "+".join(row["resolved_by"]),
                  row["diverged"]]
                 + [s["status"] for s in row["sides"]]
+                + [s["tokens"] for s in row["sides"]]
+                + [s["llm_calls"] for s in row["sides"]]
+                + [s["sec"] for s in row["sides"]]
                 + [s["patch_bytes"] for s in row["sides"]]
                 + [s["run_error"] for s in row["sides"]]
                 + [len(row["gold_patch"].encode("utf-8")),

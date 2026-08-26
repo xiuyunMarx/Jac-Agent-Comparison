@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 """Which agent implementations exist, and how each one is launched.
 
-Three implementations of *one* agent -- same five phases, same ten tools, same
-prompts, same string contracts. What differs is how the phase graph, the ReAct
-loop and the accounting are expressed:
+Four implementations of *one* agent -- same ten tools, same prompts, same string
+contracts. What differs is how the workflow, the loop and the accounting are
+expressed:
 
-    byllm      ../byLLM       Jac + byLLM         a walker over a phase graph
-    langgraph  ../langgraph   Python + LangGraph  a compiled StateGraph
+    byllm      ../byLLM       Jac + byLLM           a walker over a phase graph
+    langgraph  ../langgraph   Python + LangGraph    a compiled StateGraph
     openai     ../openai_sdk  Python, no framework  a while loop
+    nooa       ../NOOA        NVIDIA NOOA           one object, code as action
+
+The first three share five phases and a router, and differ in how that graph is
+declared and walked. The fourth does not have one: a NOOA agent acts by writing
+Python against its own methods, so the workflow is code the model writes and
+what the arm asserts instead are invariants on the result. That is the widest
+difference in the set, and it is the reason it is in it.
 
 The registry is the whole of the fork. Everything else in the bridge -- the
 workspace, the container, the objective text, the preparation step, the patch
@@ -63,9 +70,11 @@ class Framework:
         return ""
 
 
-# The two Python implementations share one shim. It resolves the agent from
-# $CODEAGENT_HOME, which the driver sets per framework, and both projects export
-# solve / active_model_name / DEFAULT_MODEL from a module named `orchestrator`.
+# The three Python implementations share one shim. It resolves the agent from
+# $CODEAGENT_HOME, which the driver sets per framework, and all three projects
+# export solve / active_model_name / DEFAULT_MODEL from a module named
+# `orchestrator`. ../NOOA lives beside CodeAgent/ rather than inside it, so its
+# home walks up one -- the shim resolves it either way.
 # The Jac one needs its own because `jac` is a self-contained binary carrying its
 # own Python, so this interpreter cannot import orchestrator.jac at all.
 PY_SHIM = BRIDGE_DIR / "swe_entry.py"
@@ -96,11 +105,20 @@ FRAMEWORKS: dict[str, Framework] = {
         runner="python",
         blurb="Python, no framework: a while loop over the OpenAI SDK",
     ),
+    "nooa": Framework(
+        name="nooa",
+        home=ROOT / ".." / "NOOA",
+        entry=PY_SHIM,
+        marker="orchestrator.py",
+        runner="python",
+        blurb="NVIDIA NOOA: one agent object, code as action, no phase graph",
+    ),
 }
 
 # The order comparisons are presented in: the Jac original, the framework port,
-# then the no-framework baseline the other two are measured against.
-ORDER = ["byllm", "langgraph", "openai"]
+# the no-framework baseline the other two are measured against, and then the one
+# that is not a phase graph at all.
+ORDER = ["byllm", "langgraph", "openai", "nooa"]
 
 NAMES = sorted(FRAMEWORKS)
 

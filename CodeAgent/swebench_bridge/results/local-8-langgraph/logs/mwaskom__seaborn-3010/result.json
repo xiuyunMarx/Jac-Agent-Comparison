@@ -1,0 +1,458 @@
+{
+  "instance_id": "mwaskom__seaborn-3010",
+  "model": "muse-glimmer",
+  "answer": "### Planning\nIn the Planning phase I set the work plan and examined the existing code:\n\n* Located `PolyFit` in `seaborn/_stats/regression.py`. The current implementation:\n  ```python\n  def _fit_predict(self, data):\n      x = data[\"x\"]\n      y = data[\"y\"]\n      if x.nunique() <= self.order:\n          xx = yy = []\n      else:\n          p = np.polyfit(x, y, self.order)\n          xx = np.linspace(x.min(), x.max(), self.gridsize)\n          yy = np.polyval(p, xx)\n      return pd.DataFrame(dict(x=xx, y=yy))\n  ```\n  No NaN/missing-value handling is performed before `np.polyfit`, so `None`/`NaN` values in the input propagate to NumPy and trigger `LinAlgError: SVD did not converge`.\n* Noted that other stats such as `Agg`/`Est` use `.dropna()`/`dropna(subset=[\"x\",\"y\"])` before aggregation, indicating the expected robust handling pattern.\n\nNext phase needs to:\n1. Create a reproduction script that runs `so.Plot([1,2,3,None,4],[1,2,3,4,5]).add(so.Line(), so.PolyFit())` and confirms the error.\n2. Modify `PolyFit._fit_predict` to drop rows where `x` or `y` is missing before checking `nunique` and calling `np.polyfit` / `np.linspace`.\n3. Verify the fix with the reproduction script and run existing regression/stat tests to ensure no regressions.\n\n### Exploring\n**Files that must change**\n\n* `seaborn/_stats/regression.py` \u2013 PolyFit implementation\n\n**What to change**\n\nFile: `seaborn/_stats/regression.py`  \nClass: `PolyFit`  \nMethod: `_fit_predict(self, data)` \u2013 lines 22-35 (current content)\n\nCurrent logic:\n```python\ndef _fit_predict(self, data):\n    x = data[\"x\"]\n    y = data[\"y\"]\n    if x.nunique() <= self.order:\n        xx = yy = []\n    else:\n        p = np.polyfit(x, y, self.order)\n        xx = np.linspace(x.min(), x.max(), self.gridsize)\n        yy = np.polyval(p, xx)\n    return pd.DataFrame(dict(x=xx, y=yy))\n```\n\nRequired change: Drop rows where `x` or `y` is missing before any uniqueness check, polyfit, or linspace, mirroring the pattern used in `seaborn/_stats/aggregation.py` (`dropna()` / `dropna(subset=[\"x\",\"y\"])`) and `seaborn/_stats/histogram.py`.\n\nMinimal robust edit:\n```python\ndef _fit_predict(self, data):\n    # Drop missing values for robustness \u2013 analogous to Agg/Est/histogram handling\n    mask = data[\"x\"].notna() & data[\"y\"].notna()\n    x = data.loc[mask, \"x\"]\n    y = data.loc[mask, \"y\"]\n    if x.nunique() <= self.order:\n        xx = yy = []\n    else:\n        p = np.polyfit(x, y, self.order)\n        xx = np.linspace(x.min(), x.max(), self.gridsize)\n        yy = np.polyval(p, xx)\n    return pd.DataFrame(dict(x=xx, y=yy))\n```\n\nOr equivalently:\n```python\ndata = data.dropna(subset=[\"x\", \"y\"])\nx = data[\"x\"]; y = data[\"y\"]\n...\n```\n\nThis prevents `np.polyfit` from receiving NaN/None values, which currently raises `LinAlgError: SVD did not converge in Linear Least Squares` for inputs such as `so.Plot([1,2,3,None,4],[1,2,3,4,5]).add(so.Line(), so.PolyFit())`.\n\nNo test files should be edited; existing tests in `tests/_stats/test_regression.py` cover `PolyFit` and will validate the change.\n\n### Editing\nThe fix is complete. I modified `seaborn/_stats/regression.py` to drop rows with missing values in the PolyFit `_fit_predict` method before performing the polynomial fit. This prevents the `LinAlgError: SVD did not converge in Linear Least Squares` error that occurred when NaN/None values were present in the input data.\n\n**Test Report:**\n\n- **Reproduction test**: Verified the original bug with `so.Plot([1, 2, 3, None, 4], [1, 2, 3, 4, 5]).add(so.Line(), so.PolyFit())` now works without LinAlgError\n- **Direct method test**: Confirmed `PolyFit._fit_predict` correctly handles DataFrames with None values in x and y columns, returning expected 100-point fit\n- **Edge case tests**: Verified handling of:\n  - Missing values in x and y columns (PASSED)\n  - All NaN values returning empty DataFrame (PASSED)\n  - NaN values only in y column (PASSED)\n  - NaN values only in x column (PASSED)\n  - Insufficient data points after dropping NaN (PASSED)\n- **Existing tests**: All 2 tests in `tests/_stats/test_regression.py` passed\n\n### Verifying\n**Test Run Output**\n\n**Existing regression stats tests**\n```\n$ pytest tests/_stats/test_regression.py -v\n============================= test session starts ==============================\nplatform linux -- Python 3.9.20, pytest-8.3.3, pluggy-1.5.0 -- /opt/miniconda3/envsbin/python\nrootdir: <scrubbed>\nconfigfile: pyproject.toml\nplugins: <scrubbed>\ncollecting ... collected 2 items\n\ntests/_stats/test_regression.py::TestPolyFit::test_no_grouper PASSED     [ 50%]\ntests/_stats/test_regression.py::TestPolyFit::test_one_grouper PASSED    [100%]\n\n============================== 2 passed in X.XXs ===============================\nexit code: 0\n```\n\nBoth existing PolyFit tests pass with the `dropna` fix in place. The modification to `seaborn/_stats/regression.py` now drops rows where `x` or `y` is missing before calling `np.polyfit`, preventing the `LinAlgError: SVD did not converge` that occurred with inputs containing `None`/NaN values.",
+  "steps": 4,
+  "llm_calls": 69,
+  "prompt_tokens": 426620,
+  "completion_tokens": 14347,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "set_plan",
+      "args": {
+        "steps": "6"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "1",
+        "status": "doing"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "seaborn/_stats/regression.py",
+        "start_line": "1",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "1",
+        "status": "done"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "2",
+        "status": "doing"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "2",
+        "status": "done"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "3",
+        "status": "doing"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "seaborn/_core/plot.py",
+        "start_line": "1",
+        "end_line": "50"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "seaborn/__init__.py",
+        "start_line": "1",
+        "end_line": "50"
+      }
+    },
+    {
+      "name": "find_files",
+      "args": {
+        "name_glob": "*objects*",
+        "dir_path": "."
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "seaborn/objects.py",
+        "start_line": "1",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "seaborn/_core/plot.py",
+        "start_line": "260",
+        "end_line": "270"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "tests/_core/test_plot.py",
+        "start_line": "1",
+        "end_line": "100"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "3",
+        "status": "done"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "4",
+        "status": "doing"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "seaborn/_stats/regression.py",
+        "start_line": "1",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "seaborn/_stats/regression.py",
+        "start_line": "20",
+        "end_line": "40"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "4",
+        "status": "done"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "dropna",
+        "path": "seaborn/_stats",
+        "file_glob": "*"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "seaborn/_stats/aggregation.py",
+        "start_line": "1",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "seaborn/_stats/regression.py",
+        "start_line": "1",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "4",
+        "status": "doing"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "4",
+        "status": "done"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "5",
+        "status": "doing"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "seaborn/_stats/regression.py",
+        "start_line": "1",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "PolyFit",
+        "path": ".",
+        "file_glob": "*"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "tests/_stats/test_regression.py",
+        "start_line": "1",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "dropna",
+        "path": "seaborn/_stats",
+        "file_glob": "*"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "seaborn/_stats/aggregation.py",
+        "start_line": "1",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "seaborn/_stats/regression.py",
+        "start_line": "47",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "ls_repo",
+      "args": {
+        "dir_path": "seaborn/_stats"
+      }
+    },
+    {
+      "name": "show_plan",
+      "args": {}
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "1",
+        "status": "done"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "seaborn/_stats/regression.py",
+        "start_line": "1",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "find_files",
+      "args": {
+        "name_glob": "regression.py",
+        "dir_path": "."
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "2",
+        "status": "done"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "def _fit_predict",
+        "path": "seaborn/_stats/regression.py",
+        "file_glob": "*"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "3",
+        "status": "doing"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "4",
+        "status": "done"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "x = data\\[",
+        "path": "seaborn/_stats/regression.py",
+        "file_glob": "*"
+      }
+    },
+    {
+      "name": "show_plan",
+      "args": {}
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "seaborn/_stats/regression.py",
+        "start_line": "1",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "ls_repo",
+      "args": {
+        "dir_path": "."
+      }
+    },
+    {
+      "name": "write_file",
+      "args": {
+        "file_path": "repro_polyfit_nan.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python repro_polyfit_nan.py"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "file_path": "seaborn/_stats/regression.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python repro_polyfit_nan.py"
+      }
+    },
+    {
+      "name": "write_file",
+      "args": {
+        "file_path": "repro_polyfit_nan2.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python repro_polyfit_nan2.py"
+      }
+    },
+    {
+      "name": "write_file",
+      "args": {
+        "file_path": "test_polyfit_direct.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python test_polyfit_direct.py"
+      }
+    },
+    {
+      "name": "find_files",
+      "args": {
+        "name_glob": "*regression*",
+        "dir_path": "."
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "pytest tests/_stats/test_regression.py -xvs"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "seaborn/_stats/regression.py",
+        "start_line": "1",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "write_file",
+      "args": {
+        "file_path": "test_polyfit_edgecases.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python test_polyfit_edgecases.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "pytest tests/_stats/test_regression.py -xvs"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "seaborn/_stats/regression.py",
+        "start_line": "1",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "find_files",
+      "args": {
+        "name_glob": "*regression*",
+        "dir_path": "."
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "tests/_stats/test_regression.py",
+        "start_line": "1",
+        "end_line": "0"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "1",
+        "status": "done"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "pytest tests/_stats/test_regression.py -v"
+      }
+    },
+    {
+      "name": "update_task",
+      "args": {
+        "task_id": "6",
+        "status": "done"
+      }
+    }
+  ],
+  "tool_call_count": 63,
+  "error": "",
+  "wall_clock_sec": 684.92
+}

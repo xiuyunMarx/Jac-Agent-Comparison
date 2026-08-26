@@ -44,13 +44,21 @@ glob MAX_LIST_ENTRIES: int = 300;
 obj ToolCall {
     has name: str;
     has args: dict[str, str] = {};
+    # Whether the call did what it was asked. Logged at entry as True for the
+    # read-only tools, whose only failure is an error string the model reads;
+    # the two write tools log themselves as False and flip it once the bytes
+    # are on disk, because "replace_in_file was called" and "the file changed"
+    # are different claims and the orchestrator's guards need the second.
+    has ok: bool = True;
 }
 
 glob tool_call_log: list[ToolCall] = [];
 
 
-def log_tool_call(name: str, args: dict[str, str]) {
-    tool_call_log.append(ToolCall(name=name, args=args));
+def log_tool_call(name: str, args: dict[str, str], ok: bool = True) -> ToolCall {
+    call = ToolCall(name=name, args=args, ok=ok);
+    tool_call_log.append(call);
+    return call;
 }
 
 

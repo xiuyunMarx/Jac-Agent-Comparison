@@ -136,6 +136,58 @@ Already have graded runs? Compare them without re-grading:
 python report.py results/three-way-byllm results/three-way-langgraph results/three-way-openai
 ```
 
+### Against a local model
+
+All four arms take one model name, `$CODEAGENT_MODEL`, and reach the provider
+two different ways: byLLM and NOOA are litellm-routed and want the provider
+prefix, langgraph and openai speak the OpenAI wire protocol and strip it
+(`.replace(":", "/").split("/")[-1]`). So one name serves all four, and what
+changes for a local server is only where each client points:
+
+```bash
+export CODEAGENT_MODEL="openai/muse-glimmer"        # litellm: openai provider; the SDK arms see "muse-glimmer"
+export OPENAI_BASE_URL="http://127.0.0.1:11435/v1"  # openai SDK, langchain_openai
+export OPENAI_API_BASE="http://127.0.0.1:11435/v1"  # litellm's openai provider (byLLM)
+export OPENAI_API_KEY="ollama"                      # ignored by ollama, required by the clients
+export CODEAGENT_API_BASE="http://127.0.0.1:11435/v1"  # NOOA's llm.py seam
+```
+
+**Use ollama's OpenAI-compatible `/v1` endpoint, not litellm's `ollama_chat/`
+provider.** This is not a preference. litellm 1.82.6's `ollama_chat`
+transformation rebuilds every message it sends to `/api/chat` from `role` and
+`content` only: the assistant turns' `tool_calls` are computed and then never
+copied onto the outgoing message, so the model is shown a history of empty
+assistant turns followed by orphan tool results. And its streaming path
+collapses parallel tool calls into one (ollama puts the index inside
+`function`, litellm reads it from the top level), so a model that reads two
+files in one turn gets one mangled call and a "missing argument" error.
+
+What that does to a run, observed on all 8 byLLM instances and all 8 NOOA
+instances of the first `local-8` run: the model, seeing tool outputs with no
+calls in front of them, starts writing the missing envelopes itself —
+`<tool_output …>` and `</atem:invoke></atem:function_calls>` as plain text,
+including *fabricated* outputs for calls whose results it never received. A
+plain-text turn ends the phase, that text becomes the ledger, and the next
+phase inherits it. byLLM then fails the toy task; openai_sdk, on the same model
+through `/v1`, solves it. Routed through `/v1` (`openai/muse-glimmer`), the
+same byLLM run shows every assistant turn with its `tool_calls` intact, both
+halves of a parallel read answered, and `set_plan` called in Planning as
+asked. Upstream litellm has since fixed the dropped `tool_calls`; this pin has
+not.
+
+Two other things this does not survive without:
+
+* **A tool-calling model.** Three of the four arms are function calls end to end
+  and NOOA drives its session through `execute_python`; a model with no tool
+  template (`llama3` in ollama) fails on the first call rather than doing worse.
+* **A context window the objective fits in.** The objective plus one file read is
+  already past 8k. `OLLAMA_CONTEXT_LENGTH` is what ollama actually serves — the
+  model's advertised 128k is not what you get by default.
+
+`--python` matters here too: `nooa` requires Python <3.14, so the three Python
+arms are spawned with an interpreter that has all of langgraph, openai and nooa
+in it, while the driver itself keeps running on whichever Python has `swebench`.
+
 ### Options worth knowing
 
 | flag | why |
