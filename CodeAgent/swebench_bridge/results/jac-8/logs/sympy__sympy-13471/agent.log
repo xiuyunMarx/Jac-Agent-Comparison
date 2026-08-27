@@ -1,0 +1,70 @@
+### Plan
+## Summary
+
+**Falsifiable claim:** When a Python 2 pickle of a `sympy.Float` (or any float-containing expression) is loaded in Python 3, `Float.__new__` fails at `sympy/core/numbers.py` line ~1045 with `ValueError: invalid literal for int() with base 16: '1L'`. It should instead parse the hexadecimal mantissa correctly (stripping the Python 2 long `L` suffix) and reconstruct the `Float`.
+
+**Root cause:** In the `isinstance(num, tuple) and len(num) in (3, 4)` branch of `Float.__new__`, when `num[1]` is a hex string coming from a Python 2 pickle, Python 2 wrote the long-int repr with a trailing `L` (e.g. `'1L'`). The code does `num[1] = long(num[1], 16)` directly, and under Python 3 `long` is aliased to `int`, so `int('1L', 16)` raises.
+
+**Files most likely involved:**
+1. `sympy/core/numbers.py` — the `Float.__new__` mpf-tuple reconstruction branch (~line 1043-1047) needs to strip a trailing `'L'` before `int(num[1], 16)`.
+2. `sympy/core/compatibility.py` — defines `long = int` on PY3 (context only; the real fix belongs in `numbers.py`).
+
+The next phase should edit `sympy/core/numbers.py` to strip a trailing `'L'`/`'l'` from the hex string before converting, then run `pytest sympy/core/tests/test_numbers.py` to verify.
+
+### Explore
+## Summary
+
+**File:** `sympy/core/numbers.py`
+**Symbol:** `Float.__new__`
+**Line range:** 1042-1046 (the `isinstance(num, tuple) and len(num) in (3, 4)` branch, specifically `num[1] = long(num[1], 16)`)
+
+**Reproduction output (confirmed failure):**
+```
+mpf: (0, 1, 0, 1)
+simulated py2 tuple: (0, '1L', 0, 1)
+ERROR: ValueError invalid literal for int() with base 16: '1L'
+```
+
+The branch at lines 1042-1046:
+```python
+if type(num[1]) is str:
+    # it's a hexadecimal (coming from a pickled object)
+    # assume that it is in standard form
+    num = list(num)
+    num[1] = long(num[1], 16)
+    _mpf_ = tuple(num)
+```
+Under Python 3, `long` is `int`, and a Python 2-pickled hex string carries a trailing `'L'` (e.g. `'1L'`), which `int(..., 16)` rejects.
+
+The next phase should edit this branch to strip a trailing `'L'`/`'l'` from `num[1]` before converting, then run `pytest sympy/core/tests/test_numbers.py` to verify.
+
+### Edit
+## Summary
+
+The fix has been applied to `sympy/core/numbers.py` in `Float.__new__` (lines 1040-1052). The branch that reconstructs an mpf tuple from a pickled hex-string mantissa now strips a trailing `'L'`/`'l'` (Python 2 long-literal suffix) before calling `long(num[1], 16)`.
+
+Reproduction now passes:
+- `(0, '1L', 0, 1)` → `1.00000000000000` (== 1.0) ✓
+- `(0, 'ffL', 0, 8)` → `255.000000000000` (== 255.0) ✓
+- Normal Python 3 pickle round-trip `x + 1.0` still works ✓
+
+The next phase should run the existing test suite for the touched code (`pytest sympy/core/tests/test_numbers.py`) to confirm no regressions, and report the actual output.
+
+### Verify
+Verification complete.
+
+**Test run:** `python bin/test -- sympy/core/tests/test_numbers.py`
+
+**Output:**
+```
+sympy/core/tests/test_numbers.py[84] ...........................................
+...................f....................s                                   [OK]
+
+== tests finished: 82 passed, 1 skipped, 1 expected to fail, in 0.49 seconds ===
+```
+
+**Result:** 82 passed, 1 skipped, 1 expected to fail — no failures, no regressions.
+
+The skipped and expected-to-fail cases are pre-existing (unrelated to this change). The fix in `sympy/core/numbers.py` (`Float.__new__`, stripping a trailing `'L'`/`'l'` from Python 2-pickled hex mantissa strings before `long(num[1], 16)`) resolves the issue without breaking existing behavior.
+[swe_entry] sympy__sympy-13471 ok steps=4 tools=24
+INFO - HTTP Request: GET https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json "HTTP/1.1 200 OK"

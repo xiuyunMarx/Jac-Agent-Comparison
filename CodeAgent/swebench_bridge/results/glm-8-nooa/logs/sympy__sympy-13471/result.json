@@ -1,0 +1,139 @@
+{
+  "instance_id": "sympy__sympy-13471",
+  "model": "openai/glm-5.2",
+  "answer": "resolved: True\n\n## Summary\nPython 2 pickles a Float's mpf tuple with the hexadecimal mantissa string carrying a trailing 'L' (e.g. '1L'), the old-style long-int suffix. When Python 3 unpickles such a Float, sympy/core/numbers.py Float.__new__ calls long(num[1], 16) on that string, and int(..., 16) rejects the 'L' suffix, raising ValueError: invalid literal for int() with base 16: '1L'. Fix: in the tuple/hex-string branch of Float.__new__, strip a trailing 'L' from num[1] before converting it with long(..., 16), so both Python 2 ('1L') and Python 3 ('1') pickled mantissas unpickle correctly.\n\n## Files changed\n- sympy/core/numbers.py\n\n## Verified with\npython bin/test sympy/core/tests/test_numbers.py\n\n## Evidence\nbin/test sympy/core/tests/test_numbers.py -> '== tests finished: 82 passed, 1 skipped, 1 expected to fail, in 0.49 seconds ===' (exit 0). Also confirmed the failing path now works: constructing Float from a Python-2-style hex tuple Float.__new__(Float, (0, '1L', 0, 53)) returns 1.00000 instead of raising ValueError.",
+  "steps": 1,
+  "llm_calls": 21,
+  "prompt_tokens": 174765,
+  "completion_tokens": 2389,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "sympy/core/numbers.py",
+        "start_line": "1000",
+        "end_line": "1080"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "file_path": "sympy/core/numbers.py"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "long = int",
+        "path": "sympy/core/numbers.py",
+        "file_glob": "*"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "long = int|from .* import .*long|^long",
+        "path": "sympy/core",
+        "file_glob": "*.py"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "pattern": "from.*compatibility.*import.*long|compatibility import.*long|long,",
+        "path": "sympy/core/numbers.py",
+        "file_glob": "*"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "file_path": "sympy/core/numbers.py",
+        "start_line": "1038",
+        "end_line": "1052"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python -c \"from sympy.core.numbers import Float; f = Float.__new__(Float, (0, '1L', 0, 53)); print(f)\""
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python -c \"from sympy.core.numbers import Float; f = Float.__new__(Float, (0, '1L', 0, 53)); print(f)\""
+      }
+    },
+    {
+      "name": "write_file",
+      "args": {
+        "file_path": "test_pickle_float.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python test_pickle_float.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python -c \"import os; os.remove('test_pickle_float.py')\""
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python -c \"import pickle, sympy; x = sympy.symbols('x'); s = pickle.dumps(x + sympy.Float(1.0)); print(pickle.loads(s))\""
+      }
+    },
+    {
+      "name": "write_file",
+      "args": {
+        "file_path": "test_roundtrip.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python test_roundtrip.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python -c \"import sys; sys.argv=['pytest']; import pytest; pytest.main(['sympy/core/tests/test_numbers.py', '-q'])\""
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python -m pytest sympy/core/tests/test_numbers.py -q"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python bin/test sympy/core/tests/test_numbers.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python bin/test sympy/core/tests/test_numbers.py sympy/functions/elementary/tests/test_misc.py"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "command": "python bin/test sympy/core/tests/test_numbers.py"
+      }
+    }
+  ],
+  "tool_call_count": 19,
+  "error": "",
+  "wall_clock_sec": 30.827
+}

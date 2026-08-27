@@ -16,7 +16,7 @@ import from sentence_transformers { CrossEncoder }
 
 """Typed application configuration; defaults mirror config/faiss_reranking.json."""
 obj AppConfig {
-    has model_name: str = "ollama_chat/glm-5.2";
+    has model_name: str = "ollama_chat/glm-5.2:cloud";
     has chunk_size: int = 800;
     has chunk_overlap: int = 100;
     has chunk_k: int = 30;

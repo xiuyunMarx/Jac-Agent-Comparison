@@ -207,9 +207,10 @@ RERANKER_MAX_SEQUENCE_LENGTH = os.getenv("RERANKER_MAX_SEQUENCE_LENGTH", 512)
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
 EMBEDDING_BATCH_SIZE = os.getenv("EMBEDDING_BATCH_SIZE", 32)
 
-# Hard-coded model for both agent roles; no env override.
-INSTANT_LLM = "ollama_chat/glm-5.2"
-POWERFUL_LLM = "ollama_chat/glm-5.2"
+# $BENCH_MODEL is the one knob every arm reads (bare id, default glm-5.2); both
+# agent roles use it. llm.py strips any provider prefix for init_chat_model.
+INSTANT_LLM = os.getenv("BENCH_MODEL", "glm-5.2")
+POWERFUL_LLM = os.getenv("BENCH_MODEL", "glm-5.2")
 
 CHECKPOINT_TABLES = ["checkpoint_blobs", "checkpoint_writes", "checkpoints"]
 

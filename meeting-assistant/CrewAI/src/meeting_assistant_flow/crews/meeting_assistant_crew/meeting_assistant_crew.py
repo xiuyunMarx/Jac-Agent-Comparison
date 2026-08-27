@@ -11,8 +11,9 @@ from meeting_assistant_flow.types import (
 
 
 def _model_name() -> str:
-    """The model, hard-coded; no env override."""
-    return "ollama_chat/glm-5.2"
+    """$BENCH_MODEL (bare id, default glm-5.2) in litellm's shape: openai/<id>."""
+    name = os.environ.get("BENCH_MODEL", "glm-5.2")
+    return name if "/" in name else f"openai/{name}"
 
 
 @CrewBase
@@ -26,7 +27,11 @@ class MeetingAssistantCrew:
     agents: list[BaseAgent]
     tasks: list[Task]
     # Hard-coded to the same model as byLLM (nodes.jac) and openai_sdk (nodes.py).
-    llm = LLM(model=_model_name())
+    llm = LLM(
+        model=_model_name(),
+        base_url=os.environ.get("OPENAI_BASE_URL", "https://ollama.com/v1"),
+        api_key=os.environ.get("OPENAI_API_KEY"),
+    )
 
     @agent
     def meeting_analyzer(self) -> Agent:

@@ -28,6 +28,7 @@ Fidelity target is byLLM (see README.md):
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -86,6 +87,16 @@ CLASSIFICATIONS = (
     "UPDATES",
 )
 
+
+
+# GLM 5.2 on ollama.com does not enforce response_format and often wraps JSON in
+# ```json fences; strip them so json.loads sees the object (the tool-call arms
+# get structured output through function calls and never hit this).
+_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$")
+
+
+def _json_text(text: str) -> str:
+    return _FENCE_RE.sub("", text or "").strip()
 
 def unstructured_error(value: Any, stage: str, expected: str) -> str:
     """nodes.jac's unstructured_error, verbatim: how a stage that answered in
@@ -281,7 +292,7 @@ def filter_emails(abstract: MailAbstract, owner: str) -> str:
         classifier_schema(),
     )
     try:
-        parsed = json.loads(raw)
+        parsed = json.loads(_json_text(raw))
         category = str(parsed.get("category", "")).strip().upper()
     except (ValueError, AttributeError):
         category = raw.strip().strip('"').upper()
@@ -367,7 +378,7 @@ def email_action_agent(
         use_tools=True,
     )
     try:
-        parsed = json.loads(raw)
+        parsed = json.loads(_json_text(raw))
         return ThreadAnalysis(
             thread_id=str(parsed["thread_id"]),
             summary=str(parsed["summary"]),
@@ -469,7 +480,7 @@ def email_response_writer(
         use_tools=True,
     )
     try:
-        parsed = json.loads(raw)
+        parsed = json.loads(_json_text(raw))
         return DraftReply(
             recipient=str(parsed["recipient"]),
             subject=str(parsed["subject"]),

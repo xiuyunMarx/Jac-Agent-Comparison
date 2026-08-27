@@ -1,0 +1,127 @@
+{
+  "instance_id": "scikit-learn__scikit-learn-13439",
+  "model": "openai/glm-5.2",
+  "answer": "### Plan\nFalsifiable claim: Calling `len(pipe)` on a `sklearn.pipeline.Pipeline` instance raises `TypeError` (object of type 'Pipeline' has no len()), but it should return the number of steps in the pipeline (i.e., `len(self.steps)`), so that `pipe[:len(pipe)]` works with the new slicing support.\n\nLikely source files involved (1-2):\n1. `sklearn/pipeline.py` \u2014 defines `Pipeline.__getitem__` (line 202) but lacks a `__len__` method; this is where `__len__` should be added.\n2. `sklearn/pipeline.py` \u2014 the `FeatureUnion` class in the same module may be a related reference, but the issue is specifically about `Pipeline`.\n\nRoot cause: `Pipeline` implements `__getitem__` (slicing support) but not `__len__`, so Python's `len()` protocol fails. Fix: add a `__len__` method returning `len(self.steps)`.\n\n### Explore\nRoot cause: `Pipeline` in `sklearn/pipeline.py` implements `__getitem__` (lines 202-219) for indexing/slicing support but does not implement `__len__`, so `len(pipe)` raises `TypeError: object of type 'Pipeline' has no len()`. The fix is to add a `__len__` method to the `Pipeline` class (right after `__getitem__`, ~line 219) returning the number of steps (`len(self.steps)`). Confirmed reproduction fails with the TypeError above.\n\n### Edit\nFixed the issue by adding a `__len__` method to the `Pipeline` class in `sklearn/pipeline.py`.\n\n**Root cause:** `Pipeline` implemented `__getitem__` (supporting integer and slice indexing) but not `__len__`, so `len(pipe)` raised `TypeError: object of type 'Pipeline' has no len()`, which in turn broke the `pipe[:len(pipe)]` slicing pattern.\n\n**Fix (sklearn/pipeline.py, lines 216-218):**\n```python\ndef __len__(self):\n    \"\"\"Returns the length of the Pipeline\"\"\"\n    return len(self.steps)\n```\n\n**Verification:**\n- The reproduction from the issue now works: `len(pipe)` returns `2`, and `pipe[:len(pipe)]` returns the full sub-Pipeline.\n- Existing tests pass: `python -m pytest sklearn/tests/test_pipeline.py -q` \u2192 `41 passed, 2 warnings in 0.98s`.\n\n### Verify\nAdded a `__len__` method to the `Pipeline` class in `sklearn/pipeline.py` (right after `__getitem__`, around line 217) that returns `len(self.steps)`. This resolves the issue where `len(pipe)` raised `TypeError: object of type 'Pipeline' has no len()` and enables `pipe[:len(pipe)]` slicing to work.\n\nVerification:\n- The minimal reproduction from the issue now passes: `len(pipe)` returns `2`, and `pipe[:len(pipe)]` returns the full Pipeline.\n- Existing tests: `python -m pytest sklearn/tests/test_pipeline.py -q` \u2192 \"41 passed, 2 warnings in 0.93s\". No failures.\n\nThe change is minimal (a 3-line method) and only touches library source (sklearn/pipeline.py).",
+  "steps": 4,
+  "llm_calls": 22,
+  "prompt_tokens": 70410,
+  "completion_tokens": 2309,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "grep",
+      "args": {
+        "args": "__getitem__|__len__ in sklearn/pipeline.py (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "__getitem__|__len__ in sklearn/pipeline.py (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "__getitem__ in sklearn/pipeline.py (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "getitem in sklearn (pipeline.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sklearn/pipeline.py:180-260",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "from sklearn import svm\nfrom sklearn.datasets import samples_generator\nfrom skle",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "sklearn/pipeline.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "sklearn/pipeline.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "sklearn/pipeline.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "from sklearn import svm\nfrom sklearn.datasets import samples_generator\nfrom skle",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nprint(subprocess.run(['git', 'diff'], cwd='.', capture_output=",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sklearn/pipeline.py:202-225",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run(['python', '-m', 'pytest', 'sklearn/tests/t",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run(['python', '-m', 'pytest', 'sklearn/tests/t",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest sklearn/tests/test_pipeline.py -q",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 16,
+  "error": "",
+  "wall_clock_sec": 27.744
+}

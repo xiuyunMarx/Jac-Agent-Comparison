@@ -56,8 +56,8 @@ class SessionInfo:
 
 
 def _bare_model(name: str) -> str:
-    """Drop any provider prefix: "openai/x", "openai:x" and "x" all mean x."""
-    return name.replace(":", "/").split("/")[-1]
+    """Drop the litellm provider prefix: "ollama_chat/x:tag" -> "x:tag"."""
+    return name.split("/", 1)[-1]
 
 
 class JacGPT:
@@ -65,8 +65,8 @@ class JacGPT:
         self.session_id = session_id
         self.session_info: SessionInfo = SessionInfo()
         self.rag_engine = rag_engine
-        # Hard-coded to the same model as the byLLM sibling; no env override.
-        self.model_name: str = "ollama_chat/glm-5.2"
+        # $BENCH_MODEL is the one knob every arm reads (bare id, default glm-5.2).
+        self.model_name: str = _bare_model(os.environ.get("BENCH_MODEL", "glm-5.2"))
 
         @tool(description=SEARCH_DOCS_DESCRIPTION)
         def search_docs(query: str) -> str:
@@ -75,7 +75,7 @@ class JacGPT:
         self.search_docs = search_docs
         self.router_llm = ChatOpenAI(
             model=self.model_name, temperature=0
-        ).with_structured_output(RouteDecision)
+        ).with_structured_output(RouteDecision, method="function_calling")
         self.llms: Dict[str, ChatOpenAI] = {
             name: ChatOpenAI(model=self.model_name, temperature=spec.temperature)
             for name, spec in AGENTS.items()

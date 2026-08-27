@@ -2,9 +2,18 @@ import os;
 import from jaclang.byllm.lib { Model }
 import from tools { create_trello_card, send_message_to_channel, save_tasks_to_csv }
 
-# Hard-coded identically on every side of the comparison; no env override.
+# One knob for every arm: $BENCH_MODEL is the bare model id (default glm-5.2);
+# this side is litellm-routed, so it gets the "openai/" provider prefix and the
+# OpenAI-compatible endpoint from $OPENAI_BASE_URL (ollama.com by default).
+# byLLM 0.31.1 drops config["base_url"] on the litellm path, so the endpoint is
+# handed to litellm through OPENAI_API_BASE instead.
+glob BENCH_MODEL: str = os.environ.get("BENCH_MODEL", "glm-5.2");
+glob _base_set: bool = (os.environ.setdefault(
+    "OPENAI_API_BASE", os.environ.get("OPENAI_BASE_URL", "https://ollama.com/v1")
+) is not None);
+
 def _model_name() -> str {
-    return "ollama_chat/glm-5.2";
+    return BENCH_MODEL if "/" in BENCH_MODEL else f"openai/{BENCH_MODEL}";
 }
 
 # ctx_window: litellm carries no context-length metadata for a locally served
@@ -12,6 +21,7 @@ def _model_name() -> str {
 # short histories. OpenAI models report their own, so stating it costs nothing.
 glob llm = Model(
     model_name=_model_name(),
+    api_key=os.environ.get("OPENAI_API_KEY", ""),
     ctx_window=int(os.environ.get("BENCH_CTX", "0"))
 );
 

@@ -39,7 +39,7 @@ from sentence_transformers import CrossEncoder, SentenceTransformer
 @dataclass
 class Config:
     """Defaults mirror config/faiss_reranking.json, as on the other sides."""
-    model_name: str = "ollama_chat/glm-5.2"
+    model_name: str = "ollama_chat/glm-5.2:cloud"
     chunk_size: int = 800
     chunk_overlap: int = 100
     chunk_k: int = 30  # approximate top-k search param

@@ -330,7 +330,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--run-id", default=time.strftime("%Y%m%d-%H%M%S"),
                    help="names the output directory and the containers")
     p.add_argument("--output-dir", type=Path, default=BRIDGE_DIR / "results")
-    p.add_argument("--model", default="ollama_chat/glm-5.2",
+    p.add_argument("--model", default="ollama_chat/glm-5.2:cloud",
                    help="pin it identically across the frameworks, "
                         "or you are measuring the model")
     p.add_argument("--model-name", default="",

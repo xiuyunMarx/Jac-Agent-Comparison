@@ -3,7 +3,7 @@
 
 Both implementations answer against the same Postgres/PGVector database and
 the same questions file, and both emit result records in the shared schema
-(YT-Navigator/benchmark/schemas.py), so their outputs are scored side by side
+(langchain/benchmark/schemas.py), so their outputs are scored side by side
 with the shared evaluator.
 
     python run.py                          # both implementations, then score
@@ -13,7 +13,7 @@ with the shared evaluator.
 
 Prerequisites (see README.md): the database loaded with a snapshot, a
 questions file, OPENAI_API_KEY, and per-implementation dependencies. Database
-credentials are read from YT-Navigator/.env (override with --env-file).
+credentials are read from langchain/.env (override with --env-file).
 """
 
 import argparse
@@ -25,7 +25,7 @@ from pathlib import Path
 
 EVAL_DIR = Path(__file__).resolve().parent
 ROOT = EVAL_DIR.parent                      # YTNavigator/
-LANGGRAPH_DIR = ROOT / "YT-Navigator"
+LANGGRAPH_DIR = ROOT / "langchain"
 BYLLM_DIR = ROOT / "byLLM"
 OPENAI_SDK_DIR = ROOT / "openai_sdk"
 EVALUATE = LANGGRAPH_DIR / "benchmark" / "evaluate.py"
@@ -79,19 +79,19 @@ def main():
     parser.add_argument(
         "--env-file",
         default=str(LANGGRAPH_DIR / ".env"),
-        help="Env file with POSTGRES_* / OPENAI_API_KEY (default: YT-Navigator/.env)",
+        help="Env file with POSTGRES_* / OPENAI_API_KEY (default: langchain/.env)",
     )
     parser.add_argument(
         "--langgraph-python",
         default=sys.executable,
-        help="Python interpreter with YT-Navigator's dependencies installed (default: this one)",
+        help="Python interpreter with langchain's dependencies installed (default: this one)",
     )
     parser.add_argument("--timeout", type=int, default=3600, help="Per-implementation timeout in seconds")
     parser.add_argument("--no-score", action="store_true", help="Skip the scoring step")
     parser.add_argument("--judge", action="store_true", help="Add LLM-as-judge scoring (needs reference answers)")
-    parser.add_argument("--judge-model", default="ollama_chat/glm-5.2",
+    parser.add_argument("--judge-model", default="openai/" + os.environ.get("BENCH_MODEL", "glm-5.2"),
                         help="litellm model name for the judge "
-                             "(default: ollama_chat/glm-5.2)")
+                             "(default: ollama_chat/glm-5.2:cloud)")
     args = parser.parse_args()
 
     questions = Path(args.questions)

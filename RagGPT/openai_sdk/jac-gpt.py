@@ -25,6 +25,7 @@ Run `python jac-gpt.py` for a terminal chat.
 
 import importlib.util
 import json
+import re
 import os
 import secrets
 import sys
@@ -83,9 +84,19 @@ class SessionInfo:
 
 
 def _bare_model(name: str) -> str:
-    """Drop any provider prefix: "openai/x", "openai:x" and "x" all mean x."""
-    return name.replace(":", "/").split("/")[-1]
+    """Drop the litellm provider prefix: "ollama_chat/x:tag" -> "x:tag"."""
+    return name.split("/", 1)[-1]
 
+
+
+# GLM 5.2 on ollama.com does not enforce response_format and often wraps JSON in
+# ```json fences; strip them so json.loads sees the object (the tool-call arms
+# get structured output through function calls and never hit this).
+_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$")
+
+
+def _json_text(text: str) -> str:
+    return _FENCE_RE.sub("", text or "").strip()
 
 class JacGPT:
     def __init__(self, session_id: str, rag_engine, client: OpenAI):
@@ -93,8 +104,8 @@ class JacGPT:
         self.session_info = SessionInfo()
         self.rag_engine = rag_engine
         self.client = client
-        # Hard-coded to the same model as the byLLM sibling; no env override.
-        self.model_name: str = "ollama_chat/glm-5.2"
+        # $BENCH_MODEL is the one knob every arm reads (bare id, default glm-5.2).
+        self.model_name: str = _bare_model(os.environ.get("BENCH_MODEL", "glm-5.2"))
 
     # -- the router: one completion constrained to the five agent names --------
 
@@ -110,7 +121,7 @@ class JacGPT:
                           {"role": "user", "content": query}],
                 response_format=ROUTER_RESPONSE_FORMAT,
             )
-            agent = json.loads(response.choices[0].message.content)["agent"]
+            agent = json.loads(_json_text(response.choices[0].message.content))["agent"]
             if agent not in AGENTS:
                 raise ValueError(f"router picked unknown agent {agent!r}")
         except Exception as e:

@@ -12,7 +12,7 @@ Configuration (env):
     YTNAV_OUTPUT     results JSONL   (default results_byllm.jsonl)
     YTNAV_CHANNEL    channel id      (default: the only channel in the database)
     POSTGRES_*       database connection (same names as YT-Navigator's .env)
-    Model: ollama_chat/glm-5.2, hard-coded in nodes.jac (no env override).
+    Model: ollama_chat/glm-5.2:cloud, hard-coded in nodes.jac (no env override).
 
 Run:  jac run main.jac   (from this directory)
 """

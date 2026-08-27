@@ -1,8 +1,82 @@
 Name,Description
-queue alerts,"Ines: Sixteen minutes blind. Okay, that's finding number one. Let's make it concrete: alerting on queue depth for the payment workers, warning at 1,000 jobs, page at 5,000. Kofi, yours? Kofi: Yeah, I'll take it. Honestly the whole worker fleet should have that alert, not just payments, same thresholds everywhere. I'll do it in one pass."
-retry fix with dead-letter queue,"Kofi: Right, root cause. The retry logic in the payment worker. When the card processor returned 503s, our workers retried immediately, no backoff, no jitter. Every failure multiplied the load. Classic retry storm, we DDoSed ourselves. Marta: I read that code yesterday. The retry loop is in payment_worker.py, the _process_with_retry function. It retries five times back to back, and, this is the good part, on the fifth failure it re-enqueues the job at the front of the queue. Ines: The front? That's incredible. Okay, that's the second action and it's the big one: fix the retry logic. Exponential backoff with jitter, cap the retries, and failed jobs go to a dead-letter queue at the back, not the front of the main one. Marta, you've clearly already got context, can you own it? Marta: Yep. I'll add tests that simulate processor 503s too, because clearly nothing covered this."
-connection pool split,"Kofi: While we're in there, the DB connection pool made everything worse. Once workers piled up, they exhausted the pool, which is still at the default of 20 connections, and that's when the API started failing too. That's the coupling. Ines: So two things there? Bump the pool, and stop the workers from sharing the API's pool? Kofi: Honestly, bumping it to 100 gets us through the next incident, and splitting worker and API pools is the real fix. I'd do both in one change, it's the same config file. I'll take that one."
-runbook refresh with Priya,"Ines: Fine, one task, both parts, Kofi. Now, the human side. Priya was on call. She did fine, but she told me the runbook for payment incidents still references the old Kibana, which we turned off in March. She spent ten minutes on dead links. Marta: Oh no. Ines: Yeah. So: update the payment incident runbook. New logging links, the queue drain procedure Kofi improvised on Tuesday, actually written down, and while we're at it, verify the escalation phone numbers are current, apparently one of them still goes to someone who left last year. Kofi: Priya said she'd be up for doing that herself, she's got the freshest scars. Let's assign it to her, I'll confirm with her after this."
-status page automation,"Ines: Good. Next: status page. We didn't update it until minute 30, and customers noticed. Support got fifty tickets in that window, most of them just asking if we knew. Marta: The status page update is manual, that's why. Someone has to remember, log in, click through three screens. We should automate it: when the checkout error rate alert fires, the status page flips to investigating automatically, with a template message. Ines: Take that one too? It's small, the status provider has an API. Marta: Sure, I'll wire it to the checkout alert first, we can extend it to other alerts later."
-failover game day plan,"Kofi: Can I raise one more? This incident would've been a non-event if failover worked. We have a secondary payment processor configured, in theory. It's never been exercised. Nobody wanted to be the person who tests it in production. Ines: So let's be those people, deliberately. A game day: controlled chaos test of the payment processor failover in staging first, then production during a low-traffic window, with a rollback plan. That's bigger, let's say Kofi leads it and drafts the plan, and we review the plan in two weeks before anything gets executed. Draft first, no execution until the review. Kofi: Deal. I'll write it up."
-Redis upgrade,"Ines: Ha, add it to the backlog for 2030. Okay, last thing. Redis. Kofi, you mentioned in the channel that we're on an EOL version? Kofi: Yeah, 6.0, security fixes ended in June. Not related to the outage, but since we're listing infra debt: we should upgrade to 7.2. It's a minor migration, there's a config rename and the persistence defaults changed, so it needs a proper change window, not a casual Friday deploy. Ines: Agreed, that's a real one, Kofi owns it, schedule it with the infra calendar."
+Alerting on queue depth for the worker fleet,"Implement queue depth alerts for the entire worker fleet, not just payments. Thresholds: warning at 1,000 jobs, page at 5,000. Owner: Kofi.
+
+Steps:
+- Review current alerting setup for worker queues.
+- Add warning alert at 1,000 jobs queued.
+- Add paging alert at 5,000 jobs queued.
+- Apply same thresholds to all workers in one pass.
+
+Acceptance Criteria:
+- Warning alert fires at queue depth of 1,000 jobs.
+- Paging alert fires at queue depth of 5,000 jobs.
+- Alerts are configured for all worker queues in the fleet, not just payments."
+Fix retry logic in payment worker with dead-letter queue,"The retry logic in payment_worker.py (_process_with_retry) retries five times back to back with no backoff or jitter, and on the fifth failure re-enqueues the job at the front of the queue, causing a retry storm. Fix this logic. Owner: Marta.
+
+Steps:
+- Implement exponential backoff with jitter in the retry loop.
+- Cap the number of retries.
+- On final failure, send jobs to a dead-letter queue at the back, not the front of the main queue.
+- Add tests that simulate processor 503 responses.
+
+Acceptance Criteria:
+- Retry logic uses exponential backoff with jitter.
+- Retries are capped at a defined maximum.
+- Failed jobs are routed to a dead-letter queue rather than re-enqueued to the front of the main queue.
+- Tests exist simulating processor 503s and pass."
+Split DB connection pools for workers and API and bump pool size,"The worker fleet exhausted the DB connection pool (default of 20), causing the API to fail as well. Both fixes are in the same config file. Owner: Kofi.
+
+Steps:
+- Bump the connection pool size to 100.
+- Split the worker pool and the API pool so they do not share connections.
+- Apply both changes in one config change.
+
+Acceptance Criteria:
+- DB connection pool size is set to 100.
+- Workers and API have separate connection pools.
+- Config change is applied and verified."
+Update payment incident runbook,"The payment incident runbook references the old Kibana (turned off in March), causing Priya to waste ten minutes on dead links during the incident. The queue drain procedure Kofi improvised on Tuesday is not documented, and one escalation phone number still routes to someone who left last year. Owner: Priya (Kofi to confirm assignment).
+
+Steps:
+- Replace old Kibana logging links with current logging links.
+- Document the queue drain procedure used during Tuesday's incident.
+- Verify and update all escalation phone numbers, removing the number belonging to the former employee.
+
+Acceptance Criteria:
+- Runbook contains current, working logging links.
+- Queue drain procedure is documented in the runbook.
+- All escalation phone numbers are current and correct."
+Automate status page updates on checkout error rate alert,"The status page was not updated until minute 30 of the incident, resulting in 50 support tickets from customers. The status page update is manual and should be automated. Owner: Marta.
+
+Steps:
+- Use the status provider's API to automate status page updates.
+- Wire the automation to the checkout error rate alert.
+- On alert fire, automatically flip the status page to 'investigating' with a template message.
+- Design so it can be extended to other alerts later.
+
+Acceptance Criteria:
+- When the checkout error rate alert fires, the status page automatically updates to 'investigating'.
+- A template message is posted automatically.
+- Implementation is extensible to other alerts in the future."
+Draft payment processor failover game day plan,"A secondary payment processor is configured in theory but has never been exercised. Draft a controlled chaos game day plan to test payment processor failover in staging first, then production during a low-traffic window, with a rollback plan. No execution until the plan is reviewed in two weeks. Owner: Kofi.
+
+Steps:
+- Draft a detailed game day plan including staging and production phases.
+- Include a rollback plan.
+- Schedule a review of the plan in two weeks before any execution.
+
+Acceptance Criteria:
+- A written game day plan exists covering staging and production failover testing.
+- A rollback plan is included.
+- The plan is reviewed by the team before any execution occurs."
+Upgrade Redis from EOL version 6.0 to 7.2,"Redis is on version 6.0, which reached end of life for security fixes in June. Upgrade to 7.2. This is a minor migration involving a config rename and changed persistence defaults, requiring a proper change window. Owner: Kofi.
+
+Steps:
+- Review migration notes for Redis 7.2, including the config rename and persistence default changes.
+- Schedule a proper change window with the infra calendar (not a casual Friday deploy).
+- Perform the upgrade during the scheduled window.
+
+Acceptance Criteria:
+- Redis is upgraded to version 7.2.
+- Config changes (rename and persistence defaults) are applied and verified.
+- Upgrade is performed during a scheduled change window."

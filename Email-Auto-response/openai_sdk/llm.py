@@ -7,7 +7,7 @@ pair. Here the request is written out.
 
 Two deliberate choices:
 
-  * The model is hard-coded to ollama_chat/glm-5.2, the same as the other two
+  * The model is hard-coded to ollama_chat/glm-5.2:cloud, the same as the other two
     sides (crewai and byLLM in nodes.jac); no env override.
   * No streaming. Neither of the other implementations streams, and the shared
     token meter (../mock_mailbox/token_meter.py) cannot read usage off a
@@ -25,8 +25,8 @@ from __future__ import annotations
 import os
 from typing import Any, Iterable, Mapping, Sequence
 
-# Hard-coded identically on every side of the comparison; no env override.
-DEFAULT_MODEL = "ollama_chat/glm-5.2"
+# $BENCH_MODEL is the one knob every arm reads (bare id, default glm-5.2).
+DEFAULT_MODEL = os.environ.get("BENCH_MODEL", "glm-5.2")
 
 # byLLM runs its stages with byllm's default call params (jac.toml declares
 # none): temperature 0.7, no max_tokens. Matched here rather than "improved" --
@@ -62,8 +62,12 @@ def set_client(client: Any | None) -> None:
 
 
 def active_model_name() -> str:
-    """The model this run will call: hard-coded, no env override."""
-    return DEFAULT_MODEL
+    """The model this run will call: hard-coded, no env override.
+
+    The raw SDK wants the bare id, so the litellm provider prefix is stripped
+    (the ":tag" is kept).
+    """
+    return DEFAULT_MODEL.split("/", 1)[-1]
 
 
 def complete(

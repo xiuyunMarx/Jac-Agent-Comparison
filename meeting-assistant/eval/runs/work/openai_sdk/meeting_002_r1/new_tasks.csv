@@ -1,9 +1,50 @@
 Name,Description
-Fix Android 14 photo upload NullPointerException crash,"Owner: Marcus. Fix top Android crasher ~4% of Android sessions. Repro steps: start a photo upload, background the app before it finishes, return to app. Root cause is NullPointerException in media picker callback when app is backgrounded mid-upload. Fix and land by Wednesday Aug 13 to allow QA time before mobile release on Aug 20. Acceptance criteria: crash no longer reproduces on Android 14, crash reports for this stack trace drop to zero in test, and fix is merged to release branch."
-Verify Android 14 crash fix on test devices,"Owner: Sam. Once Marcus lands the photo upload crash fix, confirm the fix on Android 14 test devices. Add verification to regression run for the sprint. Acceptance criteria: manual regression pass on Android 14 devices with background-mid-upload scenario succeeds with no crash, and test result is documented."
-Implement backend notes sync API for offline mode,"Owner: Elena. Build sync endpoint for notes list offline support promised to enterprise customers. Client sends last-synced timestamp, server returns delta of created, updated, and deleted notes. Conflict resolution is last-write-wins for this sprint, no merge UI. Must be in code review before Elena is out Aug 17-18. Acceptance criteria: endpoint returns correct delta, handles timestamp input, respects last-write-wins, and passes unit/integration tests."
-Implement client offline notes cache and sync,"Owner: Marcus. Client side for offline notes: local cache in Room, queue writes while offline, replay writes when connectivity returns. Acceptance criteria as agreed: app can be opened in airplane mode, notes list is visible, notes can be edited offline, and all changes reconcile with server on reconnect with no data loss. Document these acceptance criteria in the ticket."
-Migrate CI pipelines from Jenkins to GitHub Actions,"Owner: Sam. Finish migration started with proof of concept build job. Complete test and release pipelines, keep nightly build schedule. Run Jenkins and GitHub Actions in parallel for one week before decommissioning Jenkins. Keep Jenkins alive until parallel week is clean. Acceptance criteria: build, test, release and nightly jobs run successfully in GitHub Actions, parallel runs match Jenkins results for one week with no failures, and Jenkins can be safely turned off after sign-off."
-Add per-user rate limiting to search endpoint,"Owner: Elena. Mitigate incident where search endpoint was hammered by misbehaving script. Implement per-user rate limiting: 100 requests per minute per user, return HTTP 429 with Retry-After header when limit exceeded. Add metrics counter to track users hitting the limit. Acceptance criteria: load test confirms 429 response after 100 req/min per user with Retry-After header present, and metrics are visible in monitoring."
-Update GDPR consent screen with opt-in toggles,"Owner: Marcus. Legal flagged consent screen non-compliant for EU launch. Update privacy policy/consent screen to use opt-in consent with separate toggles for analytics and marketing, no single pre-checked box. Get final copy from legal. Must be included in Aug 20 mobile release; launch blocker. Acceptance criteria: screen shows separate unchecked toggles for analytics and marketing, consent is only recorded after explicit opt-in, and screen passes legal review."
-Add automated regression tests for payments flow,"Owner: Sam. Payments flow has no automated coverage and burned last release. Write regression tests for purchase, restore, cancellation, and receipt validation path. Tests must run in CI as part of new GitHub Actions pipeline. Acceptance criteria: tests pass in CI, cover all four flows, and are included in the release pipeline gate for Aug 20."
+Fix Android 14 photo upload NullPointerException crash,"Fix the top Android crasher affecting ~4% of Android sessions. Issue is a NullPointerException in the media picker callback triggered when the user backgrounds the app mid-upload.
+
+Steps to reproduce: 1) Start a photo upload. 2) Background the app before the upload finishes. 3) Return to the app.
+
+Owner: Marcus to implement the fix. Sam to verify on Android 14 test devices and add it to the regression run.
+
+Acceptance criteria: Fix landed and verified by Wednesday (before the sprint's August 20 release) so QA has time to confirm. No crash on backgrounding/foregrounding during photo upload on Android 14."
+Build backend sync API for offline notes list,"Implement the backend sync endpoint for offline notes support promised to enterprise customers last quarter.
+
+Requirements: Client sends its last-synced timestamp; server returns a delta of created, updated, and deleted notes. Conflict resolution policy is last-write-wins for this pass (no merge UI).
+
+Owner: Elena.
+
+Acceptance criteria: Endpoint returns correct deltas based on the provided last-synced timestamp. Must be in code review before Elena's OOO days (August 17-18)."
+Implement client-side offline mode for notes list,"Implement the mobile client side of offline notes support.
+
+Requirements: Local cache in Room; queue writes while offline; replay queued writes when connectivity returns. Conflict resolution is last-write-wins (no merge UI).
+
+Owner: Marcus.
+
+Acceptance criteria: Write the acceptance criteria into the ticket. User can open the app in airplane mode, view notes, edit them, and all changes reconcile with no data loss when back online."
+Migrate CI pipelines from Jenkins to GitHub Actions,"Migrate build, test, and release pipelines from Jenkins to GitHub Actions. A proof of concept for the build job already exists.
+
+Scope this sprint: Finish test and release pipelines, keep the nightly build schedule, run both Jenkins and GitHub Actions in parallel for one week, then turn Jenkins off only if the parallel week is clean.
+
+Owner: Sam.
+
+Acceptance criteria: Build, test, and release pipelines running in GitHub Actions. Nightly builds preserved. Jenkins kept alive until the parallel run week is verified clean. Payments regression tests integrated into the new pipeline."
+Add per-user rate limiting to search endpoint,"Address the search endpoint degradation incident caused by a misbehaving script by adding per-user rate limiting.
+
+Requirements: Limit of 100 requests per minute per user. Return HTTP 429 with a Retry-After header when the limit is exceeded. Add a metrics counter to identify users hitting the limit.
+
+Owner: Elena.
+
+Acceptance criteria: Requests beyond 100/min/user receive HTTP 429 with Retry-After header. Metrics counter exposes which users are being rate limited."
+Update consent screen for GDPR compliance,"Update the privacy policy/consent screen to meet GDPR requirements for the EU launch. This is a launch blocker for the August 20 release.
+
+Requirements: Obtain updated copy from legal. Rebuild the consent screen with opt-in toggles. Provide separate toggles for analytics consent and marketing consent. Nothing should be pre-checked.
+
+Owner: Marcus.
+
+Acceptance criteria: New legal-approved copy in place. Two separate opt-in toggles (analytics, marketing), neither pre-checked. Must ship in the August 20 mobile release."
+Write automated regression tests for payments flow,"Add automated test coverage for the payments flow, which currently has none and caused issues in the last release.
+
+Coverage required: purchase, restore, cancellation, and the receipt validation path.
+
+Owner: Sam.
+
+Acceptance criteria: Regression tests for all four paths written and running in CI as part of the new GitHub Actions pipeline."

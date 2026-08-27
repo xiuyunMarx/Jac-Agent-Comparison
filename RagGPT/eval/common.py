@@ -54,7 +54,7 @@ PROXY_UPSTREAM = os.environ.get("PROXY_UPSTREAM", "https://api.openai.com").rstr
 SYSTEMS = {
     "langgraph": {"kind": "python", "dir": CODER_DIR / "langgraph"},
     "jac": {"kind": "jac", "dir": CODER_DIR / "Jac-Rag-GPT", "port": 8501},
-    "jac-byllm-router": {"kind": "jac", "dir": CODER_DIR / "Jac-Rag-GPT-ByllmRouter", "port": 8502},
+    # "jac-byllm-router" (Jac-Rag-GPT-ByllmRouter) was removed from the tree in 1a6232f.
     "openai-sdk": {"kind": "python", "dir": CODER_DIR / "openai_sdk"},
 }
 
@@ -62,8 +62,9 @@ AGENTS = ["RagChat", "CodingChat", "DebuggerChat", "QAChat", "OffTopicChat"]
 
 CATEGORIES = ["rag_qa", "coding", "debugging", "small_talk", "off_topic", "multi_turn"]
 
-# Synthesis + judging model. Hard-coded; no env override.
-JUDGE_MODEL = "ollama_chat/glm-5.2"
+# Synthesis + judging model: $EVAL_JUDGE_MODEL, else the same $BENCH_MODEL the
+# arms use (bare id -- called through the raw OpenAI SDK against $OPENAI_BASE_URL).
+JUDGE_MODEL = os.environ.get("EVAL_JUDGE_MODEL") or os.environ.get("BENCH_MODEL", "glm-5.2")
 
 
 def setup_env() -> None:

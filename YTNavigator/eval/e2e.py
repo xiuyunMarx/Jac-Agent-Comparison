@@ -34,7 +34,7 @@ from pathlib import Path
 
 EVAL_DIR = Path(__file__).resolve().parent
 ROOT = EVAL_DIR.parent                      # YTNavigator/
-LANGGRAPH_DIR = ROOT / "YT-Navigator"
+LANGGRAPH_DIR = ROOT / "langchain"
 OPENAI_SDK_DIR = ROOT / "openai_sdk"
 BYLLM_DIR = ROOT / "byLLM"
 DATASETS_DIR = ROOT / "datasets"
@@ -280,15 +280,15 @@ def main():
                              "'all' adds the no-framework openai_sdk baseline")
     parser.add_argument("--questions", default=str(DATASETS_DIR / "questions.jsonl"))
     parser.add_argument("--langgraph-python", default=sys.executable,
-                        help="Interpreter with YT-Navigator's deps (default: this one)")
+                        help="Interpreter with langchain's deps (default: this one)")
     parser.add_argument("--replace-data", action="store_true", help="Rebuild the dataset even if already loaded")
     parser.add_argument("--fake-embeddings", action="store_true",
                         help="Pipeline smoke without torch - retrieval quality meaningless")
     parser.add_argument("--smoke", action="store_true", help="Stop after the retrieval sanity check (no LLM calls)")
     parser.add_argument("--judge", action="store_true", help="Add LLM-as-judge scoring")
-    parser.add_argument("--judge-model", default="ollama_chat/glm-5.2",
+    parser.add_argument("--judge-model", default="openai/" + os.environ.get("BENCH_MODEL", "glm-5.2"),
                         help="litellm model name for the judge "
-                             "(default: ollama_chat/glm-5.2)")
+                             "(default: ollama_chat/glm-5.2:cloud)")
     args = parser.parse_args()
 
     # ---- Stage 1: prerequisites -------------------------------------------
@@ -309,7 +309,7 @@ def main():
     if not args.smoke:
         key = os.environ.get("OPENAI_API_KEY") or load_env_file(LANGGRAPH_DIR / ".env").get("OPENAI_API_KEY")
         if not key:
-            problems.append("OPENAI_API_KEY not set (env or YT-Navigator/.env) - required for agent runs "
+            problems.append("OPENAI_API_KEY not set (env or langchain/.env) - required for agent runs "
                             "(use --smoke to validate everything up to the LLM calls without a key)")
         else:
             os.environ["OPENAI_API_KEY"] = key

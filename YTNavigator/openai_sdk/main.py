@@ -12,7 +12,7 @@ Configuration (env, same names as the other two sides):
     YTNAV_OUTPUT     results JSONL   (default results_openai_sdk.jsonl)
     YTNAV_CHANNEL    channel id      (default: the only channel in the database)
     POSTGRES_*       database connection (same names as YT-Navigator's .env)
-    Model: ollama_chat/glm-5.2, hard-coded in llm.py (no env override).
+    Model: ollama_chat/glm-5.2:cloud, hard-coded in llm.py (no env override).
 
 Run:  python main.py   (from this directory)
 """

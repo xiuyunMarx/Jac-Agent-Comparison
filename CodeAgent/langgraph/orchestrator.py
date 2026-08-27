@@ -47,7 +47,10 @@ from tools.explore import ExploreCodeBase
 from tools.plan import PlanTasks
 from tools.verify import VerifyCode
 
-DEFAULT_MODEL = "ollama_chat/glm-5.2"
+# $CODEAGENT_MODEL is the one knob the bridge sets from --model; honoured here so
+# every arm can be pinned to the same model id. The ":cloud" default assumes a
+# signed-in local ollama daemon; ollama.com itself serves the bare "glm-5.2".
+DEFAULT_MODEL = os.environ.get("CODEAGENT_MODEL") or "ollama_chat/glm-5.2:cloud"
 
 # The only two tools that change the workspace. Every other call, however many
 # of them a phase makes, leaves the tree exactly as it was found.
@@ -109,6 +112,8 @@ def build_model() -> BaseChatModel:
     # when explicitly asked. Without it this side would report 0 tokens per call
     # and the A/B would compare a real number against nothing.
     # The model is hard-coded (DEFAULT_MODEL) on every side; no env override.
+    # ChatOpenAI puts the string on the wire as the model id, so the litellm
+    # provider prefix is stripped (the ":tag" is kept).
     #
     # Streaming is a knob rather than a constant because stream_usage puts
     # `stream_options.include_usage` on the wire, and not every
@@ -117,7 +122,7 @@ def build_model() -> BaseChatModel:
     # zero tokens for this side alone.
     stream = os.environ.get("CODEAGENT_STREAM", "1") not in ("0", "false", "no")
     return ChatOpenAI(
-        model=DEFAULT_MODEL,
+        model=DEFAULT_MODEL.split("/", 1)[-1],
         temperature=float(os.environ.get("CODEAGENT_TEMPERATURE", "1.0")),
         max_tokens=int(os.environ.get("CODEAGENT_MAX_TOKENS", "16384")),
         streaming=stream,

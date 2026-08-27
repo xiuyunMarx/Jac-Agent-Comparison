@@ -19,7 +19,17 @@ import os;
 import from jaclang.byllm.lib { Model }
 import from tools { similarity_videos_search, execute_query }
 
-glob llm = Model(model_name = "ollama_chat/glm-5.2");
+# $BENCH_MODEL (bare id, default glm-5.2) in litellm's shape, on the OpenAI-compatible
+# endpoint from $OPENAI_BASE_URL. byLLM 0.31.1 drops config["base_url"] on the litellm
+# path, so the endpoint reaches litellm through OPENAI_API_BASE instead.
+glob BENCH_MODEL: str = os.environ.get("BENCH_MODEL", "glm-5.2");
+glob _base_set: bool = (os.environ.setdefault(
+    "OPENAI_API_BASE", os.environ.get("OPENAI_BASE_URL", "https://ollama.com/v1")
+) is not None);
+glob llm = Model(
+    model_name=(BENCH_MODEL if "/" in BENCH_MODEL else f"openai/{BENCH_MODEL}"),
+    api_key=os.environ.get("OPENAI_API_KEY", "")
+);
 
 glob STATIC_REPLY: str = "I'm sorry, I can't answer, please try again with a different question.";
 

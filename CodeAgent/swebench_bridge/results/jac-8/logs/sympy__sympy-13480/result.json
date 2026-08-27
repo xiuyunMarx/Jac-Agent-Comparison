@@ -1,0 +1,113 @@
+{
+  "instance_id": "sympy__sympy-13480",
+  "model": "openai/glm-5.2",
+  "answer": "### Plan\nFalsifiable claim: `coth(log(tan(x))).subs(x, 2)` raises `NameError: name 'cotm' is not defined` instead of returning a value. Root cause is in `sympy/functions/elementary/hyperbolic.py`, in the `coth` class `eval` method's `arg.is_Add` branch: the code computes `cothm = coth(m)` but then checks `if cotm is S.ComplexInfinity:` referencing the undefined name `cotm` (missing the `h`). It should be `cothm`. Only one source file is involved: `sympy/functions/elementary/hyperbolic.py` (lines ~587-591).\n\n### Explore\nLocated the bug in `sympy/functions/elementary/hyperbolic.py`, in the `coth.eval` static method, lines 587-592:\n\n```python\n            if arg.is_Add:\n                x, m = _peeloff_ipi(arg)\n                if m:\n                    cothm = coth(m)\n                    if cotm is S.ComplexInfinity:\n                        return coth(x)\n                    else: # cothm == 0\n                        return tanh(x)\n```\n\nThe variable `cothm` is assigned on line 589 but the condition on line 590 references the undefined name `cotm` (a typo \u2014 missing the `h`). This causes `NameError: name 'cotm' is not defined` when the `arg.is_Add` branch is hit with a non-zero `m` from `_peeloff_ipi`.\n\nReproduction confirmed to fail:\n```\n>>> e = coth(log(tan(x)))\n>>> e.subs(x, 2)\nNameError: name 'cotm' is not defined\n```\n\nFix: change `if cotm is S.ComplexInfinity:` to `if cothm is S.ComplexInfinity:` on line 590.\n\n### Edit\nFixed a typo in sympy/functions/elementary/hyperbolic.py in the coth.eval method (the arg.is_Add branch). The code computed `cothm = coth(m)` but then checked the undefined name `cotm` in `if cotm is S.ComplexInfinity:`, raising NameError for substitutions yielding an Add with an I*pi multiple (e.g. coth(log(tan(x))).subs(x, 2)). Changed `cotm` to `cothm` so the check matches the computed variable.\n\nVerification:\n- Reproduction coth(log(tan(x))).subs(x, 2/3/5) now returns coth(log(-tan(n))) instead of raising NameError.\n- sympy.test('sympy/functions/elementary/tests/test_hyperbolic.py') -> 45 passed, 0 failed.\n\nChange is minimal (one identifier) in library source only; no tests modified.\n\n### Verify\n## Summary\n\n**Root cause:** In `sympy/functions/elementary/hyperbolic.py`, inside `coth.eval`'s `arg.is_Add` branch, the code computed `cothm = coth(m)` but then referenced an undefined name `cotm` in the comparison `if cotm is S.ComplexInfinity:`. This raised `NameError: name 'cotm' is not defined` whenever the substitution produced an `Add` whose `_peeloff_ipi` returned a non-zero `m` (which happened for many integral values like 2, 3, 5, ...).\n\n**Fix:** Changed the typo `cotm` to the correct local variable `cothm` on line 589:\n```python\ncothm = coth(m)\nif cothm is S.ComplexInfinity:   # was: if cotm is S.ComplexInfinity\n    return coth(x)\nelse: # cothm == 0\n    return tanh(x)\n```\n\n**Reproduction (before):** `coth(log(tan(x))).subs(x, 2)` \u2192 `NameError: name 'cotm' is not defined`.\n**Reproduction (after):** `coth(log(tan(x))).subs(x, 2)` \u2192 `coth(log(-tan(2)))` (no error).\n\n**Test results:**\n- `sympy/functions/elementary/tests/test_hyperbolic.py`: 45 passed, 0 failed.\n- Combined with `test_trigonometric.py`: 105 passed, 2 skipped, 1 expected to fail (the `xfail`/`w` markers are pre-existing, unrelated to this change).\n\nNo test files were modified; the change is a single-character-name correction in library source.",
+  "steps": 4,
+  "llm_calls": 20,
+  "prompt_tokens": 81639,
+  "completion_tokens": 2575,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sympy/functions/elementary/hyperbolic.py:560-620",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sympy/functions/elementary/hyperbolic.py:582-595",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "from sympy import *\nx = Symbol('x')\ne = coth(log(tan(x)))\nprint(e.subs(x, 2))",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "sympy/functions/elementary/hyperbolic.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "from sympy import *\nx = Symbol('x')\ne = coth(log(tan(x)))\nprint(e.subs(x, 2))\npr",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nprint(subprocess.run([\"git\",\"diff\"], cwd=\"/testbed\", capture_o",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"git\",\"-C\",\"/testbed\",\"diff\"], capture_out",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sympy/functions/elementary/hyperbolic.py:586-593",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"python\",\"-m\",\"pytest\",\"sympy/functions/el",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"python\",\"sympy/functions/elementary/tests",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"python\",\"-c\",\"import sympy; sympy.test('s",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -c \"import sympy; sympy.test('sympy/functions/elementary/tests/test_hyperbolic.py', verbose=False)\"",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -c \"import sympy; sympy.test('sympy/functions/elementary/tests/test_hyperbolic.py', 'sympy/functions/elementary/tests/test_trigonometric.py', verbose=False)\"",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 14,
+  "error": "",
+  "wall_clock_sec": 36.805
+}

@@ -1,4 +1,4 @@
-"""Score raw eval runs: routing, jac-check compilation, and ollama_chat/glm-5.2 judging.
+"""Score raw eval runs: routing, jac-check compilation, and glm-5.2:cloud judging.
 
 Reads results/raw_runs.jsonl (last occurrence per system/item/repeat/turn wins)
 plus results/proxy_log.jsonl for token joins, writes results/judged.jsonl.

@@ -21,7 +21,10 @@ from typing import Any, Iterable, Mapping, Sequence
 from telemetry import TokenUsage
 
 # Hard-coded identically on every side of the comparison; no env override.
-DEFAULT_MODEL = "ollama_chat/glm-5.2"
+# $CODEAGENT_MODEL is the one knob the bridge sets from --model; honoured here so
+# every arm can be pinned to the same model id. The ":cloud" default assumes a
+# signed-in local ollama daemon; ollama.com itself serves the bare "glm-5.2".
+DEFAULT_MODEL = os.environ.get("CODEAGENT_MODEL") or "ollama_chat/glm-5.2:cloud"
 # byLLM's [byllm.call_params], and gpt-5-shaped throughout.
 #
 # temperature 1: gpt-5 rejects every other value ("Unsupported value:
@@ -84,7 +87,9 @@ def active_model_name() -> str:
     client exists -- the SWE-bench shim asks for it while reporting a failed run,
     where constructing a provider would raise and lose the report.
     """
-    return _model or DEFAULT_MODEL
+    # The raw SDK wants the bare id: the litellm provider prefix is stripped,
+    # the ":tag" is kept.
+    return (_model or DEFAULT_MODEL).split("/", 1)[-1]
 
 
 def set_model(model: str | None) -> None:

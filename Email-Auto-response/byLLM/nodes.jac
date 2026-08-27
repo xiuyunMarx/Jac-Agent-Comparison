@@ -24,12 +24,19 @@ def _resolve_model() -> any {
 glob Model: any = _resolve_model();
 
 
-# Hard-coded identically on every side of the comparison; no env override.
+# $BENCH_MODEL (bare id, default glm-5.2) in litellm's shape, on the OpenAI-compatible
+# endpoint from $OPENAI_BASE_URL. byLLM 0.31.1 drops config["base_url"] on the litellm
+# path, so the endpoint reaches litellm through OPENAI_API_BASE instead.
+glob BENCH_MODEL: str = os.environ.get("BENCH_MODEL", "glm-5.2");
+glob _base_set: bool = (os.environ.setdefault(
+    "OPENAI_API_BASE", os.environ.get("OPENAI_BASE_URL", "https://ollama.com/v1")
+) is not None);
+
 def _model_name() -> str {
-    return "ollama_chat/glm-5.2";
+    return BENCH_MODEL if "/" in BENCH_MODEL else f"openai/{BENCH_MODEL}";
 }
 
-glob llm = Model(_model_name());
+glob llm = Model(model_name=_model_name(), api_key=os.environ.get("OPENAI_API_KEY", ""));
 glob MAILBOX: MailBox | None = None;
 
 

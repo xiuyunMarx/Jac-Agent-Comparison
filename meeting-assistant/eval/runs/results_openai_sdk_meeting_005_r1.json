@@ -7,39 +7,39 @@
     "/home/xiaoyu/miniconda3/envs/jaseci/bin/python",
     "/home/xiaoyu/JacAgentComparison/meeting-assistant/openai_sdk/main.py"
   ],
-  "wall_time_s": 57.9,
+  "wall_time_s": 12.112,
   "exit_code": 0,
   "success": true,
   "output_error": null,
   "outputs": {
     "trello": [
       {
-        "name": "Implement queue depth alerting for worker fleet",
-        "desc": "Create monitoring alerts for worker queue depth across all worker fleets, not just payments. Set warning threshold at 1,000 jobs and page threshold at 5,000 jobs, same thresholds for all fleets. Ensure alerts fire within ~1 minute of breach and route to on-call. Acceptance criteria: alerts exist in monitoring system for each worker fleet, thresholds are 1,000 warning / 5,000 page, test alert triggers correctly, and on-call receives notification. Owner: Kofi."
+        "name": "Add queue depth alerting across entire worker fleet",
+        "desc": "Implement alerting on queue depth for all worker queues, not just payments. Thresholds: warning at 1,000 jobs, page at 5,000 jobs. Apply the same thresholds consistently across the entire worker fleet. Owner: Kofi."
       },
       {
-        "name": "Fix payment worker retry storm and dead-letter queue",
-        "desc": "Update payment_worker.py _process_with_retry function to prevent retry storm. Implement exponential backoff with jitter instead of immediate retries, cap total retries, and on final failure route job to dead-letter queue at the back instead of re-enqueueing at front of main queue. Add tests that simulate card processor 503 responses to verify backoff behavior and DLQ routing. Acceptance criteria: no immediate back-to-back retries, backoff with jitter applied, failed jobs go to DLQ not front of queue, tests simulating 503s pass. Owner: Marta."
+        "name": "Fix payment worker retry logic with exponential backoff and dead-letter queue",
+        "desc": "Fix the retry logic in payment_worker.py, specifically the _process_with_retry function. Currently it retries 5 times back-to-back with no backoff or jitter, and on the fifth failure re-enqueues the job at the front of the main queue, causing retry storms. Changes required: (1) Implement exponential backoff with jitter between retries. (2) Cap the number of retries. (3) On final failure, send the job to a dead-letter queue at the back, not the front of the main queue. (4) Add tests that simulate processor 503 responses to cover the retry path. Owner: Marta."
       },
       {
-        "name": "Increase and isolate DB connection pools",
-        "desc": "Update DB connection pool configuration in one change. Increase pool size from default 20 to 100 as interim mitigation, and split worker and API connection pools so they are independent. Changes are in same config file. Validate under load that API remains available when workers pile up. Acceptance criteria: worker pool and API pool are separate, pool size is 100, API does not fail due to worker connection exhaustion in load test. Owner: Kofi."
+        "name": "Bump and split database connection pools for workers and API",
+        "desc": "Update the DB connection pool configuration to (1) increase the pool size from the default of 20 to 100, and (2) split worker and API connection pools so they no longer share a single pool. Both changes are in the same config file and should be done in a single change. Owner: Kofi."
       },
       {
-        "name": "Refresh payment incident runbook",
-        "desc": "Update payment incident runbook. Replace old Kibana links (decommissioned March) with current logging links. Document the queue drain procedure improvised on Tuesday as official step-by-step instructions. Verify escalation phone numbers are current and remove numbers for staff who left last year. Acceptance criteria: runbook reviewed, all logging links valid, queue drain procedure documented, escalation list accurate and tested. Owner: Priya, confirm with Kofi."
+        "name": "Update payment incident runbook",
+        "desc": "Refresh the payment incident runbook with the following: (1) Replace stale Kibana logging links (turned off in March) with current logging links. (2) Document the queue drain procedure that Kofi improvised during Tuesday's outage. (3) Verify and update all escalation phone numbers \u2014 at least one currently routes to someone who left last year. Owner: Priya (Kofi to confirm assignment with her after the meeting)."
       },
       {
-        "name": "Automate status page incident creation",
-        "desc": "Integrate status page provider API with monitoring. When checkout error rate alert fires, automatically create an 'Investigating' incident on the status page with a template message, removing manual login and multi-screen steps. Initially wire to checkout error rate alert; design for later extension to other alerts. Acceptance criteria: incident auto-created within minutes of alert firing, template message used, manual update no longer required. Owner: Marta."
+        "name": "Automate status page updates on checkout error rate alerts",
+        "desc": "Automate the status page so that when the checkout error rate alert fires, the status page automatically flips to 'investigating' with a template message. Use the status page provider's API. Wire it to the checkout alert first; other alerts can be extended later. This replaces the current manual process of logging in and clicking through three screens. Owner: Marta."
       },
       {
         "name": "Draft payment processor failover game day plan",
-        "desc": "Lead creation of a controlled chaos test plan for secondary payment processor failover. Plan must cover staging validation first, then production execution during a low-traffic window, with clear success criteria, rollback plan, and communications. Draft plan for team review in two weeks; no execution until plan is approved. Acceptance criteria: written plan reviewed by team, includes staging + production steps, rollback plan, and approval obtained before any test runs. Owner: Kofi."
+        "desc": "Draft a game day plan for a controlled chaos test of the payment processor failover. The plan should cover: (1) Testing failover in staging first. (2) Testing in production during a low-traffic window. (3) A rollback plan. The plan must be reviewed by the team in two weeks before any execution occurs \u2014 no execution until the review. Owner: Kofi."
       },
       {
-        "name": "Upgrade Redis from 6.0 to 7.2",
-        "desc": "Upgrade Redis from EOL version 6.0 to 7.2. Address config rename and persistence defaults changes required by 7.2. Schedule via infra calendar with a proper change window, not a casual Friday deploy. Execute upgrade with rollback plan and validation. Acceptance criteria: Redis running 7.2, configuration migrated correctly, security fixes applied, no data loss, change completed in scheduled window. Owner: Kofi."
+        "name": "Upgrade Redis from EOL version 6.0 to 7.2",
+        "desc": "Upgrade Redis from version 6.0 (EOL, security fixes ended in June) to version 7.2. This is a non-trivial migration: there is a config rename and persistence defaults have changed. Schedule a proper change window using the infra calendar \u2014 do not deploy casually. Owner: Kofi."
       }
     ],
     "slack": [
@@ -47,47 +47,47 @@
     ],
     "csv": [
       [
-        "Implement queue depth alerting for worker fleet",
-        "Create monitoring alerts for worker queue depth across all worker fleets, not just payments. Set warning threshold at 1,000 jobs and page threshold at 5,000 jobs, same thresholds for all fleets. Ensure alerts fire within ~1 minute of breach and route to on-call. Acceptance criteria: alerts exist in monitoring system for each worker fleet, thresholds are 1,000 warning / 5,000 page, test alert triggers correctly, and on-call receives notification. Owner: Kofi."
+        "Add queue depth alerting across entire worker fleet",
+        "Implement alerting on queue depth for all worker queues, not just payments. Thresholds: warning at 1,000 jobs, page at 5,000 jobs. Apply the same thresholds consistently across the entire worker fleet. Owner: Kofi."
       ],
       [
-        "Fix payment worker retry storm and dead-letter queue",
-        "Update payment_worker.py _process_with_retry function to prevent retry storm. Implement exponential backoff with jitter instead of immediate retries, cap total retries, and on final failure route job to dead-letter queue at the back instead of re-enqueueing at front of main queue. Add tests that simulate card processor 503 responses to verify backoff behavior and DLQ routing. Acceptance criteria: no immediate back-to-back retries, backoff with jitter applied, failed jobs go to DLQ not front of queue, tests simulating 503s pass. Owner: Marta."
+        "Fix payment worker retry logic with exponential backoff and dead-letter queue",
+        "Fix the retry logic in payment_worker.py, specifically the _process_with_retry function. Currently it retries 5 times back-to-back with no backoff or jitter, and on the fifth failure re-enqueues the job at the front of the main queue, causing retry storms. Changes required: (1) Implement exponential backoff with jitter between retries. (2) Cap the number of retries. (3) On final failure, send the job to a dead-letter queue at the back, not the front of the main queue. (4) Add tests that simulate processor 503 responses to cover the retry path. Owner: Marta."
       ],
       [
-        "Increase and isolate DB connection pools",
-        "Update DB connection pool configuration in one change. Increase pool size from default 20 to 100 as interim mitigation, and split worker and API connection pools so they are independent. Changes are in same config file. Validate under load that API remains available when workers pile up. Acceptance criteria: worker pool and API pool are separate, pool size is 100, API does not fail due to worker connection exhaustion in load test. Owner: Kofi."
+        "Bump and split database connection pools for workers and API",
+        "Update the DB connection pool configuration to (1) increase the pool size from the default of 20 to 100, and (2) split worker and API connection pools so they no longer share a single pool. Both changes are in the same config file and should be done in a single change. Owner: Kofi."
       ],
       [
-        "Refresh payment incident runbook",
-        "Update payment incident runbook. Replace old Kibana links (decommissioned March) with current logging links. Document the queue drain procedure improvised on Tuesday as official step-by-step instructions. Verify escalation phone numbers are current and remove numbers for staff who left last year. Acceptance criteria: runbook reviewed, all logging links valid, queue drain procedure documented, escalation list accurate and tested. Owner: Priya, confirm with Kofi."
+        "Update payment incident runbook",
+        "Refresh the payment incident runbook with the following: (1) Replace stale Kibana logging links (turned off in March) with current logging links. (2) Document the queue drain procedure that Kofi improvised during Tuesday's outage. (3) Verify and update all escalation phone numbers \u2014 at least one currently routes to someone who left last year. Owner: Priya (Kofi to confirm assignment with her after the meeting)."
       ],
       [
-        "Automate status page incident creation",
-        "Integrate status page provider API with monitoring. When checkout error rate alert fires, automatically create an 'Investigating' incident on the status page with a template message, removing manual login and multi-screen steps. Initially wire to checkout error rate alert; design for later extension to other alerts. Acceptance criteria: incident auto-created within minutes of alert firing, template message used, manual update no longer required. Owner: Marta."
+        "Automate status page updates on checkout error rate alerts",
+        "Automate the status page so that when the checkout error rate alert fires, the status page automatically flips to 'investigating' with a template message. Use the status page provider's API. Wire it to the checkout alert first; other alerts can be extended later. This replaces the current manual process of logging in and clicking through three screens. Owner: Marta."
       ],
       [
         "Draft payment processor failover game day plan",
-        "Lead creation of a controlled chaos test plan for secondary payment processor failover. Plan must cover staging validation first, then production execution during a low-traffic window, with clear success criteria, rollback plan, and communications. Draft plan for team review in two weeks; no execution until plan is approved. Acceptance criteria: written plan reviewed by team, includes staging + production steps, rollback plan, and approval obtained before any test runs. Owner: Kofi."
+        "Draft a game day plan for a controlled chaos test of the payment processor failover. The plan should cover: (1) Testing failover in staging first. (2) Testing in production during a low-traffic window. (3) A rollback plan. The plan must be reviewed by the team in two weeks before any execution occurs \u2014 no execution until the review. Owner: Kofi."
       ],
       [
-        "Upgrade Redis from 6.0 to 7.2",
-        "Upgrade Redis from EOL version 6.0 to 7.2. Address config rename and persistence defaults changes required by 7.2. Schedule via infra calendar with a proper change window, not a casual Friday deploy. Execute upgrade with rollback plan and validation. Acceptance criteria: Redis running 7.2, configuration migrated correctly, security fixes applied, no data loss, change completed in scheduled window. Owner: Kofi."
+        "Upgrade Redis from EOL version 6.0 to 7.2",
+        "Upgrade Redis from version 6.0 (EOL, security fixes ended in June) to version 7.2. This is a non-trivial migration: there is a config rename and persistence defaults have changed. Schedule a proper change window using the infra calendar \u2014 do not deploy casually. Owner: Kofi."
       ]
     ],
     "token_usage": {
       "calls": 1,
-      "prompt_tokens": 2980,
-      "completion_tokens": 817,
-      "total_tokens": 3797
+      "prompt_tokens": 1456,
+      "completion_tokens": 867,
+      "total_tokens": 2323
     }
   },
   "token_usage": {
     "calls": 1,
-    "prompt_tokens": 2980,
-    "completion_tokens": 817,
-    "total_tokens": 3797
+    "prompt_tokens": 1456,
+    "completion_tokens": 867,
+    "total_tokens": 2323
   },
-  "stdout_tail": "cument the queue drain procedure improvised on Tuesday as official step-by-step instructions. Verify escalation phone numbers are current and remove numbers for staff who left last year. Acceptance criteria: runbook reviewed, all logging links valid, queue drain procedure documented, escalation list accurate and tested. Owner: Priya, confirm with Kofi.'), MeetingTask(name='Automate status page incident creation', description=\"Integrate status page provider API with monitoring. When checkout error rate alert fires, automatically create an 'Investigating' incident on the status page with a template message, removing manual login and multi-screen steps. Initially wire to checkout error rate alert; design for later extension to other alerts. Acceptance criteria: incident auto-created within minutes of alert firing, template message used, manual update no longer required. Owner: Marta.\"), MeetingTask(name='Draft payment processor failover game day plan', description='Lead creation of a controlled chaos test plan for secondary payment processor failover. Plan must cover staging validation first, then production execution during a low-traffic window, with clear success criteria, rollback plan, and communications. Draft plan for team review in two weeks; no execution until plan is approved. Acceptance criteria: written plan reviewed by team, includes staging + production steps, rollback plan, and approval obtained before any test runs. Owner: Kofi.'), MeetingTask(name='Upgrade Redis from 6.0 to 7.2', description='Upgrade Redis from EOL version 6.0 to 7.2. Address config rename and persistence defaults changes required by 7.2. Schedule via infra calendar with a proper change window, not a casual Friday deploy. Execute upgrade with rollback plan and validation. Acceptance criteria: Redis running 7.2, configuration migrated correctly, security fixes applied, no data loss, change completed in scheduled window. Owner: Kofi.')]\n[mock tools] Outputs collected in tool_outputs.json\n",
+  "stdout_tail": "ize from the default of 20 to 100, and (2) split worker and API connection pools so they no longer share a single pool. Both changes are in the same config file and should be done in a single change. Owner: Kofi.'), MeetingTask(name='Update payment incident runbook', description=\"Refresh the payment incident runbook with the following: (1) Replace stale Kibana logging links (turned off in March) with current logging links. (2) Document the queue drain procedure that Kofi improvised during Tuesday's outage. (3) Verify and update all escalation phone numbers \u2014 at least one currently routes to someone who left last year. Owner: Priya (Kofi to confirm assignment with her after the meeting).\"), MeetingTask(name='Automate status page updates on checkout error rate alerts', description=\"Automate the status page so that when the checkout error rate alert fires, the status page automatically flips to 'investigating' with a template message. Use the status page provider's API. Wire it to the checkout alert first; other alerts can be extended later. This replaces the current manual process of logging in and clicking through three screens. Owner: Marta.\"), MeetingTask(name='Draft payment processor failover game day plan', description='Draft a game day plan for a controlled chaos test of the payment processor failover. The plan should cover: (1) Testing failover in staging first. (2) Testing in production during a low-traffic window. (3) A rollback plan. The plan must be reviewed by the team in two weeks before any execution occurs \u2014 no execution until the review. Owner: Kofi.'), MeetingTask(name='Upgrade Redis from EOL version 6.0 to 7.2', description='Upgrade Redis from version 6.0 (EOL, security fixes ended in June) to version 7.2. This is a non-trivial migration: there is a config rename and persistence defaults have changed. Schedule a proper change window using the infra calendar \u2014 do not deploy casually. Owner: Kofi.')]\n[mock tools] Outputs collected in tool_outputs.json\n",
   "stderr_tail": ""
 }

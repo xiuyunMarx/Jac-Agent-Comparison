@@ -1,10 +1,17 @@
+import os
 from textwrap import dedent
 from crewai import Agent, LLM
 
 from .tools import build_tools
 
-# Hard-coded model on every side of the comparison; no env override.
-MODEL_LLM = LLM(model="ollama_chat/glm-5.2")
+# $BENCH_MODEL (bare id, default glm-5.2) in litellm's shape, on the
+# OpenAI-compatible endpoint from $OPENAI_BASE_URL.
+_BENCH_MODEL = os.environ.get("BENCH_MODEL", "glm-5.2")
+MODEL_LLM = LLM(
+    model=_BENCH_MODEL if "/" in _BENCH_MODEL else f"openai/{_BENCH_MODEL}",
+    base_url=os.environ.get("OPENAI_BASE_URL", "https://ollama.com/v1"),
+    api_key=os.environ.get("OPENAI_API_KEY"),
+)
 
 class EmailFilterAgents():
 	def __init__(self, mailbox):

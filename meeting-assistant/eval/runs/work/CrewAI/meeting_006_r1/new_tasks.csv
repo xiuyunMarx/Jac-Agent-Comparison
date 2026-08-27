@@ -1,4 +1,60 @@
 Name,Description
-certs,"Yuki: Infra sync, let's keep it tight. Top of my list: certificates. The wildcard SSL cert for api.ourapp.com expires September 1st. I want it renewed and deployed well before that, let's say by August 22nd, so we have a buffer. Ben, that's yours, and please also set up the auto-renewal this time so we stop doing this dance every year. Ben: On it. Renew, deploy to the load balancers, and I'll move it onto cert-manager so it auto-renews going forward. Yuki: Fine, fold it into your export task, not a separate item. Oh, and before I forget, the certificates thing we talked about at the start, when Ben renews them, that's also the moment to rotate the internal CA cert that signs the service mesh, it expires two weeks after the public one. Same task, same window, just don't forget the internal one. Ben: Noted, both certs, one change window, cert-manager for both."
-PDF export for reports,"Yuki: Second thing: the PDF export feature for reports. Customers keep asking. Aisha, you scoped this last week, where did we land? Aisha: It's one deliverable with two halves. Backend renders the report to PDF with headless Chrome, frontend adds the export button and a progress state, since big reports take a few seconds. I'll do both halves myself, it doesn't make sense to split it. Target is end of month. Yuki: One task then, PDF export for reports, Aisha, end of month. Third: the staging environment drift. Staging is three migrations behind production and it keeps burning QA. Aisha: Yeah, one thing. The export feature, when I ship it, marketing wants a short demo GIF for the changelog. I can record it as part of finishing the feature, just flagging it so it's in the notes. Yuki: Fine, fold it into your export task, not a separate item."
-staging parity,"Yuki: One task then, PDF export for reports, Aisha, end of month. Third: the staging environment drift. Staging is three migrations behind production and it keeps burning QA. Ben: I'll write a nightly job that diffs staging schema against production and posts to the infra channel if they diverge. That plus actually running the three pending migrations today. Yuki: Good, that's one item, staging parity, both parts. Anything else before we close?"
+Renew and Auto-Renew Public Wildcard SSL and Internal CA Certificates,"Owner: Ben
+Deadline: August 22nd (before September 1st expiry for public cert; internal CA cert expires ~September 15th)
+
+Background: The wildcard SSL certificate for api.ourapp.com expires on September 1st. In the same change window, the internal CA cert that signs the service mesh must also be rotated; it expires two weeks after the public one. Currently these certs are renewed manually each year, which we want to eliminate.
+
+Steps to reproduce / perform:
+1. Renew the wildcard SSL certificate for api.ourapp.com.
+2. Deploy the renewed public cert to the load balancers.
+3. Move the public cert onto cert-manager so it auto-renews going forward.
+4. Within the same change window, rotate the internal CA cert that signs the service mesh.
+5. Move the internal CA cert onto cert-manager so it also auto-renews going forward.
+6. Perform both cert changes in one change window.
+
+Acceptance criteria:
+- Wildcard SSL cert for api.ourapp.com is renewed and deployed to load balancers by August 22nd.
+- Internal CA cert for the service mesh is rotated in the same window.
+- Both certificates are managed by cert-manager with auto-renewal enabled.
+- No manual renewal required for future cycles."
+PDF Export Feature for Reports (including demo GIF),"Owner: Aisha
+Deadline: End of month
+
+Background: Customers have repeatedly requested the ability to export reports as PDFs. Aisha scoped the work last week. It is one deliverable with two halves (backend and frontend) that Aisha will handle entirely to avoid splitting the work.
+
+Scope:
+- Backend: Render the report to PDF using headless Chrome.
+- Frontend: Add an export button and a progress/loading state, since large reports take a few seconds to render.
+- Marketing deliverable: Record a short demo GIF for the changelog as part of finishing the feature. This is folded into the same task, not a separate item.
+
+Steps to reproduce / perform:
+1. Implement backend PDF rendering of reports using headless Chrome.
+2. Add an export button to the report UI.
+3. Add a progress state to the UI for large report exports that take a few seconds.
+4. Test export across various report sizes to verify progress state and output.
+5. Record a short demo GIF of the export feature for the changelog.
+6. Provide the demo GIF to marketing.
+
+Acceptance criteria:
+- Users can click an export button on reports to generate a PDF.
+- A progress/loading state is shown while the PDF is being generated.
+- Large reports render correctly to PDF via headless Chrome.
+- A short demo GIF is recorded and available for the changelog.
+- Feature is completed by end of month."
+Staging Environment Parity: Run Pending Migrations and Add Schema Drift Monitoring,"Owner: Ben
+Deadline: Run three pending migrations today; nightly diff job to be set up (no hard date specified)
+
+Background: The staging environment is three migrations behind production, which continues to burn QA time. We need to both catch staging up and prevent future drift.
+
+Steps to reproduce / perform:
+1. Run the three pending migrations on staging today to bring it to parity with production.
+2. Write a nightly job that diffs the staging schema against the production schema.
+3. Configure the job to post a notification to the infra channel if staging and production schemas diverge.
+4. Verify the nightly job runs and posts correctly.
+
+Acceptance criteria:
+- The three pending migrations are applied to staging today.
+- Staging schema matches production after migrations.
+- A nightly job is in place that diffs staging schema against production.
+- The job posts to the infra channel when divergence is detected.
+- Future schema drift between staging and production is caught and reported automatically."

@@ -13,6 +13,7 @@ the two files diff cleanly.
 """
 
 import json
+import re
 import os
 from dataclasses import dataclass
 
@@ -23,8 +24,10 @@ from tools import (
     token_usage,
 )
 
-# Hard-coded identically on every side of the comparison; no env override.
-MODEL = "ollama_chat/glm-5.2"
+# $BENCH_MODEL is the one knob every arm reads (bare id, default glm-5.2).
+MODEL_ID = os.environ.get("BENCH_MODEL", "glm-5.2")
+# The raw SDK wants the bare id: litellm provider prefix stripped, ":tag" kept.
+MODEL = MODEL_ID.split("/", 1)[-1]
 # byLLM's default: its jac.toml sets no [byllm.call_params], and the byllm
 # runtime then sends temperature=0.7 on every call. CrewAI's LLM(model=
 # "gpt-4o") sends none at all (provider default 1.0); the fidelity target is
@@ -150,9 +153,19 @@ def _complete(messages: list[dict]) -> str:
     return response.choices[0].message.content or ""
 
 
+
+# GLM 5.2 on ollama.com does not enforce response_format and often wraps JSON in
+# ```json fences; strip them so json.loads sees the object (the tool-call arms
+# get structured output through function calls and never hit this).
+_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$")
+
+
+def _json_text(text: str) -> str:
+    return _FENCE_RE.sub("", text or "").strip()
+
 def _parse_tasks(reply: str) -> list[MeetingTask]:
     """Decode the model's JSON into MeetingTask objects, or raise."""
-    data = json.loads(reply)
+    data = json.loads(_json_text(reply))
     items = data.get("tasks") if isinstance(data, dict) else data
     if not isinstance(items, list):
         raise ValueError("no task list in the reply")

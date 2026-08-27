@@ -18,8 +18,9 @@ from typing import Any
 
 from CodeAgent.NOOA.telemetry import TokenUsage
 
-# Hard-coded identically on every side of the comparison; no env override.
-DEFAULT_MODEL = "ollama_chat/glm-5.2"
+# $CODEAGENT_MODEL is the one knob the bridge sets from --model; honoured here so
+# every arm can be pinned to the same model id (litellm-routed, prefix kept).
+DEFAULT_MODEL = os.environ.get("CODEAGENT_MODEL") or "ollama_chat/glm-5.2:cloud"
 
 # gpt-5-shaped, and the same two numbers the other sides send.
 #

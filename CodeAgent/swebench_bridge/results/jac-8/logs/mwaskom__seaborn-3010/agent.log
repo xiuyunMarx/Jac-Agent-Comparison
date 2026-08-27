@@ -1,0 +1,107 @@
+### Plan
+Falsifiable claim: Calling `so.Plot([1, 2, 3, None, 4], [1, 2, 3, 4, 5]).add(so.Line(), so.PolyFit())` raises `LinAlgError: SVD did not converge in Linear Least Squares`. With missing data (NaN) in x or y, `PolyFit._fit_predict` should drop NaN rows before fitting (like other stats do), rather than passing NaNs into `np.polyfit`, which causes the SVD failure.
+
+Root cause location: `seaborn/_stats/regression.py` — `PolyFit._fit_predict` (lines ~25-37) does not drop missing values from `x`/`y` before `np.polyfit`. The base class is `seaborn/_stats/base.py` (Stat), but the fix belongs in `regression.py`. Likely a 1-file change; possibly reference how other stats handle NaN (e.g., `seaborn/_stats/aggregation.py` uses `data.dropna()` via base `GroupBy.apply`? — verify). Next phase: edit `PolyFit._fit_predict` to dropna on x/y, then run the regression stats tests.
+
+### Explore
+Reproduction confirmed. The issue is in `seaborn/_stats/regression.py`, in `PolyFit._fit_predict` (lines 18-31). When the input `x`/`y` contain missing values (`None`/NaN), `np.polyfit` is called with NaNs and raises `LinAlgError: SVD did not converge in Linear Least Squares`.
+
+Repro output:
+```
+ ** On entry to DLASCL parameter number  4 had an illegal value
+numpy.linalg.LinAlgError: SVD did not converge in Linear Least Squares
+```
+
+Fix location: `seaborn/_stats/regression.py`, symbol `PolyFit._fit_predict`, lines 18-31. The `_fit_predict` method should drop rows with missing `x` or `y` before fitting (e.g. `notna` mask) so PolyFit is robust to missing data.
+
+### Edit
+## Fix Applied
+
+**File:** `seaborn/_stats/regression.py`
+**Symbol:** `PolyFit.__call__`
+**Lines:** ~38-40
+
+### Root Cause
+`PolyFit._fit_predict` passes the full `data` (including rows with `None`/`NaN`) to `np.polyfit`, which raises `LinAlgError: SVD did not converge in Linear Least Squares` when missing values are present.
+
+### Fix
+Drop rows with missing `x` or `y` before applying the fit, in `PolyFit.__call__`:
+
+```python
+def __call__(self, data, groupby, orient, scales):
+
+    return groupby.apply(data.dropna(subset=["x", "y"]), self._fit_predict)
+```
+
+### Verification
+Reproduction of the stat with missing data now succeeds (previously raised `LinAlgError`):
+
+```python
+data = pd.DataFrame({"x": [1, 2, 3, None, 4], "y": [1, 2, 3, 4, 5]})
+stat = PolyFit()
+res = stat(data, GroupBy(["group"]), "x", {})
+# -> 100-row DataFrame with fitted x/y, no error
+```
+
+(Note: the full `so.Plot(...).plot()` call hits a separate, pre-existing pandas-version incompatibility in the plotting layer (`mode.use_inf_as_null`), unrelated to PolyFit; the stat transform itself no longer fails on missing data.)
+
+The change is minimal: a single `data.dropna(subset=["x", "y"])` call before passing data to the groupby/fit pipeline.
+
+### Verify
+## Summary
+
+### Issue
+`PolyFit` stat in `seaborn/_stats/regression.py` was not robust to missing data. When `None`/`NaN` values were present in the x or y data, `np.polyfit` would raise `LinAlgError: SVD did not converge in Linear Least Squares`.
+
+### Root Cause
+In `seaborn/_stats/regression.py`, the `PolyFit.__call__` method passed the raw data (including NaN/None values) directly to `_fit_predict`, which called `np.polyfit` without filtering out missing values.
+
+### Fix
+Modified `PolyFit.__call__` in `seaborn/_stats/regression.py` to drop rows with missing x or y values before applying the fit:
+
+```python
+def __call__(self, data, groupby, orient, scales):
+
+    return groupby.apply(data.dropna(subset=["x", "y"]), self._fit_predict)
+```
+
+This is the minimal, general fix — it handles any missing data in either coordinate, not just the specific example in the issue.
+
+### Verification
+- The reproduction (calling `PolyFit` directly with data containing `None`) now succeeds and returns a 100-row DataFrame of fitted values instead of raising `LinAlgError`.
+- The `seaborn/_stats/` directory has no dedicated test subdirectory (no `tests/` folder), so there were no existing regression-specific tests to run.
+- Note: running the full `so.Plot(...).add(so.Line(), so.PolyFit()).plot()` hits an unrelated pre-existing pandas version incompatibility (`mode.use_inf_as_null` option removed in newer pandas) in the plotting layer (`seaborn/_core/plot.py`), not in PolyFit. The PolyFit stat itself is now fixed and returns results correctly.
+
+### Edit
+The fix is applied and verified.
+
+## Summary
+
+**Root cause:** `PolyFit.__call__` in `seaborn/_stats/regression.py` passed the full dataframe (including rows with missing `x`/`y` values) into `np.polyfit`, which raised `LinAlgError: SVD did not converge in Linear Least Squares` when NaN/None values were present.
+
+**Fix:** In `PolyFit.__call__`, drop rows with missing `x` or `y` before applying the fit:
+
+```python
+def __call__(self, data, groupby, orient, scales):
+    return groupby.apply(data.dropna(subset=["x", "y"]), self._fit_predict)
+```
+
+This is a one-line change confined to library source (no test edits, no dependency/build changes).
+
+**Verification:** The reproduction now succeeds — `PolyFit` on `pd.DataFrame({"x": [1, 2, 3, None, 4], "y": [1, 2, 3, 4, 5]})` returns a 100-row fitted DataFrame instead of raising `LinAlgError`.
+
+**Tests:** There is no dedicated test module for `_stats/regression.py` in the repo (the `seaborn/_stats/` directory contains only `__init__.py`, `base.py`, `regression.py`, `aggregation.py`, `histogram.py` — no `tests/` subdirectory), so there were no existing regression-stat tests to run.
+
+### Verify
+Fix applied to `seaborn/_stats/regression.py` in `PolyFit.__call__`: missing data (NaN/None) is now dropped before fitting by calling `data.dropna(subset=["x", "y"])` before passing to `groupby.apply`. This prevents `np.polyfit` from receiving NaN values and raising `LinAlgError: SVD did not converge`.
+
+The reproduction now passes — `PolyFit` on data with a None value returns a 100-row fitted curve instead of raising.
+
+Test results:
+- `tests/_stats/test_regression.py`: 2 passed
+- `tests/_stats/` (full suite): 35 passed
+- `tests/_core/test_plot.py`: many failures, but all are the pre-existing, unrelated `pandas._config.config.OptionError: "No such keys(s): 'mode.use_inf_as_null'"` issue in the plotting layer's `split_generator` (a pandas version incompatibility), not caused by this change.
+
+The change is minimal and confined to the library source (no test edits).
+[swe_entry] mwaskom__seaborn-3010 ok steps=6 tools=43
+INFO - HTTP Request: GET https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json "HTTP/1.1 200 OK"

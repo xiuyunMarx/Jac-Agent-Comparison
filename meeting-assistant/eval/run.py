@@ -9,7 +9,7 @@ results JSON:
 
     eval/runs/results_<impl>_<case_id>_r<k>.json
 
-Score the results with score.py. Both implementations call ollama_chat/glm-5.2
+Score the results with score.py. Both implementations call ollama_chat/glm-5.2:cloud
 (hard-coded); OPENAI_API_KEY must still be set. Agent pipelines are noisy even at temperature 0 -
 use --repeat 3 (or more) and compare means.
 
@@ -150,7 +150,7 @@ def main():
     args = ap.parse_args()
 
     if not os.environ.get("OPENAI_API_KEY"):
-        sys.exit("OPENAI_API_KEY is not set - both implementations call ollama_chat/glm-5.2.")
+        sys.exit("OPENAI_API_KEY is not set - every arm talks to $OPENAI_BASE_URL with it (source ../glm.env).")
 
     if (not args.impl or "CrewAI" in args.impl) and not importlib.util.find_spec("crewai"):
         sys.exit(

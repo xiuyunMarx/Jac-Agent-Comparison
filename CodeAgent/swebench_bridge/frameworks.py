@@ -73,8 +73,7 @@ class Framework:
 # The three Python implementations share one shim. It resolves the agent from
 # $CODEAGENT_HOME, which the driver sets per framework, and all three projects
 # export solve / active_model_name / DEFAULT_MODEL from a module named
-# `orchestrator`. ../NOOA lives beside CodeAgent/ rather than inside it, so its
-# home walks up one -- the shim resolves it either way.
+# `orchestrator`. ../NOOA now lives inside CodeAgent/ like the others.
 # The Jac one needs its own because `jac` is a self-contained binary carrying its
 # own Python, so this interpreter cannot import orchestrator.jac at all.
 PY_SHIM = BRIDGE_DIR / "swe_entry.py"
@@ -88,6 +87,14 @@ FRAMEWORKS: dict[str, Framework] = {
         marker="orchestrator.jac",
         runner="jac",
         blurb="Jac + byLLM: a walker over a phase graph",
+    ),
+    "jac": Framework(
+        name="jac",
+        home=ROOT / "Jac",
+        entry=JAC_SHIM,
+        marker="orchestrator.jac",
+        runner="jac",
+        blurb="Jac + byLLM rewrite: one shared conversation, PhaseCapability-routed phase graph",
     ),
     "langgraph": Framework(
         name="langgraph",
@@ -107,7 +114,7 @@ FRAMEWORKS: dict[str, Framework] = {
     ),
     "nooa": Framework(
         name="nooa",
-        home=ROOT / ".." / "NOOA",
+        home=ROOT / "NOOA",
         entry=PY_SHIM,
         marker="orchestrator.py",
         runner="python",
@@ -118,7 +125,7 @@ FRAMEWORKS: dict[str, Framework] = {
 # The order comparisons are presented in: the Jac original, the framework port,
 # the no-framework baseline the other two are measured against, and then the one
 # that is not a phase graph at all.
-ORDER = ["byllm", "langgraph", "openai", "nooa"]
+ORDER = ["byllm", "jac", "langgraph", "openai", "nooa"]
 
 NAMES = sorted(FRAMEWORKS)
 

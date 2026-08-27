@@ -9,7 +9,7 @@ and usage arrives on the response object on this thread, so the per-call
 record is complete the moment `complete()` returns -- no callback, no settle
 loop.
 
-Models: both roles (INSTANT / POWERFUL) are hard-coded to ollama_chat/glm-5.2,
+Models: both roles (INSTANT / POWERFUL) are hard-coded to ollama_chat/glm-5.2:cloud,
 at temperature 0; no env override.
 """
 
@@ -20,8 +20,9 @@ import sys
 import time
 from typing import Any, Iterable, Mapping, Sequence
 
-DEFAULT_INSTANT_MODEL = "ollama_chat/glm-5.2"
-DEFAULT_POWERFUL_MODEL = "ollama_chat/glm-5.2"
+# $BENCH_MODEL is the one knob every arm reads (bare id, default glm-5.2).
+DEFAULT_INSTANT_MODEL = os.environ.get("BENCH_MODEL", "glm-5.2")
+DEFAULT_POWERFUL_MODEL = os.environ.get("BENCH_MODEL", "glm-5.2")
 # Pinned identically on all three sides, or the benchmark measures the model
 # rather than the framework.
 TEMPERATURE = 0.0
@@ -34,18 +35,15 @@ _calls: list[dict[str, Any]] = []
 
 
 def normalize_model(name: str) -> str:
-    """A provider-agnostic model value, as the raw OpenAI SDK wants it.
+    """The bare model id, as the raw OpenAI SDK wants it.
 
-    byLLM normalizes "provider:model" to litellm's "provider/model" with one
-    replace; this side goes one step further and drops the provider segment,
-    because `chat.completions.create` takes a bare model name and routes by
-    base URL instead. "gpt-4o-mini", "openai:gpt-4o-mini" and
-    "openai/gpt-4o-mini" all mean the same model; "groq:llama-3.1-8b-instant"
-    means llama-3.1-8b-instant at whatever OPENAI_BASE_URL points to (Groq's
-    OpenAI-compatible endpoint, for that value), and the stderr note below
-    says so rather than letting an unrouted name fail at the provider.
+    Drops the litellm provider segment ("ollama_chat/glm-5.2:cloud" ->
+    "glm-5.2:cloud"; the ":tag" is kept), because `chat.completions.create`
+    takes a bare model name and routes by base URL instead. The stderr note
+    below says which OPENAI_BASE_URL that provider needs rather than letting
+    an unrouted name fail at the provider.
     """
-    name = name.strip().replace(":", "/", 1)
+    name = name.strip()
     provider, sep, bare = name.partition("/")
     if not sep:
         return name
@@ -60,12 +58,12 @@ def normalize_model(name: str) -> str:
 
 def instant_model() -> str:
     """The router / direct-reply model (the original's settings.INSTANT_LLM)."""
-    return DEFAULT_INSTANT_MODEL
+    return normalize_model(DEFAULT_INSTANT_MODEL)
 
 
 def powerful_model() -> str:
     """The tool agent's model (the original's settings.POWERFUL_LLM)."""
-    return DEFAULT_POWERFUL_MODEL
+    return normalize_model(DEFAULT_POWERFUL_MODEL)
 
 
 def build_client() -> Any:

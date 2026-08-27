@@ -133,7 +133,7 @@ def judge_run(results, questions_by_id, model_name):
     Args:
         results: List of result records.
         questions_by_id: Mapping of question id -> BenchmarkQuestion.
-        model_name: litellm model name to judge with (default ollama_chat/glm-5.2).
+        model_name: litellm model name to judge with (default ollama_chat/glm-5.2:cloud).
 
     Returns:
         (mean score or None, per-question {question_id: score}).
@@ -219,7 +219,7 @@ def main():
     parser.add_argument("results", nargs="+", help="One or more results JSONL files to score and compare")
     parser.add_argument("--questions", help="Questions JSONL with expected_route / expected_video_ids / references")
     parser.add_argument("--judge", action="store_true", help="Also run LLM-as-judge scoring (needs OPENAI_API_KEY)")
-    parser.add_argument("--judge-model", default="ollama_chat/glm-5.2", help="litellm model name used as judge")
+    parser.add_argument("--judge-model", default="openai/" + os.environ.get("BENCH_MODEL", "glm-5.2"), help="litellm model name used as judge (default: openai/$BENCH_MODEL)")
     parser.add_argument("--report", help="Write the full metrics (and per-question judge scores) to this JSON file")
     args = parser.parse_args()
 
