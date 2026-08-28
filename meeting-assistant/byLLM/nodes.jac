@@ -30,21 +30,40 @@ node LoadMeetingNode {
 }
 
 obj MeetingTask {
-    has name: str = "";
-    has description: str = "";
+    has name: str;
+    has description: str;
 }
-sem MeetingTask.name= "Short, actionable title for the task";
-sem MeetingTask.description= "Detailed description of the task: clear instructions, steps to reproduce, and acceptance criteria where applicable";
+sem MeetingTask.name = "Required, non-empty, short, actionable title for the task";
+sem MeetingTask.description = "Required, non-empty, detailed description of the task: clear instructions, owner, deadline, steps to reproduce, and acceptance criteria where applicable";
 node TaskNode {
     has name: str;
     has description: str;
 }
 
+def _tasks_are_valid(tasks: list[MeetingTask]) -> bool {
+    for task in tasks {
+        if not task.name.strip() or not task.description.strip() {
+            return False;
+        }
+    }
+    return True;
+}
+
 node GeneratingTasks {
 
-    def analyse_meeting_transcript(transcript: str) -> list[MeetingTask] by llm();
+    def analyse_meeting_transcript(transcript: str) -> list[MeetingTask] by llm(
+        max_output_retries=3
+    );
+
+    def repair_meeting_tasks(
+        transcript: str, invalid_output: str
+    ) -> list[MeetingTask] by llm(max_output_retries=3);
 }
-sem GeneratingTasks.analyse_meeting_transcript = "Analyze the meeting transcript and break the discussion down into a list of important, well-structured, actionable tasks that a team can follow up on. Document each task thoroughly."
+sem GeneratingTasks.analyse_meeting_transcript = "Extract every concrete action item from the meeting transcript. Return only a JSON list of MeetingTask objects. Every object must contain exactly two non-empty string fields: name and description; never return an empty or placeholder task. Keep distinct commitments for different deliverables or owners as separate tasks. Combine discussion steps that belong to the same deliverable into one task, including approval followed by execution, rather than over-splitting them. Return an empty list only when the transcript contains no action items. Document owners, deadlines, requirements, and acceptance criteria stated in the transcript without inventing facts.";
+sem GeneratingTasks.analyse_meeting_transcript.transcript = "The complete meeting transcript from which to extract action items";
+sem GeneratingTasks.repair_meeting_tasks = "The previous extraction contained one or more empty or malformed tasks. Re-extract every concrete action item from the transcript and return a corrected JSON list of MeetingTask objects. Every object must contain exactly two non-empty string fields: name and description; never return an empty or placeholder task. Keep distinct commitments for different deliverables or owners as separate tasks. Combine steps belonging to the same deliverable into one task rather than over-splitting them. Return an empty list only when the transcript contains no action items. Use the invalid output only to understand what must be corrected, not as a source of facts.";
+sem GeneratingTasks.repair_meeting_tasks.transcript = "The complete meeting transcript, which is the sole source of truth";
+sem GeneratingTasks.repair_meeting_tasks.invalid_output = "The rejected task list containing empty or malformed fields";
 
 node AddTask {
     def work(tasks: list[MeetingTask]) {
@@ -89,6 +108,17 @@ walker MeetingAssistant{
     }
     can generate_task with GeneratingTasks entry{
         self.tasks = here.analyse_meeting_transcript(self.transcript);
+        if not _tasks_are_valid(self.tasks) {
+            print("Generated task list contains empty fields. Retrying once with corrective feedback...");
+            self.tasks = here.repair_meeting_tasks(
+                self.transcript, str(self.tasks)
+            );
+        }
+        if not _tasks_are_valid(self.tasks) {
+            raise ValueError(
+                "Meeting task extraction still contains empty fields after corrective retry"
+            );
+        }
         visit [-->];   
     }
 

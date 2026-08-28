@@ -135,8 +135,13 @@ enum Classification {
 
 node draft_responses {
     def filter_emails(abstract: MailAbstract) -> Classification by llm();
-    def email_action_agent(thread: Thread) -> ThreadAnalysis by llm(tools=[web_search]);
-    def email_response_writer(analysis: ThreadAnalysis, thread: Thread) -> DraftReply by llm(tools=[web_search]);
+    # Match the OpenAI SDK arm's tool-loop brake so a model cannot search forever.
+    def email_action_agent(thread: Thread) -> ThreadAnalysis by llm(
+        tools=[web_search], max_react_iterations=10
+    );
+    def email_response_writer(analysis: ThreadAnalysis, thread: Thread) -> DraftReply by llm(
+        tools=[web_search], max_react_iterations=10
+    );
 }
 
 sem draft_responses.filter_emails = "Senior Email Analyst: classify the email from its snippet and sender. Only messages actually directed at the user that need a personal reply are IMPORTANT; newsletters are NEWSLETTER, promotional content is PROMOTIONAL, automated notifications are NOTIFICATIONS, social platform mail is SOCIAL, product/service updates are UPDATES, junk is SPAM.";
