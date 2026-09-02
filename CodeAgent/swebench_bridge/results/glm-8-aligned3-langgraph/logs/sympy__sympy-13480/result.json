@@ -1,0 +1,71 @@
+{
+  "instance_id": "sympy__sympy-13480",
+  "model": "openai/glm-5.2",
+  "answer": "### Plan\nFalsifiable claim: `coth(log(tan(x))).subs(x, 2)` raises `NameError: name 'cotm' is not defined` instead of returning a symbolic/evaluated result. The bug is in `coth.eval` in `sympy/functions/elementary/hyperbolic.py` around lines 585-591: in the `arg.is_Add` branch, the code computes `cothm = coth(m)` but then tests `if cotm is S.ComplexInfinity` (typo: `cotm` instead of `cothm`). The fix is to change `cotm` to `cothm` in that comparison. Likely-affected source file: `sympy/functions/elementary/hyperbolic.py` (single file).\n\n### Explore\nConfirmed reproduction fails with `NameError: name 'cotm' is not defined`.\n\nLocation:\n- File: `sympy/functions/elementary/hyperbolic.py`\n- Symbol: `coth.eval` (classmethod)\n- Lines: 587-592 (the `if arg.is_Add:` block)\n\nThe code reads:\n```\n            if arg.is_Add:\n                x, m = _peeloff_ipi(arg)\n                if m:\n                    cothm = coth(m)\n                    if cotm is S.ComplexInfinity:\n                        return coth(x)\n                    else: # cothm == 0\n                        return tanh(x)\n```\nIt assigns `cothm` but then checks `cotm` (a typo). For `coth(log(tan(2)))`, the argument is an Add with an `I*pi` term, so `_peeloff_ipi` returns a nonzero `m`, triggering this branch and the NameError. Fix: change `cotm` to `cothm`.\n\n### Edit\nFixed a typo in `coth.eval` at sympy/functions/elementary/hyperbolic.py line 590: changed `if cotm is S.ComplexInfinity:` to `if cothm is S.ComplexInfinity:` (the variable `cothm` was assigned two lines above, but the check referenced the undefined `cotm`). The reproduction `coth(log(tan(x))).subs(x, 2)` (and x=3, 5) now runs without error.\n\n### Verify\nFixed a typo in `sympy/functions/elementary/hyperbolic.py` in the `coth.eval` classmethod (line 590): `if cotm is S.ComplexInfinity:` was changed to `if cothm is S.ComplexInfinity:`. The variable `cothm = coth(m)` was defined just above, but the check referenced the undefined name `cotm`, causing a `NameError`.\n\nReproduction now passes: `coth(log(tan(x))).subs(x, 2)` returns `coth(log(-tan(2)))` instead of raising.\n\nTest results for `sympy/functions/elementary/tests/test_hyperbolic.py`: 45 passed, 0 failed.",
+  "steps": 4,
+  "llm_calls": 14,
+  "prompt_tokens": 39576,
+  "completion_tokens": 1228,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sympy/functions/elementary/hyperbolic.py:540-620",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "from sympy import *\nx = Symbol('x')\ne = coth(log(tan(x)))\nprint(e.subs(x, 2))",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "sympy/functions/elementary/hyperbolic.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "from sympy import *\nx = Symbol('x')\ne = coth(log(tan(x)))\nprint(e.subs(x, 2))\npr",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest sympy/functions/elementary/tests/test_hyperbolic.py -q 2>&1 | tail -30",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m sympy.utilities.runtests sympy/functions/elementary/tests/test_hyperbolic.py 2>&1 | tail -30",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -c \"import sympy; sympy.test('sympy/functions/elementary/tests/test_hyperbolic.py', verbose=False)\" 2>&1 | tail -30",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 8,
+  "error": "",
+  "wall_clock_sec": 39.713
+}

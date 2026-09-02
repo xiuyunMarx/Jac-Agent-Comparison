@@ -61,7 +61,7 @@ walker CodeAgent {
 
     can verifying with Verify entry {
         self.record("Verify", here.work(here.goal));
-        # 先走确定性守卫，再问模型 —— 模型看到的证据正是会骗它的证据（未改的树上老测试全绿）。
+        # 先走确定性守卫，再问模型 
         if self.repairs >= MAX_REPAIRS or len(tool_log) >= TOOL_BUDGET {
             visit [->:PhaseCapability:->][?:Finish];
             return;

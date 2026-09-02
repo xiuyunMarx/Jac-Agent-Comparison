@@ -105,8 +105,13 @@ def spawn_agent(args: argparse.Namespace, inst: dict, ws: Path,
     }, indent=2), encoding="utf-8")
 
     argv = args.fw.argv(runner_bin(args), str(job), str(result))
+    env = agent_env(args, container)
+    # Every model call, as sent, next to the transcript. The agents write it
+    # only when this is set, so a bare `python swe_entry.py` stays quiet.
+    env["CODEAGENT_TRACE"] = str(work / "llm_trace.jsonl")
+    (work / "llm_trace.jsonl").unlink(missing_ok=True)
     try:
-        done = run(argv, cwd=args.agent_home, env=agent_env(args, container),
+        done = run(argv, cwd=args.agent_home, env=env,
                    timeout=args.instance_timeout, check=False)
         transcript = (done.stdout or "") + (done.stderr or "")
         exit_note = ("" if done.returncode == 0

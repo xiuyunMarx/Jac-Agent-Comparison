@@ -8,6 +8,7 @@ strings, then the phase nodes and the edge between them.
 from __future__ import annotations
 
 import inspect
+import json
 import os
 import re
 import shlex
@@ -16,7 +17,7 @@ import subprocess
 import warnings
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
-from typing import Any, Callable
+from typing import Any, Callable, get_type_hints
 
 # GLM 5.2 over ollama cloud's OpenAI-compatible endpoint. The Jac side reaches
 # it through litellm's `openai/` provider and $OPENAI_API_BASE; the raw SDK
@@ -33,6 +34,44 @@ API_KEY: str = os.environ.get("OLLAMA_API_KEY") or os.environ.get("OPENAI_API_KE
 # no max_tokens, no streaming.
 TEMPERATURE: float = float(os.environ.get("CODEAGENT_TEMPERATURE", "0.7"))
 warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
+
+
+# ---------------------------------------------------------------------------
+# Per-call trace, when $CODEAGENT_TRACE names a file (the bridge points it at
+# logs/<instance>/llm_trace.jsonl). One JSON line per model call: the request
+# as it went on the wire -- in full when the call opens a phase or routes,
+# i.e. ends on a user message; otherwise just the newest message -- plus the
+# usage and the reply. Same shape on all three arms, so traces diff directly.
+# ---------------------------------------------------------------------------
+_trace_n: int = 0
+_KNOWN_KEYS = {"model", "messages", "tools", "temperature", "response_format"}
+
+
+def trace_call(payload: dict[str, Any], reply: Any, usage: Any) -> None:
+    global _trace_n
+    _trace_n += 1
+    path = os.environ.get("CODEAGENT_TRACE", "")
+    if not path:
+        return
+    messages = list(payload.get("messages") or [])
+    last = messages[-1] if messages else {}
+    opens = isinstance(last, dict) and last.get("role") == "user"
+    row = {
+        "call": _trace_n,
+        "model": payload.get("model"),
+        "n_messages": len(messages),
+        "tools": [t["function"]["name"] for t in payload.get("tools") or []],
+        "tool_schemas": payload.get("tools") if opens else None,
+        "temperature": payload.get("temperature"),
+        "response_format": payload.get("response_format"),
+        "extra": sorted(k for k in payload if k not in _KNOWN_KEYS),
+        "usage": usage,
+        "messages": messages if opens else None,
+        "last": None if opens else last,
+        "reply": reply,
+    }
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(row, default=str) + "\n")
 
 
 class Model:
@@ -80,7 +119,10 @@ class Model:
         usage = getattr(response, "usage", None)
         if usage is not None:
             usage_log.append(usage)
-        return response.choices[0].message
+        message = response.choices[0].message
+        trace_call(payload, message.model_dump(exclude_none=True),
+                   usage.model_dump(exclude_none=True) if usage is not None else None)
+        return message
 
 
 usage_log: list[Any] = []
@@ -382,9 +424,8 @@ class Tool:
             except (TypeError, ValueError):
                 return f"Error: argument '{key}' of {self.name} must be {want}; got {value!r}."
             kwargs[key] = value
-        missing = [p for p in self.parameters.get("required", []) if p not in kwargs]
-        if missing:
-            return f"Error: {self.name} requires {', '.join(missing)}, which was not supplied."
+        # A parameter the model left out falls back to the Python default, as
+        # byLLM's parse_arguments does; the schema still says it is required.
         try:
             out = self.fn(**kwargs)
         except Exception as e:  # noqa: BLE001 - a tool must not end the phase
@@ -393,21 +434,23 @@ class Tool:
 
 
 def make_tool(fn: Callable[..., str]) -> Tool:
-    """byLLM's `tool_to_schema` over a `Repo` method: signature + sem strings."""
+    """byLLM's `tool_to_schema` over a `Repo` method: signature + sem strings.
+
+    Byte-for-byte what `Tool(repo.read_file).get_json_schema()` produces on the
+    Jac side: the description prefixed with the name, every parameter listed as
+    required and no defaults in the schema. The last two matter: with them the
+    model always supplies `start_line`/`end_line` and reads a window; with
+    defaults it omits them and reads whole files into the shared conversation.
+    """
     name = fn.__name__
     description, param_sem = SEM[name]
     props: dict[str, Any] = {}
-    required: list[str] = []
+    hints = get_type_hints(fn)      # resolved types; `param.annotation` is a string under postponed annotations
     for pname, param in inspect.signature(fn).parameters.items():
-        annotation = param.annotation
-        props[pname] = {"type": _JSON_TYPES.get(annotation, "string"),
+        props[pname] = {"type": _JSON_TYPES.get(hints.get(pname, str), "string"),
                         "description": param_sem.get(pname, "")}
-        if param.default is inspect.Parameter.empty:
-            required.append(pname)
-        else:
-            props[pname]["default"] = param.default
-    return Tool(name=name, fn=fn, description=description, parameters={
-        "type": "object", "properties": props, "required": required, "additionalProperties": False})
+    return Tool(name=name, fn=fn, description=f"{name}: {description}", parameters={
+        "type": "object", "properties": props, "required": list(props), "additionalProperties": False})
 
 
 FINISH_TOOL: dict[str, Any] = {"type": "function", "function": {

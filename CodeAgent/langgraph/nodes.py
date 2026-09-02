@@ -10,6 +10,7 @@ to ../openai_sdk/nodes.py.
 from __future__ import annotations
 
 import inspect
+import json
 import os
 import re
 import shlex
@@ -18,7 +19,7 @@ import subprocess
 import warnings
 from dataclasses import dataclass
 from fnmatch import fnmatch
-from typing import Any, Callable
+from typing import Any, Callable, get_type_hints
 
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.tools import BaseTool, StructuredTool
@@ -39,6 +40,89 @@ API_KEY: str = os.environ.get("OLLAMA_API_KEY") or os.environ.get("OPENAI_API_KE
 # no max_tokens, no streaming.
 TEMPERATURE: float = float(os.environ.get("CODEAGENT_TEMPERATURE", "0.7"))
 warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
+
+
+# ---------------------------------------------------------------------------
+# Per-call trace, when $CODEAGENT_TRACE names a file (the bridge points it at
+# logs/<instance>/llm_trace.jsonl). One JSON line per model call: the request
+# as it went on the wire -- in full when the call opens a phase or routes,
+# i.e. ends on a user message; otherwise just the newest message -- plus the
+# usage and the reply. Same shape on all three arms, so traces diff directly.
+# ---------------------------------------------------------------------------
+_trace_n: int = 0
+_KNOWN_KEYS = {"model", "messages", "tools", "temperature", "response_format"}
+
+
+def trace_call(payload: dict[str, Any], reply: Any, usage: Any) -> None:
+    global _trace_n
+    _trace_n += 1
+    path = os.environ.get("CODEAGENT_TRACE", "")
+    if not path:
+        return
+    messages = list(payload.get("messages") or [])
+    last = messages[-1] if messages else {}
+    opens = isinstance(last, dict) and last.get("role") == "user"
+    row = {
+        "call": _trace_n,
+        "model": payload.get("model"),
+        "n_messages": len(messages),
+        "tools": [t["function"]["name"] for t in payload.get("tools") or []],
+        "tool_schemas": payload.get("tools") if opens else None,
+        "temperature": payload.get("temperature"),
+        "response_format": payload.get("response_format"),
+        "extra": sorted(k for k in payload if k not in _KNOWN_KEYS),
+        "usage": usage,
+        "messages": messages if opens else None,
+        "last": None if opens else last,
+        "reply": reply,
+    }
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(row, default=str) + "\n")
+
+
+class _TracedCompletions:
+    """ChatOpenAI's `client` (an openai `Completions` resource), with the one
+    call LangChain makes -- `with_raw_response.create(**payload)` -- traced.
+    The payload is what LangChain built from its messages, so the trace shows
+    the wire request, not the LangChain objects."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    @property
+    def with_raw_response(self) -> Any:
+        raw = self._inner.with_raw_response
+
+        class _Raw:
+            def __getattr__(self, name: str) -> Any:
+                return getattr(raw, name)
+
+            def parse(self, **payload: Any) -> Any:
+                return self.create(**payload)
+
+            def create(self, **payload: Any) -> Any:
+                response = raw.create(**payload)
+                parsed = response.parse()
+                usage = getattr(parsed, "usage", None)
+                choice = parsed.choices[0].message if getattr(parsed, "choices", None) else None
+                trace_call(payload,
+                           choice.model_dump(exclude_none=True) if choice is not None else None,
+                           usage.model_dump(exclude_none=True) if usage is not None else None)
+                return response
+
+        return _Raw()
+
+    def create(self, **payload: Any) -> Any:
+        response = self._inner.create(**payload)
+        usage = getattr(response, "usage", None)
+        choice = response.choices[0].message if getattr(response, "choices", None) else None
+        trace_call(payload,
+                   choice.model_dump(exclude_none=True) if choice is not None else None,
+                   usage.model_dump(exclude_none=True) if usage is not None else None)
+        return response
 
 
 class Model:
@@ -66,6 +150,9 @@ class Model:
 
             self._chat = ChatOpenAI(model=self.wire_name, api_key=self.api_key or "ollama",
                                     base_url=self.base_url, temperature=TEMPERATURE)
+            self._chat.client = _TracedCompletions(self._chat.client)
+            # A json_schema response_format goes through root_client...parse().
+            self._chat.root_client.chat.completions = _TracedCompletions(self._chat.root_client.chat.completions)
         return self._chat
 
     def track(self, response: BaseMessage) -> None:
@@ -352,26 +439,61 @@ SEM: dict[str, tuple[str, dict[str, str]]] = {
 _PY_TYPES = {str: str, int: int, float: float, bool: bool}
 
 
+_JSON_TYPES = {str: "string", int: "integer", float: "number", bool: "boolean"}
+
+
 def make_tool(fn: Callable[..., str]) -> BaseTool:
-    """byLLM's `tool_to_schema` over a `Repo` method: signature + sem strings, as a StructuredTool."""
+    """byLLM's `tool_to_schema` over a `Repo` method: signature + sem strings, as a StructuredTool.
+
+    The args schema is a plain JSON-schema dict rather than a pydantic model so
+    that it is byte-for-byte what `Tool(repo.read_file).get_json_schema()`
+    produces on the Jac side: the description prefixed with the name, every
+    parameter listed as required and no defaults in the schema. The last two
+    matter: with them the model always supplies `start_line`/`end_line` and
+    reads a window; with defaults it omits them and reads whole files into the
+    shared conversation. A parameter the model leaves out falls back to the
+    Python default, as byLLM's parse_arguments does.
+    """
     name = fn.__name__
     description, param_sem = SEM[name]
-    fields: dict[str, Any] = {}
+    props: dict[str, Any] = {}
+    hints = get_type_hints(fn)      # resolved types; `param.annotation` is a string under postponed annotations
     for pname, param in inspect.signature(fn).parameters.items():
-        ptype = _PY_TYPES.get(param.annotation, str)
-        default = ... if param.default is inspect.Parameter.empty else param.default
-        fields[pname] = (ptype, Field(default, description=param_sem.get(pname, "")))
-    args_schema = create_model(f"{name}_args", **fields)
+        props[pname] = {"type": _JSON_TYPES.get(hints.get(pname, str), "string"),
+                        "description": param_sem.get(pname, "")}
+    args_schema = {"type": "object", "properties": props, "required": list(props),
+                   "additionalProperties": False}
 
     def safe(**kwargs: Any) -> str:
+        # byLLM's parse_arguments: coerce each supplied argument to its annotation.
+        args: dict[str, Any] = {}
+        for k, v in kwargs.items():
+            if k not in props:
+                continue
+            want = hints.get(k, str)
+            try:
+                args[k] = v if isinstance(v, want) and not (want is int and isinstance(v, bool)) else want(v)
+            except (TypeError, ValueError):
+                return f"Error: argument '{k}' of {name} must be {want.__name__}; got {v!r}."
         try:
-            out = fn(**kwargs)
+            out = fn(**args)
         except Exception as e:  # noqa: BLE001 - a tool must not end the phase
             return f"Error: {name} failed: {type(e).__name__}: {e}"
         return out if isinstance(out, str) else str(out)
 
-    return StructuredTool.from_function(func=safe, name=name, description=description,
+    return StructuredTool.from_function(func=safe, name=name, description=f"{name}: {description}",
                                         args_schema=args_schema)
+
+
+def spec(tool: BaseTool) -> dict[str, Any]:
+    """The OpenAI tool spec byLLM's `tool_to_schema` emits for this tool."""
+    schema = tool.args_schema if isinstance(tool.args_schema, dict) else tool.args_schema.model_json_schema()
+    return {"type": "function", "function": {
+        "name": tool.name, "description": tool.description,
+        "parameters": {"type": "object",
+                       "properties": {k: {"type": v["type"], "description": v.get("description", "")}
+                                      for k, v in schema["properties"].items()},
+                       "required": list(schema["properties"]), "additionalProperties": False}}}
 
 
 def _finish(final_output: str) -> str:

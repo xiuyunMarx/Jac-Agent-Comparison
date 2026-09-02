@@ -294,6 +294,7 @@ in: the harness resets the graded test files itself before running.
 | `logs/<instance_id>/job.json` | the objective the agent was given |
 | `logs/<instance_id>/result.json` | what the agent reported, including its full phase ledger |
 | `logs/<instance_id>/agent.log` | the shim's transcript |
+| `logs/<instance_id>/llm_trace.jsonl` | every model call as sent: full request when it opens a phase or routes, else the newest message; usage; reply (the driver sets `$CODEAGENT_TRACE`; `trace_diff.py <results/run> <instance> jac langgraph openai` diffs arms) |
 | `eval_logs/<instance_id>/test_output.txt` | the captured grading log |
 | `eval_results.jsonl` | one verdict per line, appended as it lands, so grading resumes |
 | `<model>.<run-id>.json` | the harness-shaped report |

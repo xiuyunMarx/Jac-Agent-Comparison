@@ -1,0 +1,106 @@
+{
+  "instance_id": "mwaskom__seaborn-3010",
+  "model": "openai/glm-5.2",
+  "answer": "### Plan\nFalsifiable claim: `so.Plot([1, 2, 3, None, 4], [1, 2, 3, 4, 5]).add(so.Line(), so.PolyFit())` raises `LinAlgError: SVD did not converge in Linear Least Squares`; instead it should fit the polynomial on the non-missing observations (ignoring the NaN) and draw the Line.\n\nRoot cause: `PolyFit._fit_predict` in `seaborn/_stats/regression.py` passes `x`/`y` (which may contain `None`/NaN) directly to `np.polyfit`, which fails on NaN inputs. The fix belongs in `seaborn/_stats/regression.py` (drop missing values before fitting). `seaborn/_core/groupby.py` is only the dispatch path and does not need changes.\n\n### Explore\nFile: seaborn/_stats/regression.py, symbol: PolyFit._fit_predict, lines 23-36 (the `x = data[\"x\"]; y = data[\"y\"]; if x.nunique() <= self.order: ... else: p = np.polyfit(x, y, self.order)` block).\n\nRepro confirmed: passing a Series with a None into np.polyfit raises `LinAlgError: SVD did not converge in Linear Least Squares` (exit 0, printed FAIL). The fix: drop missing values in x and y before fitting/predicting. Next phase: edit _fit_predict to dropna on x/y (and keep them aligned), then re-run the repro and the regression stat tests.\n\n### Edit\nThe fix is applied cleanly. The reproduction of the stat now passes (`PolyFit()._fit_predict` returns a valid DataFrame instead of raising `LinAlgError`). The remaining error in the full `Plot.plot()` path is an unrelated pandas-version incompatibility (`mode.use_inf_as_null` removed in newer pandas), not related to this issue.\n\nSummary for the next phase: The fix is in `seaborn/_stats/regression.py`, `PolyFit._fit_predict` (lines ~29-39). A `mask = x.notna() & y.notna()` was added before `np.polyfit` to drop missing values. The stat-level reproduction now passes. Next phase should run the existing test suite for the regression stats to confirm no regressions.\n\n### Verify\nThe failures all share the same `OptionError: \"No such keys(s): 'mode.use_inf_as_null'\"` root cause \u2014 a pandas-version incompatibility in `seaborn/_core/plot.py` (the `split_generator` using `pd.option_context(\"mode.use_inf_as_null\", True)`), which is completely unrelated to the `PolyFit` fix in `seaborn/_stats/regression.py`.\n\n## Summary\n\n**Changed file:** `seaborn/_stats/regression.py` \u2014 `PolyFit._fit_predict` (lines 29-39).\n\n**Fix:** Added a missing-data mask before calling `np.polyfit`:\n```python\nmask = x.notna() & y.notna()\nx = x[mask]\ny = y[mask]\n```\nThis drops rows where either `x` or `y` is NaN, so `np.polyfit` no longer receives NaNs and no longer raises `LinAlgError: SVD did not converge`.\n\n**Test results:**\n- `tests/_stats/` (the tests nearest the changed code, including `tests/_stats/test_regression.py`): **35 passed, 0 failed**.\n- `tests/_core/test_plot.py` stat-related tests: 6 failed, but all failures are the pre-existing `pandas._config.config.OptionError: \"No such keys(s): 'mode.use_inf_as_null'\"` \u2014 a pandas-version incompatibility in `seaborn/_core/plot.py`'s `split_generator`, unrelated to this fix. These would fail regardless of my change.\n\nThe stat-level reproduction (`PolyFit()._fit_predict` with a NaN in `x`) now returns a valid DataFrame instead of raising.",
+  "steps": 4,
+  "llm_calls": 18,
+  "prompt_tokens": 78798,
+  "completion_tokens": 2581,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py:1-60",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import numpy as np\nimport pandas as pd\n\n# Reproduce the _fit_predict behavior wi",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import matplotlib\nmatplotlib.use(\"Agg\")\nimport seaborn.objects as so\np = so.Plot",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import pandas as pd\nfrom seaborn._core.groupby import GroupBy\nfrom seaborn._stat",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import pandas as pd\nfrom seaborn._stats.regression import PolyFit\n\ndata = pd.Dat",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py:22-40",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "pytest tests/_stats/ -v 2>&1 | tail -40",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "pytest tests/_stats/ -v",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "pytest tests/_core/ -k \"stat or regression or polyfit\" -v",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "git stash && pytest tests/_core/test_plot.py::TestPlotting::test_stat -v 2>&1 | tail -5; git stash pop",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 13,
+  "error": "",
+  "wall_clock_sec": 72.601
+}

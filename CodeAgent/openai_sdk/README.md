@@ -54,7 +54,20 @@ phase, sequential tool dispatch, the guard before every round, the
 "provide only your final answer" nudge on abort, and the write-back that keeps
 one conversation running through every phase. `visit [...] by llm(select=1,
 intent=..., incl_info=...)` is `select_edge`: the candidates rendered as
-byLLM's router renders them, answered under a JSON schema over the handles.
+byLLM's router renders them, answered under byLLM's own JSON schema for a
+`list` (`schema_object_wrapper`), with byLLM's schema hint at the end of the
+prompt and its one correction retry when the first answer is not JSON. GLM
+over ollama's `/v1` answers that first call in prose every time, so a route
+costs two calls on every arm alike.
+
+Set `CODEAGENT_TRACE=<file>` and every model call is appended there as one
+JSON line: the request as it went on the wire (in full when the call opens a
+phase or routes, else the newest message), the usage and the reply. The
+bridge sets it to `logs/<instance>/llm_trace.jsonl`, and
+`swebench_bridge/trace_diff.py` diffs those files across arms; with the same
+model, the same instance and the same tool results, the traces of the three
+arms are identical byte for byte, so the numbers differ only where the model
+chose differently.
 
 ## SWE-bench
 

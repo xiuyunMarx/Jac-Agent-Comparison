@@ -1,0 +1,52 @@
+### Plan
+Falsifiable claim: `Sitemap.get_latest_lastmod()` in `django/contrib/sitemaps/__init__.py` (lines ~165-172) calls `max([self.lastmod(item) for item in self.items()])` inside a `try/except TypeError`. When `self.items()` returns an empty sequence, `max()` raises `ValueError` (not `TypeError`), which escapes the handler and propagates to the sitemap index view. It should instead return `None` in that case, consistent with the existing `TypeError` handling.
+
+Root cause file: `django/contrib/sitemaps/__init__.py` — the `except TypeError:` in `get_latest_lastmod` should also catch `ValueError` (the issue suggests `except (TypeError, ValueError):`).
+
+Likely involved source files (1-3):
+1. `django/contrib/sitemaps/__init__.py` (the `Sitemap.get_latest_lastmod` method — the fix target)
+2. `django/contrib/sitemaps/views.py` (caller `site.get_latest_lastmod()` in `index`, not needing change)
+
+Tests covering this live in `tests/sitemaps_tests/test_http.py` and `tests/sitemaps_tests/urls/http.py` (not to be edited).
+
+### Explore
+Confirmed reproduction fails with `ValueError: max() arg is an empty sequence`.
+
+**Location:** `django/contrib/sitemaps/__init__.py`, method `Sitemap.get_latest_lastmod`, lines 165-170:
+
+```python
+    def get_latest_lastmod(self):
+        if not hasattr(self, "lastmod"):
+            return None
+        if callable(self.lastmod):
+            try:
+                return max([self.lastmod(item) for item in self.items()])
+            except TypeError:
+                return None
+        else:
+            return self.lastmod
+```
+
+**Root cause:** When `items()` returns an empty sequence and `lastmod` is callable, `max([])` raises `ValueError` (not `TypeError`), which is not caught, so the exception propagates. The fix is to also catch `ValueError` (or return `None` when `items()` is empty).
+
+**Repro output:** `ValueError max() arg is an empty sequence`
+
+The next phase should change line 169 from `except TypeError:` to `except (TypeError, ValueError):` in `django/contrib/sitemaps/__init__.py`, then run the sitemaps tests to verify.
+
+### Edit
+The edit is confirmed in place: line 169 now reads `except (TypeError, ValueError):`. The reproduction now passes, returning `None` instead of raising `ValueError`.
+
+**Summary for the next phase:** The fix has been applied in `django/contrib/sitemaps/__init__.py`, method `Sitemap.get_latest_lastmod` (line 169): changed `except TypeError:` to `except (TypeError, ValueError):` so that an empty `items()` list with a callable `lastmod` returns `None` rather than raising `ValueError: max() arg is an empty sequence`. The reproduction snippet now prints `result: None`. The next phase should run the existing sitemaps test suite (e.g. `python tests/runtests.py sitemaps_tests`) to confirm no regressions.
+
+### Verify
+Ran the repository's existing sitemaps test suite with `python tests/runtests.py sitemaps_tests -v 2`.
+
+Output summary:
+- Found 60 test(s).
+- All 60 tests passed (each reported `... ok`).
+- Final line: `Ran 60 tests in 0.102s` followed by `OK`.
+- No failures, no errors.
+
+The change in `django/contrib/sitemaps/__init__.py` (`Sitemap.get_latest_lastmod`, line 169: `except TypeError:` → `except (TypeError, ValueError):`) introduces no regressions. The relevant tests `test_sitemap_get_latest_lastmod`, `test_sitemap_get_latest_lastmod_none`, `test_empty_sitemap`, and `test_sitemap_without_entries` all pass.
+[swe_entry] django__django-16255 ok steps=4 tools=10
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jaseci/jac

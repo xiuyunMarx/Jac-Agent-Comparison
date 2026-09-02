@@ -1,0 +1,41 @@
+### Plan
+**Falsifiable claim:** `coth(log(tan(x))).subs(x, 2)` raises `NameError: name 'cotm' is not defined` instead of evaluating to a valid numeric result.
+
+**Root cause:** In `sympy/functions/elementary/hyperbolic.py` line 590, inside `coth.eval`, the code defines `cothm = coth(m)` on line 588 but then references `cotm` (missing the `h`) on line 590 — a typo causing the `NameError`.
+
+**Files involved:**
+1. `sympy/functions/elementary/hyperbolic.py` (the single source file with the bug)
+
+**Fix:** Change `cotm` to `cothm` on line 590 so it matches the variable actually defined.
+
+### Explore
+Confirmed the failure. 
+
+**Summary for next phase:**
+- **File:** `sympy/functions/elementary/hyperbolic.py`
+- **Symbol:** `coth.eval` (the `eval` staticmethod of the `coth` class)
+- **Line range:** Lines 585–591, specifically line 590 which reads `if cotm is S.ComplexInfinity:` — a typo where `cotm` should be `cothm` (the variable defined on line 588 as `cothm = coth(m)`).
+- **Repro output:** `NameError: name 'cotm' is not defined` raised at line 590 of `hyperbolic.py` when running `coth(log(tan(x))).subs(x, 2)`.
+
+The fix is to change `cotm` to `cothm` on line 590.
+
+### Edit
+The fix is applied and the reproduction now passes (returns symbolic results instead of raising `NameError`).
+
+**Summary for next phase:**
+- Applied a one-character fix in `sympy/functions/elementary/hyperbolic.py` line 590: changed `cotm` to `cothm` (matching the variable defined on line 588).
+- Re-ran the reproduction: `coth(log(tan(x))).subs(x, 2)` (and 3, 5, 8) now evaluate without error, returning `coth(log(-tan(2)))` etc. instead of raising `NameError`.
+- The edit is confirmed in the file. Next phase should run the relevant test suite to confirm no regressions.
+
+### Verify
+Fixed the issue in sympy/functions/elementary/hyperbolic.py, line 590, inside coth.eval.
+
+Root cause: A typo — the code defined `cothm = coth(m)` (line 588) but referenced the undefined name `cotm` on line 590 (`if cotm is S.ComplexInfinity:`), causing `NameError: name 'cotm' is not defined` for inputs like `coth(log(tan(x))).subs(x, 2)`.
+
+Fix: Changed `cotm` to `cothm` on line 590 so it matches the variable actually defined.
+
+Verification:
+- Reproduction `coth(log(tan(x))).subs(x, 2)` (and 3, 5, 8) now evaluates without error instead of raising NameError.
+- Ran the nearest test suite: `sympy.test('sympy/functions/elementary/tests/test_hyperbolic.py')` → "tests finished: 45 passed, in 0.56 seconds" [OK], no failures.
+[swe_entry] sympy__sympy-13480 ok steps=4 tools=16
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jaseci/jac

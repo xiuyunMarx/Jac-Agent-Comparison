@@ -1,0 +1,120 @@
+{
+  "instance_id": "mwaskom__seaborn-3010",
+  "model": "openai/glm-5.2",
+  "answer": "### Plan\nFalsifiable claim: `so.Plot([1,2,3,None,4], [1,2,3,4,5]).add(so.Line(), so.PolyFit())` raises `LinAlgError` because `PolyFit._fit_predict` (in `seaborn/_stats/regression.py`) feeds `x`/`y` containing `None`/NaN directly into `np.polyfit`. It should instead drop rows with missing x or y values before fitting (mirroring `seaborn/_stats/aggregation.py` and `seaborn/_stats/histogram.py`, which call `dropna`). Primary file to fix: `seaborn/_stats/regression.py`.\n\n### Explore\nFile: seaborn/_stats/regression.py, symbol PolyFit._fit_predict, lines 24-38.\n\nThe `_fit_predict` method reads `x = data[\"x\"]` / `y = data[\"y\"]` and passes them straight to `np.polyfit(x, y, self.order)` without dropping missing values, so an NaN in either column propagates into polyfit and raises `LinAlgError: SVD did not converge in Linear Least Squares`.\n\nMinimal repro confirmed: passing Series with a NaN to np.polyfit raises `LinAlgError: SVD did not converge in Linear Least Squares` (exit code 0, printed FAIL).\n\nFix needed: drop rows where x or y is NA before fitting (mirroring aggregation.py's `.dropna(subset=[\"x\",\"y\"])`). Next phase should edit `_fit_predict` to dropna on x/y and re-run the repro plus the regression stats tests.\n\n### Edit\nThe fix works. The reproduction now passes (NaN count: 0, fit succeeds). Next phase needs to run the existing test suite covering regression stats.\n\n### Verify\nVerification complete.\n\nChanged file: `seaborn/_stats/regression.py` \u2014 `PolyFit._fit_predict` now drops rows where x or y is missing before fitting, so `np.polyfit` no longer receives NaNs.\n\nTest results:\n- `tests/_stats/` (all stats tests): **35 passed** \u2014 includes `tests/_stats/test_regression.py` (**2 passed**).\n- `tests/_core/test_plot.py` filtered by stat/regression/PolyFit: 6 failed, 1 passed, 1 xfailed. All 6 failures are pre-existing environment incompatibilities unrelated to this change \u2014 they fail with `pandas._config.config.OptionError: \"No such keys(s): 'mode.use_inf_as_null'\"` originating at `seaborn/_core/plot.py:1494` (a removed pandas option), not in the regression code I touched.\n\nThe reproduction from the issue now succeeds: `PolyFit._fit_predict` on data containing `None`/NaN returns a valid 100-row fit with no NaNs instead of raising `LinAlgError`.",
+  "steps": 4,
+  "llm_calls": 20,
+  "prompt_tokens": 94233,
+  "completion_tokens": 2236,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py:1-60",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "dropna|notna|isna in seaborn/_stats (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import numpy as np\nimport pandas as pd\n\n# Reproduce the _fit_predict logic with ",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py:22-45",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import numpy as np\nimport pandas as pd\nfrom seaborn._stats.regression import Pol",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import numpy as np\nimport pandas as pd\nfrom seaborn._stats.regression import Pol",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest tests/_stats/ -q 2>&1 | tail -30",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest tests/_stats/ -q",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest tests/_core/ -q -k \"stat or regression or PolyFit\"",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest tests/_stats/test_regression.py -q",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "git stash && python -m pytest \"tests/_core/test_plot.py::TestPlotting::test_stat\" -q; git stash pop",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "git show HEAD:seaborn/_stats/regression.py | head -40",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 15,
+  "error": "",
+  "wall_clock_sec": 87.755
+}

@@ -1,0 +1,53 @@
+### Plan
+Falsifiable claim: Sitemap.get_latest_lastmod() (django/contrib/sitemaps/__init__.py, ~lines 168-173) raises an uncaught ValueError ("max() arg is an empty sequence") when lastmod is callable but self.items() returns no items; it should return None. The only source file involved is django/contrib/sitemaps/__init__.py. Fix: also catch ValueError in the try/except around the max() call.
+
+### Explore
+Located the bug. File: django/contrib/sitemaps/__init__.py, symbol: Sitemap.get_latest_lastmod, lines 165-172. Line 171 currently reads `except TypeError:`. When items() is empty, `max([...])` raises ValueError ("max() arg is an empty sequence"), which is not caught.
+
+Reproduction confirmed failing:
+```
+print("get_latest_lastmod():", s.get_latest_lastmod())
+...
+ValueError: max() arg is an empty sequence
+```
+
+Fix needed: change line 171 from `except TypeError:` to `except (TypeError, ValueError):` so get_latest_lastmod returns None when items() is empty.
+
+### Edit
+Edit applied to `django/contrib/sitemaps/__init__.py`, in `Sitemap.get_latest_lastmod` (lines 166-174).
+
+Change: `except TypeError:` → `except (TypeError, ValueError):` so that an empty `items()` list (where `max([])` raises `ValueError: max() arg is an empty sequence`) is handled gracefully and returns `None`.
+
+Reproduction before fix raised `ValueError: max() arg is an empty sequence`; after fix it returns `None` (exit code 0). The change is minimal and confined to the single `except` clause.
+
+### Verify
+## Summary
+
+**Issue:** `Sitemap.get_latest_lastmod()` raised `ValueError: max() arg is an empty sequence` when a sitemap had a callable `lastmod` but `items()` returned an empty list.
+
+**Fix:** In `django/contrib/sitemaps/__init__.py`, method `Sitemap.get_latest_lastmod()` (around line 169-171), changed the exception handler from `except TypeError:` to `except (TypeError, ValueError):` so that an empty item sequence (which makes `max()` raise `ValueError`) is handled gracefully by returning `None`.
+
+**Diff:**
+```python
+         if callable(self.lastmod):
+             try:
+                 return max([self.lastmod(item) for item in self.items()])
+-            except TypeError:
++            except (TypeError, ValueError):
+                 return None
+         else:
+             return self.lastmod
+```
+
+**Verification:**
+- A minimal reproduction (empty sitemap with callable `lastmod`) now returns `None` instead of raising `ValueError`.
+- Existing sitemaps test suite run via `python tests/runtests.py sitemaps_tests --settings=test_sqlite`:
+  ```
+  Found 60 test(s).
+  ............................................................
+  Ran 60 tests in 0.109s
+  OK
+  ```
+  All 60 tests passed, no failures.
+[swe_entry] django__django-16255 ok steps=4 tools=21
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jaseci/jac

@@ -1,0 +1,85 @@
+{
+  "instance_id": "scikit-learn__scikit-learn-13439",
+  "model": "openai/glm-5.2",
+  "answer": "### Plan\nFalsifiable claim: Calling `len(pipe)` on a `sklearn.pipeline.Pipeline` instance raises `TypeError: object of type 'Pipeline' has no len()`, but it should return the number of steps (`len(self.steps)`) so that slicing like `pipe[:len(pipe)]` works naturally.\n\nMost likely source file: `sklearn/pipeline.py` (class `Pipeline` at line 29, near `__getitem__` at line 202). A `__len__` method should be added to the `Pipeline` class (and likely `FeatureUnion` at line 665 for consistency) returning `len(self.steps)` / `len(self.transformer_list)`.\n\n### Explore\nConfirmed the issue. The `Pipeline` class in `sklearn/pipeline.py` defines `__getitem__` (line 202) but no `__len__`, so `len(pipe)` raises `TypeError: object of type 'Pipeline' has no len()`. Fix: add a `__len__` method returning `len(self.steps)`, placed near `__getitem__` (after line 222).\n\n### Edit\nThe fix works. `len(pipe)` returns 2 and `pipe[:len(pipe)]` works.\n\n## Summary\nAdded a `__len__` method to the `Pipeline` class in `sklearn/pipeline.py` (line 202) that returns `len(self.steps)`. This enables `len(pipe)` and makes `pipe[:len(pipe)]` work with the new indexing support.\n\n### Verify\n## Summary\nRan `python -m pytest sklearn/tests/test_pipeline.py -q` \u2014 **41 passed, 2 warnings** in 1.01s. No failures.",
+  "steps": 4,
+  "llm_calls": 16,
+  "prompt_tokens": 43399,
+  "completion_tokens": 1211,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "grep",
+      "args": {
+        "args": "__getitem__|__len__|class Pipeline in sklearn/pipeline.py (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "class Pipeline|__getitem__|__len__ in sklearn/pipeline.py (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "outline",
+      "args": {
+        "args": "sklearn/pipeline.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sklearn/pipeline.py:190-230",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "from sklearn import svm\nfrom sklearn.datasets import samples_generator\nfrom skle",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "sklearn/pipeline.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "from sklearn import svm\nfrom sklearn.datasets import samples_generator\nfrom skle",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest sklearn/tests/test_pipeline.py -q 2>&1 | tail -30",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest sklearn/tests/test_pipeline.py -q",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 10,
+  "error": "",
+  "wall_clock_sec": 35.886
+}

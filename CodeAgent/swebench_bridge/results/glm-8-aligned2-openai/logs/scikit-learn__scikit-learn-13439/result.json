@@ -1,0 +1,99 @@
+{
+  "instance_id": "scikit-learn__scikit-learn-13439",
+  "model": "openai/glm-5.2",
+  "answer": "### Plan\nClaim: `len(pipe)` on a sklearn `Pipeline` raises TypeError because `Pipeline` implements `__getitem__` (line 202 in sklearn/pipeline.py) but not `__len__`; it should return the number of steps so `len(pipe)` and `pipe[:len(pipe)]` work. The only source file involved is sklearn/pipeline.py (Pipeline class). Fix: add a `__len__` method returning `len(self.steps)`.\n\n### Explore\nRepro confirmed: `len(pipe)` raises `TypeError: object of type 'Pipeline' has no len()`.\n\n- File: `sklearn/pipeline.py`\n- Symbol: `Pipeline` class\n- Location: `__getitem__` at lines 202-221. The class supports indexing/slicing via `__getitem__` but lacks `__len__`, which Python requires for slice-based `len()` calls like `pipe[:len(pipe)]`.\n- Fix: Add a `__len__` method (returning `len(self.steps)`) to the `Pipeline` class, placed before `__getitem__` around line 202.\n\n### Edit\nFixed the issue by adding a `__len__` method to the `Pipeline` class in `sklearn/pipeline.py` (placed just before `__getitem__`):\n\n```python\ndef __len__(self):\n    \"\"\"Returns the length of the Pipeline.\"\"\"\n    return len(self.steps)\n```\n\nRoot cause: `Pipeline` implemented `__getitem__` (enabling slicing/indexing) but not `__len__`, so `len(pipe)` raised `TypeError: object of type 'Pipeline' has no len()` and `pipe[:len(pipe)]` could not work.\n\nVerification:\n- Reproduction now passes: `len(pipe)` returns `2` and `pipe[:len(pipe)]` returns the full sub-Pipeline.\n- Existing tests `sklearn/tests/test_pipeline.py`: 41 passed, 2 warnings.\n\n### Verify\n## Summary\n\n**Issue:** `Pipeline` implemented `__getitem__` (enabling slicing/indexing) but not `__len__`, so `len(pipe)` and `pipe[:len(pipe)]` raised `TypeError: object of type 'Pipeline' has no len()`.\n\n**Fix:** Added a `__len__` method to the `Pipeline` class in `sklearn/pipeline.py` (immediately before `__getitem__`) that returns `len(self.steps)`.\n\n```python\ndef __len__(self):\n    \"\"\"Returns the length of the Pipeline.\"\"\"\n    return len(self.steps)\n```\n\n**Verification:**\n- Reproduction from the issue now works: `len(pipe)` returns `2`, and `pipe[:len(pipe)]` returns a full sub-pipeline.\n- Ran the existing test suite: `python -m pytest sklearn/tests/test_pipeline.py -v` \u2192 **41 passed, 2 warnings** (no failures). The change is minimal and touches only library source.",
+  "steps": 4,
+  "llm_calls": 15,
+  "prompt_tokens": 50749,
+  "completion_tokens": 1851,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "grep",
+      "args": {
+        "args": "__getitem__ in sklearn/pipeline.py (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "outline",
+      "args": {
+        "args": "sklearn/pipeline.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sklearn/pipeline.py:202-232",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "from sklearn import svm\nfrom sklearn.datasets import samples_generator\nfrom skle",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sklearn/pipeline.py:190-223",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "sklearn/pipeline.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "from sklearn import svm\nfrom sklearn.datasets import samples_generator\nfrom skle",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess, sys\nr = subprocess.run([sys.executable, \"-m\", \"pytest\", \"skle",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess, sys\nr = subprocess.run([sys.executable, \"-m\", \"pytest\", \"skle",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest sklearn/tests/test_pipeline.py -v 2>&1 | tail -60",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest sklearn/tests/test_pipeline.py -v",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 12,
+  "error": "",
+  "wall_clock_sec": 50.16
+}

@@ -1,0 +1,148 @@
+{
+  "instance_id": "mwaskom__seaborn-3010",
+  "model": "openai/glm-5.2",
+  "answer": "### Plan\nFalsifiable claim: `so.Plot([1, 2, 3, None, 4], [1, 2, 3, 4, 5]).add(so.Line(), so.PolyFit())` raises `LinAlgError: SVD did not converge` because `PolyFit._fit_predict` in `seaborn/_stats/regression.py` passes data containing `None`/NaN values directly to `np.polyfit`; it should drop missing data before fitting (and ideally before the `nunique` check) so the fit succeeds.\n\nMost likely involved source files (1):\n- `seaborn/_stats/regression.py` (specifically `PolyFit._fit_predict`, lines ~24-37)\n\nSecondary context (not needing edits):\n- `seaborn/_core/groupby.py` (`GroupBy.apply`) \u2014 just routes data to `_fit_predict`.\n- `seaborn/_stats/base.py` \u2014 base `Stat` class.\n\nNext phase: edit `seaborn/_stats/regression.py` to drop NaN rows in `_fit_predict` before computing `x`/`y`, then run the regression stat tests to verify.\n\n### Explore\nThe issue is confirmed. The function `PolyFit._fit_predict` in `seaborn/_stats/regression.py` (lines 17-33) does not drop missing values before calling `np.polyfit`, causing a `LinAlgError` when the input contains `NaN`.\n\n**File:** `seaborn/_stats/regression.py`\n**Symbol:** `PolyFit._fit_predict`\n**Lines:** 17-33\n\n**Repro output:**\n```\nLinAlgError SVD did not converge in Linear Least Squares\n```\n\nThe fix is to drop rows with missing `x` or `y` values before fitting, consistent with how other stats (e.g. `aggregation.py`) handle missing data.\n\n### Edit\nFixed `PolyFit._fit_predict` in `seaborn/_stats/regression.py` by dropping rows with missing `x` or `y` before fitting, consistent with how other stats (e.g. `aggregation.py`) handle missing data.\n\nChange:\n```python\n    def _fit_predict(self, data):\n\n        data = data.dropna(subset=[\"x\", \"y\"])\n        x = data[\"x\"]\n        y = data[\"y\"]\n        if x.nunique() <= self.order:\n```\n\nReproduction now passes (returns a 100-row fitted DataFrame instead of raising `LinAlgError`). Next phase: run the existing test suite covering this code.\n\n### Verify\nThe fix was applied to `seaborn/_stats/regression.py` in `PolyFit._fit_predict` by dropping rows with missing `x` or `y` values before fitting (`data = data.dropna(subset=[\"x\", \"y\"])`), consistent with how other stats handle missing data.\n\nExisting tests covering the changed code were run:\n- `python -m pytest tests/_stats/test_regression.py -v`\n- Result: 2 passed in 0.29s\n  - `TestPolyFit::test_no_grouper` PASSED\n  - `TestPolyFit::test_one_grouper` PASSED\n\nThe reproduction (PolyFit with a None in the data) now succeeds instead of raising `LinAlgError`.",
+  "steps": 4,
+  "llm_calls": 25,
+  "prompt_tokens": 114558,
+  "completion_tokens": 2516,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py:1-60",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import numpy as np\nimport pandas as pd\n\n# Simulate PolyFit._fit_predict with mis",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "dropna|notna|notnull in seaborn/_stats (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py:17-47",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py:17-50",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import numpy as np\nimport pandas as pd\nfrom seaborn._stats.regression import Pol",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nprint(subprocess.run([\"git\", \"diff\"], capture_output=True, tex",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nprint(subprocess.run([\"git\", \"diff\", \"seaborn/_stats/regressio",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nprint(subprocess.run([\"git\", \"status\"], capture_output=True, t",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "pytest tests/test_stats.py -k regression -v 2>&1 | tail -40",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest tests/test_stats.py -k regression -v",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "find tests -name \"*stat*\" -o -name \"*regression*\" | head -20",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -c \"import glob; print(glob.glob('tests/**/*stat*', recursive=True)); print(glob.glob('tests/**/*regression*', recursive=True))\"",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest tests/_stats/test_regression.py -v",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 19,
+  "error": "",
+  "wall_clock_sec": 75.526
+}

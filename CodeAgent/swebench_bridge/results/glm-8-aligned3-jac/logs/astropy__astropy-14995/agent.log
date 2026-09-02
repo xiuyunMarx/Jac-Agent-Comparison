@@ -1,0 +1,81 @@
+### Plan
+## Summary for next phase
+
+**Falsifiable claim:** `NDDataRef(array, mask=mask).multiply(1., handle_mask=np.bitwise_or).mask` (and `nref_mask.multiply(nref_nomask, ...)`) raises `TypeError: unsupported operand type(s) for |: 'int' and 'NoneType'` in v5.3, whereas in v5.2 it returned the existing mask unchanged. When exactly one operand has a mask, the existing mask should be copied to the result.
+
+**Root cause location:** `astropy/nddata/mixins/ndarithmetic.py`, method `_arithmetic_mask` (lines ~518-527). The branch logic only handles:
+- both masks None → return None
+- `self.mask` None, operand present → return `operand.mask`
+- `operand` None → return `self.mask`
+- else → `handle_mask(self.mask, operand.mask, ...)`
+
+It does **not** handle the case where `self.mask` is not None but `operand.mask` is None (operand present). That case falls into the final `else` and calls e.g. `np.bitwise_or(mask, None)`, producing the TypeError.
+
+**Fix:** Add a branch so that when the operand is present but its mask is None (while `self.mask` is not None), return `deepcopy(self.mask)` — symmetric to the existing `self.mask is None` branch. The single source file to edit is `astropy/nddata/mixins/ndarithmetic.py`.
+
+### Explore
+## Summary for next phase
+
+**Reproduction confirmed.** The minimal repro raises `TypeError: unsupported operand type(s) for |: 'int' and 'NoneType'` for both `mask * 1.0` and `mask * nomask`, while the no-mask and both-mask cases work.
+
+**File:** `astropy/nddata/mixins/ndarithmetic.py`
+**Symbol:** `NDArithmeticMixin._arithmetic_mask`
+**Line range:** 485–527 (specifically the branch logic at lines 517–527)
+
+Current logic:
+```python
+if (
+    self.mask is None and operand is not None and operand.mask is None
+) or handle_mask is None:
+    return None
+elif self.mask is None and operand is not None:
+    # Make a copy so there is no reference in the result.
+    return deepcopy(operand.mask)
+elif operand is None:
+    return deepcopy(self.mask)
+else:
+    # Now lets calculate the resulting mask (operation enforces copy)
+    return handle_mask(self.mask, operand.mask, **kwds)
+```
+
+The missing case: `self.mask` is not None but `operand` is present with `operand.mask` is None — this falls through to the `else` and calls `handle_mask(self.mask, None)`, causing the TypeError. The fix is to add a symmetric branch returning `deepcopy(self.mask)` when the operand is present but its mask is None.
+
+### Edit
+## Summary for next phase
+
+**Fix applied** to `astropy/nddata/mixins/ndarithmetic.py`, in `NDArithmeticMixin._arithmetic_mask` (added a symmetric branch at lines 523-525). When the operand is present but its mask is None (while `self.mask` is not None), the method now returns `deepcopy(self.mask)` instead of falling through to `handle_mask(self.mask, None)`.
+
+**Reproduction now passes** — all cases return the expected mask (the existing mask when only one operand has a mask, None when neither has a mask, and the bitwise_or result when both have masks).
+
+**Diff verified** — a minimal 3-line addition. Next phase should run the existing test suite for the arithmetic mixin to confirm no regressions.
+
+### Verify
+Fixed the issue in astropy/nddata/mixins/ndarithmetic.py, method NDArithmeticMixin._arithmetic_mask.
+
+Root cause: When one operand had a mask and the other (present) operand had mask=None, the branch logic fell through to `handle_mask(self.mask, None)`, which raised `TypeError: unsupported operand type(s) for |: 'int' and 'NoneType'` for callables like np.bitwise_or. The existing logic only handled the symmetric case (self.mask is None, operand present) but not self.mask present with operand.mask is None.
+
+Fix: Added a symmetric branch so that when the operand is present but its mask is None (while self.mask is not None), the method returns deepcopy(self.mask) — copying the existing mask to the result, matching v5.2 behavior.
+
+Diff:
+```
+@@ -522,6 +522,9 @@ class NDArithmeticMixin:
+             return deepcopy(operand.mask)
+         elif operand is None:
+             return deepcopy(self.mask)
++        elif operand is not None and operand.mask is None:
++            # Make a copy so there is no reference in the result.
++            return deepcopy(self.mask)
+         else:
+             # Now lets calculate the resulting mask (operation enforces copy)
+             return handle_mask(self.mask, operand.mask, **kwds)
+```
+
+Reproduction now passes for all cases (nomask*1.0 -> None, nomask*nomask -> None, mask*1.0 -> mask, mask*mask -> bitwise_or(mask,mask), mask*nomask -> mask, nomask*mask -> mask).
+
+Verification:
+- pytest astropy/nddata/mixins/tests/test_ndarithmetic.py: 179 passed in 0.64s (exit 0)
+- pytest astropy/nddata/tests/test_nd_data.py astropy/nddata/mixins/tests/: 409 passed in 11.40s (exit 0)
+
+No failures. Only an unrelated numpy binary-compatibility RuntimeWarning.
+[swe_entry] astropy__astropy-14995 ok steps=4 tools=18
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jaseci/jac

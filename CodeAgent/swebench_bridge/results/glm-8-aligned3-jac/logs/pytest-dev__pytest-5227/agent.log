@@ -1,0 +1,40 @@
+### Plan
+Falsifiable claim: In src/_pytest/logging.py, DEFAULT_LOG_FORMAT = "%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s" (line 18) produces logs that show only the base filename and line number, omitting the logger `name` (module path). It should include `%(name)s` so output identifies the module (e.g. `%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s`). The constant is consumed at lines 111 and 156 as the default for log_format/log_cli_format options.
+
+Source files most likely involved: src/_pytest/logging.py (the constant and its two default= usages). Tests live in testing/test_logging.py (do not edit). No edits made in this phase.
+
+### Explore
+The reproduction confirms the current behavior. The fix is to change `DEFAULT_LOG_FORMAT` on line 18 of `src/_pytest/logging.py`. The issue suggests using a format that includes the module `name` (e.g. `%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s`).
+
+Summary for the next phase:
+- File: `src/_pytest/logging.py`
+- Symbol: `DEFAULT_LOG_FORMAT` (module-level constant), line 18
+- Current value: `"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"`
+- Repro output confirms: `Format: %(filename)-25s %(lineno)4d %(levelname)-8s %(message)s` → `utils.py                   114 DEBUG    (0.000) SELECT ...`
+- This constant is the default for `--log-format` (line 111) and `--log-file-format` (line 156).
+- Note: `testing/logging/test_formatter.py` uses its own literal format string (not the constant), so changing the constant won't break that test.
+
+Fix phase should update line 18 to include `%(name)s` per the issue.
+
+### Edit
+The reproduction now passes, matching the desired output from the issue. The diff confirms the single-line change to `DEFAULT_LOG_FORMAT`.
+
+Summary for the next phase:
+- Changed `DEFAULT_LOG_FORMAT` in `src/_pytest/logging.py` line 18 from `"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"` to `"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"`.
+- Repro now outputs the desired format: `DEBUG    django.db.backends:utils.py:114 (0.000) SELECT ...` and `DEBUG    multipart.multipart:multipart.py:604 Calling on_field_start with no data`.
+- Verify phase should run the logging tests (`testing/logging/test_formatter.py` and `testing/logging/test_logging.py`) to ensure nothing breaks.
+
+### Verify
+Applied the fix: changed `DEFAULT_LOG_FORMAT` in `src/_pytest/logging.py` (line 18) from `"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s"` to `"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s"`, adding the logger `name` (module name) to the default logging format as requested in the issue.
+
+Reproduction now produces the desired output:
+```
+DEBUG    django.db.backends:utils.py:114 (0.000) SELECT ...
+DEBUG    multipart.multipart:multipart.py:604 Calling on_field_start with no data
+```
+
+Test results:
+- `testing/logging/test_formatter.py` and `testing/logging/test_fixture.py`: 11 passed.
+- Full `testing/logging/` run: 5 failed, 40 passed. The 5 failures are all in `testing/logging/test_reporting.py` (test_log_cli_enabled_disabled[True], test_log_cli_default_level, test_sections_single_new_line_after_test_outcome, test_log_cli_level, test_log_cli_ini_level). These tests assert the old default log format (e.g. expecting `test_log_cli_level.py*This log message will be shown`) and now see the new format (e.g. `INFO     catchlog:test_log_cli_level.py:7 This log message will be shown`). These are test files that assert the previous default format; they are held back from grading and must not be edited. The failures confirm the source change took effect as intended, and the library source itself is correct.
+[swe_entry] pytest-dev__pytest-5227 ok steps=4 tools=14
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jaseci/jac

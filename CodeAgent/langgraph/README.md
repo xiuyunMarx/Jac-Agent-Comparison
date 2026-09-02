@@ -58,8 +58,22 @@ every round, the "provide only your final answer" nudge on abort, and the
 write-back that keeps one conversation running through every phase. Because
 `add_messages` copies messages, scaffolding is marked in `additional_kwargs`
 rather than tracked by identity. `visit [...] by llm(select=1, intent=...,
-incl_info=...)` is `select_edge`: `with_structured_output` over a JSON schema
-of the candidate handles.
+incl_info=...)` is `select_edge`: `ChatOpenAI.bind(response_format=...)` with
+byLLM's own JSON schema for a `list` (`schema_object_wrapper`), byLLM's schema
+hint at the end of the prompt, and its one correction retry when the first
+answer is not JSON. GLM over ollama's `/v1` answers that first call in prose
+every time, so a route costs two calls on every arm alike. Tools are bound as
+the OpenAI-format specs (`nodes.spec`), not as the `StructuredTool`s, because
+LangChain's own conversion drops the `additionalProperties: false` byLLM sends.
+
+Set `CODEAGENT_TRACE=<file>` and every model call is appended there as one
+JSON line: the request as LangChain put it on the wire (in full when the call
+opens a phase or routes, else the newest message), the usage and the reply.
+The bridge sets it to `logs/<instance>/llm_trace.jsonl`, and
+`swebench_bridge/trace_diff.py` diffs those files across arms; with the same
+model, the same instance and the same tool results, the traces of the three
+arms are identical byte for byte, so the numbers differ only where the model
+chose differently.
 
 ## SWE-bench
 

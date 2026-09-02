@@ -1,0 +1,113 @@
+{
+  "instance_id": "pytest-dev__pytest-5227",
+  "model": "openai/glm-5.2",
+  "answer": "### Plan\nFalsifiable claim: In src/_pytest/logging.py, DEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\" (line 18) produces logs that show only the base filename and line number, omitting the logger `name` (module path). It should include `%(name)s` so output identifies the module (e.g. `%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s`). The constant is consumed at lines 111 and 156 as the default for log_format/log_cli_format options.\n\nSource files most likely involved: src/_pytest/logging.py (the constant and its two default= usages). Tests live in testing/test_logging.py (do not edit). No edits made in this phase.\n\n### Explore\nThe reproduction confirms the current behavior. The fix is to change `DEFAULT_LOG_FORMAT` on line 18 of `src/_pytest/logging.py`. The issue suggests using a format that includes the module `name` (e.g. `%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s`).\n\nSummary for the next phase:\n- File: `src/_pytest/logging.py`\n- Symbol: `DEFAULT_LOG_FORMAT` (module-level constant), line 18\n- Current value: `\"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"`\n- Repro output confirms: `Format: %(filename)-25s %(lineno)4d %(levelname)-8s %(message)s` \u2192 `utils.py                   114 DEBUG    (0.000) SELECT ...`\n- This constant is the default for `--log-format` (line 111) and `--log-file-format` (line 156).\n- Note: `testing/logging/test_formatter.py` uses its own literal format string (not the constant), so changing the constant won't break that test.\n\nFix phase should update line 18 to include `%(name)s` per the issue.\n\n### Edit\nThe reproduction now passes, matching the desired output from the issue. The diff confirms the single-line change to `DEFAULT_LOG_FORMAT`.\n\nSummary for the next phase:\n- Changed `DEFAULT_LOG_FORMAT` in `src/_pytest/logging.py` line 18 from `\"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"` to `\"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"`.\n- Repro now outputs the desired format: `DEBUG    django.db.backends:utils.py:114 (0.000) SELECT ...` and `DEBUG    multipart.multipart:multipart.py:604 Calling on_field_start with no data`.\n- Verify phase should run the logging tests (`testing/logging/test_formatter.py` and `testing/logging/test_logging.py`) to ensure nothing breaks.\n\n### Verify\nApplied the fix: changed `DEFAULT_LOG_FORMAT` in `src/_pytest/logging.py` (line 18) from `\"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"` to `\"%(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"`, adding the logger `name` (module name) to the default logging format as requested in the issue.\n\nReproduction now produces the desired output:\n```\nDEBUG    django.db.backends:utils.py:114 (0.000) SELECT ...\nDEBUG    multipart.multipart:multipart.py:604 Calling on_field_start with no data\n```\n\nTest results:\n- `testing/logging/test_formatter.py` and `testing/logging/test_fixture.py`: 11 passed.\n- Full `testing/logging/` run: 5 failed, 40 passed. The 5 failures are all in `testing/logging/test_reporting.py` (test_log_cli_enabled_disabled[True], test_log_cli_default_level, test_sections_single_new_line_after_test_outcome, test_log_cli_level, test_log_cli_ini_level). These tests assert the old default log format (e.g. expecting `test_log_cli_level.py*This log message will be shown`) and now see the new format (e.g. `INFO     catchlog:test_log_cli_level.py:7 This log message will be shown`). These are test files that assert the previous default format; they are held back from grading and must not be edited. The failures confirm the source change took effect as intended, and the library source itself is correct.",
+  "steps": 4,
+  "llm_calls": 20,
+  "prompt_tokens": 70363,
+  "completion_tokens": 3815,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "grep",
+      "args": {
+        "args": "DEFAULT_LOG_FORMAT in . (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "src/_pytest/logging.py:1-40",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import logging\nfrom _pytest.logging import DEFAULT_LOG_FORMAT\n\nprint(\"Format:\", ",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "DEFAULT_LOG_FORMAT|log-format|log_format in . (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "src/_pytest/logging.py:100-175",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "DEFAULT_LOG_FORMAT|filename.*lineno.*levelname|levelname.*name.*filename in testing (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "testing/logging/test_formatter.py:1-60",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "src/_pytest/logging.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import logging\nfrom _pytest.logging import DEFAULT_LOG_FORMAT\n\nprint(\"Format:\", ",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest testing/logging/test_formatter.py testing/logging/test_logging.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest testing/logging/",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "testing/logging/test_reporting.py:230-270",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest testing/logging/test_formatter.py testing/logging/test_fixture.py -v",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 14,
+  "error": "",
+  "wall_clock_sec": 79.917
+}

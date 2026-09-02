@@ -28,15 +28,12 @@ answer naming one handle.
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
 from nodes import (
-    CAPABILITY_SEM,
     DIRECTIVE_SEM,
     FINISH_TOOL,
     PHASES,
-    PHASE_CAPABILITY_SEM,
     Phase,
     PhaseCapability,
     Tool,
@@ -69,7 +66,9 @@ LAST_RESULT_CHARS = 500
 def call_frame(phase: Phase) -> str:
     """The user message byLLM renders for `node.work(directive=goal)`."""
     header = f"{phase.name}.work(directive: str) -> str --- {phase.sem}"
-    return f"{header}\n      directive: str ---- {DIRECTIVE_SEM}\ndirective = {phase.goal!r}"
+    frame = f"{header}\n      directive: str ---- {DIRECTIVE_SEM}\ndirective = {phase.goal!r}"
+    # byLLM's identity zone: `self`, since the node carries a typed member.
+    return f"{frame}\n\nself = {phase.name}(goal={phase.goal!r})\n    - goal: str"
 
 
 def assistant_turn(message: Any) -> dict[str, Any]:
@@ -221,8 +220,8 @@ def describe_node(phase_name: str) -> str:
 
 
 def describe_edge(edge: PhaseCapability) -> str:
-    return (f"{PHASE_CAPABILITY_SEM}(capability ({CAPABILITY_SEM})={_safe_repr(edge.capability)}, "
-            f"kind={_safe_repr(edge.kind)})")
+    # visit_routing renders the archetype's repr: class name and fields, no sems.
+    return f"PhaseCapability(capability={_safe_repr(edge.capability)}, kind={_safe_repr(edge.kind)})"
 
 
 def select_edge(
@@ -232,7 +231,8 @@ def select_edge(
     walker: dict[str, Any],
     here: str,
 ) -> PhaseCapability | None:
-    """One routing call; the chosen edge, or None when the model picked nothing usable."""
+    """One routing call (two when the first answer is not JSON, as byLLM
+    retries once); the chosen edge, or None when nothing usable came back."""
     if not candidates:
         return None
     handles = [e.target for e in candidates]      # node class names are unique here
@@ -243,46 +243,68 @@ def select_edge(
              "Candidates (choose by handle):\n" + "\n".join(lines)]
     if incl_info:
         parts.append("\n".join(f"{k} = {v}" for k, v in incl_info.items()))
-    # byLLM's inject_schema_hint: the enum constraint restated in the last user
-    # message, because ollama-style servers treat response_format as a grammar
-    # at best and answer in prose without it.
-    parts.append(schema_hint(handles))
-    schema = {"type": "object",
-              "properties": {"result": {"type": "array", "items": {"type": "string", "enum": handles}}},
-              "required": ["result"], "additionalProperties": False}
+    parts.append(SCHEMA_HINT)
+    response_format = route_schema(handles)
+    messages: list[dict[str, Any]] = [{"role": "system", "content": ROUTER_SYSTEM},
+                                      {"role": "user", "content": "\n\n".join(parts)}]
     try:
-        message = llm.complete(
-            [{"role": "system", "content": ROUTER_SYSTEM},
-             {"role": "user", "content": "\n\n".join(parts)}],
-            response_format={"type": "json_schema",
-                             "json_schema": {"name": "RouteChoice", "strict": True, "schema": schema}},
-        )
-        text = message.content or ""
+        for attempt in range(2):
+            message = llm.complete(messages, response_format=response_format)
+            text = message.content or ""
+            try:
+                picked = parse_choice(text, handles)
+            except ValueError as e:
+                if attempt == 0:
+                    messages.append({"role": "user", "content": correction(text, str(e), response_format)})
+                    continue
+                return None
+            for item in picked:
+                return candidates[handles.index(item)]
+            return None
     except Exception:  # noqa: BLE001 - a routing failure is the `else` branch, not a crash
         return None
-    for item in parse_choice(text, handles):
-        return candidates[handles.index(item)]
     return None
 
 
-def schema_hint(handles: list[str]) -> str:
-    return "Output must be a JSON object matching the schema.\n- result must be one of: " + ", ".join(handles)
+def route_schema(handles: list[str]) -> dict[str, Any]:
+    """byLLM's response_format for `select=1` over these handles, field for field."""
+    names = ", ".join(handles)
+    return {"type": "json_schema", "json_schema": {"name": "list", "schema": {
+        "type": "object", "title": "schema_object_wrapper",
+        "properties": {"schema_object_wrapper": {
+            "type": "array",
+            "items": {"description": f"\nThe value *should* be one in this list: {handles!r} where the names are [{names}].",
+                      "type": "string", "enum": list(handles)},
+            "title": "List"}},
+        "required": ["schema_object_wrapper"], "additionalProperties": False}, "strict": True}}
+
+
+# byLLM's inject_schema_hint, as it renders for that schema: the field list,
+# not the enum. GLM over ollama's /v1 answers the first call in prose, and it
+# is the correction below that brings the JSON; the Jac arm pays both calls.
+SCHEMA_HINT = "Schema requirements:\n- schema_object_wrapper (array)"
+
+
+def correction(text: str, error: str, response_format: dict[str, Any]) -> str:
+    """byLLM's retry message after an unparseable structured answer."""
+    return ("Your previous response could not be used. The output parser reported: "
+            f"Failed to convert LLM output to 'list': {error}.\n"
+            f"Your previous response was:\n{text}\n"
+            "You MUST reply with ONLY a single JSON object that validates against this JSON schema for `list`:\n"
+            f"{json.dumps(response_format)}\n"
+            "Output the raw JSON object only, with no explanation, no reasoning text, no markdown code fences, "
+            "nothing before or after the JSON.\n\n" + SCHEMA_HINT)
 
 
 def parse_choice(text: str, handles: list[str]) -> list[str]:
-    """The handles the answer names, JSON first, then the handles as bare words."""
-    try:
-        data = json.loads(text)
-        chosen = data.get("result") if isinstance(data, dict) else data
-        if isinstance(chosen, str):
-            chosen = [chosen]
-        picked = [c for c in (chosen or []) if isinstance(c, str) and c in handles]
-        if picked:
-            return picked
-    except ValueError:
-        pass
-    found = [(m.start(), h) for h in handles for m in re.finditer(rf"\b{re.escape(h)}\b", text)]
-    return [h for _, h in sorted(found)]
+    """The handles the JSON answer names; raises ValueError as byLLM's parser does."""
+    data = json.loads(text)
+    chosen = data.get("schema_object_wrapper") if isinstance(data, dict) else data
+    if isinstance(chosen, str):
+        chosen = [chosen]
+    if not isinstance(chosen, list):
+        raise ValueError("not a list")
+    return [c for c in chosen if isinstance(c, str) and c in handles]
 
 
 __all__ = [

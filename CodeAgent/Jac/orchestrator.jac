@@ -1,4 +1,6 @@
 """swebench_bridge 的适配层：swe_entry.jac 从这里 import solve / active_model_name"""
+import json;
+import os;
 import re;
 import litellm;
 import main;
@@ -16,7 +18,63 @@ def _counting_completion(*args: any, **kwargs: any) -> any {
     if u is not None {
         usage_log.append(u);
     }
+    _trace_call(kwargs, resp);
     return resp;
+}
+
+# ---------------------------------------------------------------------------
+# Per-call trace, when $CODEAGENT_TRACE names a file (the bridge points it at
+# logs/<instance>/llm_trace.jsonl). One JSON line per model call: the request
+# as litellm received it -- in full when the call opens a phase or routes,
+# i.e. ends on a user message; otherwise just the newest message -- plus the
+# usage and the reply. Same shape on all three arms, so traces diff directly.
+# ---------------------------------------------------------------------------
+glob _trace: dict = {"n": 0};
+glob _KNOWN_KEYS: list[str] = ["model", "messages", "tools", "temperature", "response_format"];
+
+def _as_str(x: any) -> str { return str(x); }
+
+def _jsonable(x: any) -> any {
+    if x is None or isinstance(x, (str, int, float, bool)) { return x; }
+    if isinstance(x, dict) { return {str(k): _jsonable(v) for (k, v) in x.items()}; }
+    if isinstance(x, (list, tuple)) { return [_jsonable(v) for v in x]; }
+    if hasattr(x, "model_dump") {
+        try { return _jsonable(x.model_dump(exclude_none=True)); } except Exception {}
+    }
+    if hasattr(x, "to_dict") {
+        try { return _jsonable(x.to_dict()); } except Exception {}
+    }
+    if hasattr(x, "__dict__") { return _jsonable(vars(x)); }
+    return str(x);
+}
+
+def _trace_call(payload: dict, resp: any) {
+    _trace["n"] += 1;
+    path = os.environ.get("CODEAGENT_TRACE", "");
+    if not path { return; }
+    messages: list = [_jsonable(m) for m in (payload.get("messages") or [])];
+    last = messages[-1] if messages else {};
+    opens = isinstance(last, dict) and last.get("role") == "user";
+    tools: list = [_jsonable(t) for t in (payload.get("tools") or [])];
+    choices = getattr(resp, "choices", None) or [];
+    reply = _jsonable(choices[0].message) if choices else None;
+    row = {
+        "call": _trace["n"],
+        "model": payload.get("model"),
+        "n_messages": len(messages),
+        "tools": [t["function"]["name"] for t in tools],
+        "tool_schemas": tools if opens else None,
+        "temperature": payload.get("temperature"),
+        "response_format": _jsonable(payload.get("response_format")),
+        "extra": sorted([k for k in payload.keys() if k not in _KNOWN_KEYS]),
+        "usage": _jsonable(getattr(resp, "usage", None)),
+        "messages": messages if opens else None,
+        "last": None if opens else last,
+        "reply": reply
+    };
+    with open(path, "a", encoding="utf-8") as f {
+        f.write(json.dumps(row, default=_as_str) + "\n");
+    }
 }
 
 with entry {

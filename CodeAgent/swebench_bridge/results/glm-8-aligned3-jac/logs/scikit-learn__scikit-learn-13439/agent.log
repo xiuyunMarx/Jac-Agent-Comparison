@@ -1,0 +1,32 @@
+### Plan
+Falsifiable claim: `len(Pipeline(...))` raises `TypeError: object of type 'Pipeline' has no len()`, but it should return the number of steps in the pipeline (e.g. 2). Root cause: `Pipeline` in `sklearn/pipeline.py` implements `__getitem__` (line 202) to support slicing but does not implement `__len__`. The only source file involved is `sklearn/pipeline.py`. Next phase should add an `__len__` method to the `Pipeline` class returning `len(self.steps)`.
+
+### Explore
+Reproduction confirmed: `len(pipe)` raises `TypeError: object of type 'Pipeline' has no len()`.
+
+File: `sklearn/pipeline.py`
+Symbol: `class Pipeline` (defined at line 29)
+Location to change: add a `__len__` method, most naturally near the existing `__getitem__` method (lines 202-221). `Pipeline.__getitem__` supports integer and slice indexing against `self.steps`, but there is no `__len__`, so `len(pipe)` and `pipe[:len(pipe)]` fail. A `__len__` returning `len(self.steps)` is the minimal fix.
+
+### Edit
+Fix applied in sklearn/pipeline.py.
+
+Summary:
+- Root cause: Pipeline implemented __getitem__ (slicing support) but not __len__, so len(pipe) raised TypeError: object of type 'Pipeline' has no len().
+- Fix: Added a __len__ method to the Pipeline class returning len(self.steps), placed just before __getitem__ (lines 202-205).
+
+Reproduction before fix: `len(pipe)` -> TypeError: object of type 'Pipeline' has no len().
+Reproduction after fix: `len(pipe) = 2`, and `pipe[:len(pipe)]` returns a Pipeline of length 2.
+
+The environment is not a git repository so view_diff/git diff could not run, but reading sklearn/pipeline.py confirmed the new method is present.
+
+### Verify
+Verification complete.
+
+Change made: Added an `__len__` method to the `Pipeline` class in `sklearn/pipeline.py` (lines 202-205), returning `len(self.steps)`. This makes `len(pipe)` work and enables `pipe[:len(pipe)]` slicing, which previously raised `TypeError: object of type 'Pipeline' has no len()`.
+
+Reproduction re-run: now passes — `len(pipe) = 2`, and `pipe[:len(pipe)]` returns a `Pipeline` of length 2.
+
+Existing tests: `python -m pytest sklearn/tests/test_pipeline.py -q` → 41 passed, 2 warnings, exit code 0. No failures.
+[swe_entry] scikit-learn__scikit-learn-13439 ok steps=4 tools=12
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jaseci/jac
