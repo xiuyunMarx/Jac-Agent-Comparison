@@ -1,0 +1,176 @@
+{
+  "instance_id": "astropy__astropy-14995",
+  "model": "openai/glm-5.2",
+  "answer": "### Plan\n## Summary for the next phase\n\n**Falsifiable claim:** `NDDataRef(array, mask=mask).multiply(1., handle_mask=np.bitwise_or).mask` raises `TypeError: unsupported operand type(s) for |: 'int' and 'NoneType'` when one operand has a mask and the other does not; it should instead return a copy of the existing mask (as it did in v5.2).\n\n**Root cause:** In `astropy/nddata/mixins/ndarithmetic.py`, the `_arithmetic_mask` method (lines ~516\u2013527) has this logic:\n\n```python\nif (\n    self.mask is None and operand is not None and operand.mask is None\n) or handle_mask is None:\n    return None\nelif self.mask is None and operand is not None:\n    return deepcopy(operand.mask)\nelif operand is None:\n    return deepcopy(self.mask)\nelse:\n    return handle_mask(self.mask, operand.mask, **kwds)\n```\n\nWhen `self.mask` is not `None` but `operand` is not `None` and `operand.mask` is `None`, none of the first three branches match, so it falls into the `else` and calls `handle_mask(self.mask, None)` \u2014 which fails for `np.bitwise_or` (int | None). The missing case is: operand present but its mask is `None` \u2192 should return `deepcopy(self.mask)`.\n\n**Files involved (1):** `astropy/nddata/mixins/ndarithmetic.py` \u2014 specifically the `_arithmetic_mask` method. The fix is to add a branch handling `operand is not None and operand.mask is None` returning `deepcopy(self.mask)` before the final `else`. Tests live in `astropy/nddata/mixins/tests/test_ndarithmetic.py` (do not edit).\n\n### Explore\n## Summary for the next phase\n\n**Reproduction confirmed** \u2014 cases 3 and 5 fail with `TypeError: unsupported operand type(s) for |: 'int' and 'NoneType'` exactly as in the issue.\n\n**File:** `astropy/nddata/mixins/ndarithmetic.py`\n**Symbol:** `NDArithmeticMixin._arithmetic_mask`\n**Lines to change:** 516\u2013527\n\nThe current logic:\n```python\n516  if (\n517      self.mask is None and operand is not None and operand.mask is None\n518  ) or handle_mask is None:\n519      return None\n520  elif self.mask is None and operand is not None:\n521      # Make a copy so there is no reference in the result.\n522      return deepcopy(operand.mask)\n523  elif operand is None:\n524      return deepcopy(self.mask)\n525  else:\n526      # Now lets calculate the resulting mask (operation enforces copy)\n527      return handle_mask(self.mask, operand.mask, **kwds)\n```\n\nMissing case: `self.mask` is not None, `operand` is not None, but `operand.mask` is None \u2192 falls into `else` and calls `handle_mask(self.mask, None)`, which fails. Need a branch returning `deepcopy(self.mask)` when operand exists but has no mask. The minimal fix is to add `or operand.mask is None` to the `elif operand is None:` branch condition (line 523), so that case also returns `deepcopy(self.mask)`.\n\n### Edit\n## Summary for the next phase\n\n**Fix applied** in `astropy/nddata/mixins/ndarithmetic.py`, `NDArithmeticMixin._arithmetic_mask` line 523.\n\nChanged:\n```python\nelif operand is None:\n    return deepcopy(self.mask)\n```\nto:\n```python\nelif operand is None or operand.mask is None:\n    return deepcopy(self.mask)\n```\n\nThis handles the previously-missing case where `self.mask` is not None but the operand exists with `operand.mask is None`, returning a copy of `self.mask` instead of falling through to `handle_mask(self.mask, None)`.\n\n**Reproduction now passes** \u2014 all 5 cases produce the expected output (cases 3 and 5 now return the copied mask instead of raising `TypeError`), and the original mask is not mutated.\n\n**Diff confirmed** \u2014 single one-line change.\n\nNext phase: run the existing test suite for `astropy/nddata/mixins/tests/test_ndarithmetic.py` to verify no regressions.\n\n### Verify\nFixed the issue in `astropy/nddata/mixins/ndarithmetic.py`, in `NDArithmeticMixin._arithmetic_mask` (line 523).\n\nRoot cause: when one operand had a mask and the other did not (operand present but `operand.mask is None`), the method fell through to `handle_mask(self.mask, None)`, which fails for `np.bitwise_or` (`int | None` -> TypeError). The missing case was not handled.\n\nChange (one line):\n```python\n-        elif operand is None:\n+        elif operand is None or operand.mask is None:\n             return deepcopy(self.mask)\n```\n\nNow when the operand exists but has no mask, a deepcopy of `self.mask` is returned, matching the v5.2 behavior.\n\nVerification:\n- Reproduction from the issue now passes all 5 cases (cases 3 and 5 return the copied mask instead of raising TypeError; original mask not mutated).\n- `pytest astropy/nddata/mixins/tests/test_ndarithmetic.py`: 179 passed, 0 failed.\n- `pytest astropy/nddata/tests/ astropy/nddata/mixins/tests/`: 835 passed, 0 failed.\n\nNo regressions.",
+  "steps": 4,
+  "llm_calls": 27,
+  "prompt_tokens": 264590,
+  "completion_tokens": 4386,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "grep",
+      "args": {
+        "args": "handle_mask in astropy/nddata (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "def _arithmetic in astropy/nddata (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:485-530",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:485-530",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:485-530",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:1-0",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:510-528",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import numpy as np\nfrom astropy.nddata import NDDataRef\n\narray = np.array([[0, 1",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:516-528",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "def _arithmetic_mask in astropy/nddata/mixins/ndarithmetic.py (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "_arithmetic_mask in astropy/nddata/mixins/ndarithmetic.py (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "_arithmetic_mask in astropy/nddata (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "with open('astropy/nddata/mixins/ndarithmetic.py') as f:\n    lines = f.readlines",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import numpy as np\nfrom astropy.nddata import NDDataRef\n\narray = np.array([[0, 1",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nprint(subprocess.run(['git', 'diff'], capture_output=True, tex",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nprint(subprocess.run(['git', '--no-pager', 'diff', '--', 'astr",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run(['git', 'status'], capture_output=True, tex",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nsubprocess.run(['git', 'config', '--global', '--add', 'safe.di",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest astropy/nddata/mixins/tests/test_ndarithmetic.py -v 2>&1 | tail -60",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest astropy/nddata/mixins/tests/test_ndarithmetic.py -v",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest astropy/nddata/tests/ astropy/nddata/mixins/tests/ -q",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 23,
+  "error": "",
+  "wall_clock_sec": 173.675
+}

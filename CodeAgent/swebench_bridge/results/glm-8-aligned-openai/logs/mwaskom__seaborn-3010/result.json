@@ -1,0 +1,127 @@
+{
+  "instance_id": "mwaskom__seaborn-3010",
+  "model": "openai/glm-5.2",
+  "answer": "### Plan\nFalsifiable claim: `so.Plot([1, 2, 3, None, 4], [1, 2, 3, 4, 5]).add(so.Line(), so.PolyFit())` raises `LinAlgError: SVD did not converge` because `PolyFit._fit_predict` (in `seaborn/_stats/regression.py`) passes data containing `None`/NaN directly to `np.polyfit`/`np.polyval`. It should instead drop missing values before fitting, so the fit is computed over the valid points and the plot renders without error.\n\nSource files most likely involved:\n1. `seaborn/_stats/regression.py` \u2014 the `PolyFit._fit_predict` method that calls `np.polyfit` without filtering NaN.\n2. `seaborn/_core/groupby.py` \u2014 the `GroupBy.apply` path (secondary; no change expected there).\n\nThe fix belongs in `seaborn/_stats/regression.py`: drop rows with missing x/y before the `np.polyfit` call.\n\n### Explore\nConfirmed the failure. \n\n- **File:** `seaborn/_stats/regression.py`\n- **Symbol:** `PolyFit._fit_predict`\n- **Lines:** 23-33 (the `x = data[\"x\"]; y = data[\"y\"]` ... `np.polyfit(x, y, self.order)` block)\n- **Root cause:** Missing (`NaN`) values in `x`/`y` are passed straight to `np.polyfit`, which fails. Need to drop rows with missing data before fitting.\n\nNext phase: edit `_fit_predict` to drop missing values, then verify the repro passes and run the regression stat tests.\n\n### Edit\nThe edit is applied and the reproduction now passes. \n\nSummary for next phase: The fix in `seaborn/_stats/regression.py` (`PolyFit._fit_predict`, lines 30-32) now masks out rows where `x` or `y` is missing before calling `np.polyfit`, so missing data no longer causes `LinAlgError`. Repro confirmed passing. Next: run the existing tests covering regression stats to ensure nothing broke.\n\n### Verify\n## Summary\n\n**Issue:** `so.Plot([1, 2, 3, None, 4], [1, 2, 3, 4, 5]).add(so.Line(), so.PolyFit())` raised `LinAlgError: SVD did not converge in Linear Least Squares` because `PolyFit._fit_predict` passed missing (`NaN`) values straight to `np.polyfit`.\n\n**Fix:** In `seaborn/_stats/regression.py`, `PolyFit._fit_predict` now masks out rows where `x` or `y` is missing before fitting:\n\n```python\nelse:\n    mask = x.notna() & y.notna()\n    x = x[mask]\n    y = y[mask]\n    p = np.polyfit(x, y, self.order)\n    xx = np.linspace(x.min(), x.max(), self.gridsize)\n    yy = np.polyval(p, xx)\n```\n\nThis is the minimal change; the fit now uses only the non-missing data, and the existing too-few-unique-values branch still returns empty as before.\n\n**Reproduction:** Confirmed the original repro (`PolyFit()._fit_predict` with a `None` in x) failed with `LinAlgError` before the fix and now succeeds (returns a 100-row DataFrame) after, for missing values in either `x` or `y`.\n\n**Test results:**\n- `tests/_stats/` (full): **35 passed** in 0.91s.\n- `tests/_stats/test_regression.py` (the tests nearest the changed code): **2 passed** (`TestPolyFit::test_no_grouper`, `TestPolyFit::test_one_grouper`).\n\nThe 6 failures seen in `tests/_core/test_plot.py` are pre-existing and unrelated to this change \u2014 they are caused by a pandas-version incompatibility (`pandas._config.config.OptionError: \"No such keys(s): 'mode.use_inf_as_null'\"`) originating in `seaborn/_core/plot.py:1494`, not in the regression stat that was fixed.",
+  "steps": 4,
+  "llm_calls": 21,
+  "prompt_tokens": 101477,
+  "completion_tokens": 2900,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py:1-0",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import numpy as np\nimport pandas as pd\nfrom seaborn._stats.regression import Pol",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import numpy as np\nimport pandas as pd\nfrom seaborn._stats.regression import Pol",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import numpy as np\nimport pandas as pd\nfrom seaborn._stats.regression import Pol",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nprint(subprocess.run([\"git\",\"diff\"], capture_output=True, text",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nprint(subprocess.run([\"git\",\"diff\",\"--\",\"seaborn/_stats/regres",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py:1-0",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest tests/_stats/ -v 2>&1 | tail -40",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest tests/_stats/ -v",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest tests/_core/ -k \"polyfit or PolyFit or stat\" -v",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "git stash && python -m pytest tests/_core/test_plot.py::TestPlotting::test_stat -q ; git stash pop",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest tests/_stats/test_regression.py -v",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 16,
+  "error": "",
+  "wall_clock_sec": 132.327
+}

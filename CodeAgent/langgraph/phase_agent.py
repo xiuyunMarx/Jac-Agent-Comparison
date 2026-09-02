@@ -1,300 +1,308 @@
-"""The per-phase ReAct loop.
+"""What one `by llm(...)` clause does on the Jac side, as a compiled StateGraph.
 
-byLLM gets this from one `by` clause:
-
-    def run_phase(directive: str) -> str by agent_model(
-        tools=..., max_react_iterations=25, on_iteration=progress_guard,
-        max_tool_result_length=MAX_TOOL_RESULT_CHARS
+    def work(directive: str) -> str by llm(
+        tools=[...], conversation=history, max_react_iterations=N, on_iteration=guard
     );
 
-LangGraph has no single equivalent, so the loop is built here as a small
-compiled StateGraph. Four behaviours have to be reproduced for the two sides to
-stay comparable:
+byLLM's ReAct loop for that clause (jaclang/byllm, non-streaming):
 
-  * a hard 25-iteration cap
-  * abort-with-summary when the model repeats the same call three times running
-  * abort-with-summary when one tool is reached for six times with nothing in
-    between -- the identical-call test cannot see this one, because read_file
-    walking a file issues a different call every time
-  * tool results clipped to MAX_TOOL_RESULT_CHARS, and compared over only the
-    first SIG_RESULT_CHARS of that when deciding "identical"
-  * mutating tool calls never running concurrently
+  * the request is [byLLM's own system message] + the caller's conversation +
+    one user message rendering the call frame (`Plan.work(directive=...)`
+    with the `sem` strings);
+  * the phase's tools plus `finish_tool(final_output)`; the phase ends when the
+    model calls finish_tool, or when it answers in plain text;
+  * tool calls run one at a time, in order (byLLM's default is sequential);
+  * `on_iteration` runs before every round after the first and can abort with
+    a summary; so does exceeding `max_react_iterations`. Both ask the model
+    once more, with only finish_tool, for "only your final answer";
+  * everything but byLLM's own scaffolding (its system message, the
+    final-answer nudge, the finish_tool call) is written back into the
+    caller's conversation, so the next phase continues the same one.
 
-The cap and the guard both route to `summarize` rather than raising, because a
-phase that ends with no text contributes nothing to the ledger and the next
-phase then works blind. `recursion_limit` cannot do this -- it raises
-GraphRecursionError.
+Here that is a three-node graph, `model -> tools -> (model | summarize)`, and
+the write-back filters on a `scaffolding` marker because `add_messages` copies
+messages and identity does not survive it. `select_edge` is the walker's other
+`by llm` form, `visit [...] by llm(select=1, intent=..., incl_info=...)`: one
+fresh structured-output call over the candidate handles.
 """
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Callable, Sequence, TypedDict
+import json
+import re
+from typing import Annotated, Any, TypedDict
 
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
-from langchain_core.tools import BaseTool
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
-from telemetry import TokenUsage
-from tools.common import MAX_TOOL_CHARS, clip
-
-MAX_REACT_ITERATIONS: int = 25
-# Tied to the tools' own budget rather than set independently, and deliberately
-# not set below it. Every tool already truncates its result, and does so in the
-# terms the model can act on -- read_file stops on a line boundary and names the
-# start_line that resumes it. A smaller cap here would cut that result a second
-# time, mid-line and with no continuation hint, and the model has no way to tell
-# a silently shortened result from a complete one: the only move a mystery
-# truncation leaves is to repeat the identical call.
-#
-# This read 4000 until the three implementations were compared directly. It was
-# the only place they disagreed on a tool's context budget, and it disagreed by
-# 5x -- enough that a token gap between the frameworks measured this constant
-# rather than the frameworks. byLLM and openai_sdk both tie it to MAX_TOOL_CHARS;
-# this now does too.
-MAX_TOOL_RESULT_CHARS: int = MAX_TOOL_CHARS
-REPEAT_ABORT_THRESHOLD: int = 3
-# One tool called over and over with nothing else between it is the other way a
-# phase stalls, and the identical-call test above cannot see it: read_file
-# walking a file one line at a time issues a different call every time, so every
-# signature differs. Six is above any honest run of paging that grep could not
-# have replaced, and the abort summarises rather than raising, so a false
-# positive costs one phase ending early rather than the run.
-SAME_TOOL_ABORT_THRESHOLD: int = 6
-# How much of a tool result the repeat signature compares. byLLM hands its
-# on_iteration hook a 500-character last_result, so comparing the full
-# MAX_TOOL_RESULT_CHARS here would make this brake far less eager than byLLM's
-# for the same conversation.
-SIG_RESULT_CHARS: int = 500
-
-# Tools that must never run concurrently with anything else. Two concurrent
-# writes, or a run_command racing a write, make a run unreproducible -- fatal
-# for an A/B benchmark. This is the analogue of byLLM's `mark_serialize`.
-SERIALIZED_TOOLS: frozenset[str] = frozenset(
-    {"write_file", "replace_in_file", "run_command"}
+from nodes import (
+    CAPABILITY_SEM,
+    DIRECTIVE_SEM,
+    FINISH_TOOL,
+    PHASES,
+    PHASE_CAPABILITY_SEM,
+    Phase,
+    PhaseCapability,
+    guard,
+    history,
+    llm,
 )
 
-ABORT_DIRECTIVE = (
-    "Stop calling tools now. Reply with a short summary of what you did in this "
-    "phase and what the next phase needs to know."
+# jaclang/byllm/impl/mtir.impl.jac: SYSTEM_PERSONA and INSTRUCTION_TOOL.
+SYSTEM_PERSONA = (
+    "This is a task you must complete by returning only the output. The task will be "
+    "expressed in the form of function call with arguments. Do not include explanations, "
+    "code, or extra text—only the result."
 )
-
-UNANSWERED_TOOL_CALL = "(not run: the phase reached its iteration limit)"
+INSTRUCTION_TOOL = (
+    "Use the tools provided to reach the goal. Call one tool at a time with proper args—no "
+    "explanations, no narration. Think step by step, invoking tools as needed. When done, "
+    "always call finish_tool(output) to return the final output. Only use tools."
+)
+# BaseLLM._force_final_answer
+FINAL_INSTRUCTION = "Based on the tool calls and their results above, provide only your final answer."
+# visit_routing.jac
+ROUTER_SYSTEM = (
+    "You are routing a graph walker. Choose which candidate node(s) the walker should "
+    "visit next, by handle. Return only valid handles. Choose exactly one."
+)
+LAST_RESULT_CHARS = 500
+SCAFFOLDING = "byllm_scaffolding"
 
 
 class ReactState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     iterations: int
-    recent_sigs: list[str]
-    recent_tools: list[str]
+    last_tool: str
+    last_result: str
+    finished: bool
+    output: str
 
 
-def batch_signature(messages: Sequence[BaseMessage]) -> str:
-    """One string standing for "what just happened".
+def call_frame(phase: Phase) -> str:
+    """The user message byLLM renders for `node.work(directive=goal)`."""
+    header = f"{phase.name}.work(directive: str) -> str --- {phase.sem}"
+    return f"{header}\n      directive: str ---- {DIRECTIVE_SEM}\ndirective = {phase.goal!r}"
 
-    byLLM's IterationContext carries a single (last_tool, last_result) pair; a
-    LangGraph turn can carry a batch, so the whole batch folds into one
-    signature. Identical batches three times running means no progress.
+
+def _scaffold(message: BaseMessage) -> BaseMessage:
+    message.additional_kwargs[SCAFFOLDING] = True
+    return message
+
+
+def _text(message: BaseMessage) -> str:
+    content = message.content
+    if isinstance(content, list):
+        content = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+    return str(content or "").strip()
+
+
+def _persist(messages: list[BaseMessage]) -> None:
+    """MTRuntime.write_back_conversation: everything but byLLM's own scaffolding.
+
+    The finish_tool exchange is dropped as byLLM drops it; a mixed batch keeps
+    its other calls, so no persisted call is ever left without its result.
     """
-    parts = [
-        f"{m.name}|{str(m.content)[:SIG_RESULT_CHARS]}"
-        for m in messages
-        if isinstance(m, ToolMessage)
-    ]
-    return "\n".join(parts)
+    out: list[BaseMessage] = []
+    for m in messages:
+        if m.additional_kwargs.get(SCAFFOLDING):
+            continue
+        if isinstance(m, ToolMessage) and m.name == "finish_tool":
+            continue
+        if isinstance(m, AIMessage) and m.tool_calls:
+            kept = [c for c in m.tool_calls if c["name"] != "finish_tool"]
+            if not kept:
+                continue
+            if len(kept) != len(m.tool_calls):
+                m = AIMessage(content=m.content, tool_calls=kept, id=m.id)
+        out.append(m)
+    history[:] = out
 
 
-def progress_guard(state: ReactState) -> str:
-    """Ends a phase that has stopped making progress.
-
-    No legitimate workflow issues the identical call three times running. Kept a
-    module-level function of the state so the tests can drive it directly.
-    """
-    sigs = state.get("recent_sigs") or []
-    if len(sigs) >= REPEAT_ABORT_THRESHOLD:
-        tail = sigs[len(sigs) - REPEAT_ABORT_THRESHOLD:]
-        if all(s == tail[0] for s in tail):
-            return "summarize"
-    tools_seen = state.get("recent_tools") or []
-    if len(tools_seen) >= SAME_TOOL_ABORT_THRESHOLD:
-        tail = tools_seen[len(tools_seen) - SAME_TOOL_ABORT_THRESHOLD:]
-        if all(t == tail[0] for t in tail):
-            return "summarize"
-    return "model"
-
-
-def route_after_model(state: ReactState) -> str:
-    last = state["messages"][-1]
-    if not getattr(last, "tool_calls", None):
-        return END
-    # The model still wants tools but the budget is gone: let it summarise
-    # rather than cutting the phase off mid-thought.
-    if state.get("iterations", 0) >= MAX_REACT_ITERATIONS:
-        return "summarize"
-    return "tools"
-
-
-class SerialToolNode:
-    """Runs a batch of tool calls, serializing any batch that mutates.
-
-    `langgraph.prebuilt.ToolNode` dispatches a batch through `executor.map`, so a
-    turn that asks for `write_file` and `run_command` together runs them
-    concurrently. Read-only batches keep that parallelism; a batch naming any
-    tool in SERIALIZED_TOOLS is instead fed to the same ToolNode one call at a
-    time, which serializes it while keeping ToolNode's error handling.
-    """
-
-    def __init__(self, tools: Sequence[BaseTool]) -> None:
-        self.node = ToolNode(list(tools))
-
-    def __call__(self, state: ReactState) -> dict[str, Any]:
-        last = state["messages"][-1]
-        calls = list(getattr(last, "tool_calls", None) or [])
-        if any(c["name"] in SERIALIZED_TOOLS for c in calls) and len(calls) > 1:
-            produced: list[BaseMessage] = []
-            for call in calls:
-                stub = AIMessage(content="", tool_calls=[call])
-                out = self.node.invoke({"messages": [stub]})
-                produced.extend(out["messages"])
-        else:
-            produced = list(self.node.invoke({"messages": state["messages"]})["messages"])
-        # byLLM's max_tool_result_length, applied at the same boundary.
-        for msg in produced:
-            if isinstance(msg, ToolMessage) and isinstance(msg.content, str):
-                msg.content = clip(msg.content, MAX_TOOL_RESULT_CHARS)
-        sigs = list(state.get("recent_sigs") or [])
-        sigs.append(batch_signature(produced))
-        # One entry per executed tool, not per batch: byLLM's IterationContext
-        # reports a single tool per iteration, and a batch of six identical
-        # calls is the same stall as six batches of one.
-        tools_seen = list(state.get("recent_tools") or [])
-        tools_seen.extend(
-            str(m.name) for m in produced if isinstance(m, ToolMessage)
-        )
-        return {
-            "messages": produced,
-            "recent_sigs": sigs,
-            "recent_tools": tools_seen,
-        }
-
-
-def build_phase_agent(
-    tools: Sequence[BaseTool],
-    model_ref: Callable[[], BaseChatModel],
-    usage: TokenUsage,
-) -> Any:
-    """Compile the ReAct loop for one phase, over exactly that phase's tools.
-
-    The model arrives as a zero-argument callable rather than an instance so
-    that compiling the graph -- and so inspecting the topology -- never
-    constructs a provider client, which would demand credentials.
-    """
-    bound_cache: list[Any] = []
-
-    def bound() -> Any:
-        if not bound_cache:
-            bound_cache.append(model_ref().bind_tools(list(tools)))
-        return bound_cache[0]
+def build_phase_agent(phase: Phase) -> Any:
+    """Compile the loop for one phase over exactly that phase's tools."""
+    tools = phase.toolbox()
+    runner = ToolNode(tools)
+    bound = llm.chat().bind_tools(tools + [FINISH_TOOL])
+    finish_only = llm.chat().bind_tools([FINISH_TOOL])
 
     def call_model(state: ReactState) -> dict[str, Any]:
-        response = bound().invoke(state["messages"])
-        usage.track(response)
-        return {
-            "messages": [response],
-            "iterations": state.get("iterations", 0) + 1,
-        }
+        response = bound.invoke(state["messages"])
+        llm.track(response)
+        update: dict[str, Any] = {"messages": [response], "iterations": state["iterations"] + 1}
+        if not response.tool_calls:
+            # Plain text with no tool call ends the phase, as byLLM's str-return path does.
+            update.update(finished=True, output=_text(response))
+        return update
 
-    def force_summary(state: ReactState) -> dict[str, Any]:
-        """byLLM's IterationAction.ABORT_WITH_SUMMARY."""
-        messages = list(state["messages"])
-        # A tool call left unanswered is an invalid conversation for the
-        # provider, so close any that the iteration cap interrupted.
-        last = messages[-1]
-        pending: list[BaseMessage] = []
-        if isinstance(last, AIMessage) and last.tool_calls:
-            pending = [
-                ToolMessage(
-                    content=UNANSWERED_TOOL_CALL,
-                    name=call["name"],
-                    tool_call_id=call["id"],
-                )
-                for call in last.tool_calls
-            ]
-        directive = HumanMessage(content=ABORT_DIRECTIVE)
-        # The unbound model: offering tools here just invites another call.
-        response = model_ref().invoke(messages + pending + [directive])
-        usage.track(response)
-        return {"messages": pending + [directive, response]}
+    def run_tools(state: ReactState) -> dict[str, Any]:
+        """Sequential dispatch, split at the first finish_tool -- byLLM's batch rule."""
+        last = state["messages"][-1]
+        produced: list[BaseMessage] = []
+        update: dict[str, Any] = {}
+        for call in last.tool_calls:
+            if call["name"] == "finish_tool":
+                output = call["args"].get("final_output", "")
+                output = output if isinstance(output, str) else str(output)
+                produced.append(ToolMessage(content=output, name="finish_tool", tool_call_id=call["id"]))
+                update.update(finished=True, output=output)
+                break
+            stub = AIMessage(content="", tool_calls=[call])
+            out = runner.invoke({"messages": [stub]})["messages"]
+            produced.extend(out)
+            for m in out:
+                if isinstance(m, ToolMessage):
+                    update["last_tool"] = str(m.name)
+                    update["last_result"] = str(m.content)[:LAST_RESULT_CHARS]
+        update["messages"] = produced
+        return update
+
+    def force_final_answer(state: ReactState) -> dict[str, Any]:
+        """IterationAction.ABORT_WITH_SUMMARY and the iteration cap: one more call, finish_tool only."""
+        nudge = _scaffold(HumanMessage(content=FINAL_INSTRUCTION))
+        response = finish_only.invoke(state["messages"] + [nudge])
+        llm.track(response)
+        produced: list[BaseMessage] = [nudge, response]
+        output = _text(response)
+        for call in response.tool_calls:
+            if call["name"] == "finish_tool":
+                output = call["args"].get("final_output", "")
+                output = output if isinstance(output, str) else str(output)
+                produced.append(ToolMessage(content=output, name="finish_tool", tool_call_id=call["id"]))
+                break
+        return {"messages": produced, "finished": True, "output": output}
+
+    def after_model(state: ReactState) -> str:
+        return END if state["finished"] else "tools"
+
+    def after_tools(state: ReactState) -> str:
+        if state["finished"]:
+            return END
+        # The next round's pre-flight, in byLLM's order: on_iteration, then the cap.
+        if guard(state["iterations"] + 1, state["last_tool"], state["last_result"]) == "abort_with_summary":
+            return "summarize"
+        if phase.max_react_iterations > 0 and state["iterations"] + 1 > phase.max_react_iterations:
+            return "summarize"
+        return "model"
 
     graph = StateGraph(ReactState)
     graph.add_node("model", call_model)
-    graph.add_node("tools", SerialToolNode(tools))
-    graph.add_node("summarize", force_summary)
+    graph.add_node("tools", run_tools)
+    graph.add_node("summarize", force_final_answer)
     graph.set_entry_point("model")
-    graph.add_conditional_edges(
-        "model",
-        route_after_model,
-        {"tools": "tools", "summarize": "summarize", END: END},
-    )
-    graph.add_conditional_edges(
-        "tools",
-        progress_guard,
-        {"model": "model", "summarize": "summarize"},
-    )
+    graph.add_conditional_edges("model", after_model, {"tools": "tools", END: END})
+    graph.add_conditional_edges("tools", after_tools, {"model": "model", "summarize": "summarize", END: END})
     graph.add_edge("summarize", END)
     return graph.compile()
 
 
-def last_text(messages: Sequence[BaseMessage]) -> str:
-    """The final thing the model actually said, for the phase ledger."""
-    for msg in reversed(messages):
-        if isinstance(msg, AIMessage):
-            content = msg.content
-            if isinstance(content, list):
-                # Some providers return content blocks rather than a string.
-                content = "".join(
-                    block.get("text", "")
-                    for block in content
-                    if isinstance(block, dict)
-                )
-            if isinstance(content, str) and content.strip():
-                return content.strip()
-    return ""
+_agents: dict[str, Any] = {}
 
 
-def run_phase(
-    agent: Any,
-    messages: Sequence[BaseMessage],
-) -> tuple[str, list[BaseMessage]]:
-    """Drive one phase to completion; return its summary and its conversation."""
+def work(phase: Phase) -> str:
+    """`here.work(here.goal)`: one phase, on the shared conversation."""
+    agent = _agents.get(phase.name)
+    if agent is None:
+        agent = _agents[phase.name] = build_phase_agent(phase)
+    scaffold = _scaffold(SystemMessage(content=SYSTEM_PERSONA + INSTRUCTION_TOOL))
+    opening: list[BaseMessage] = [scaffold, *history, HumanMessage(content=call_frame(phase))]
     out = agent.invoke(
-        {
-            "messages": list(messages),
-            "iterations": 0,
-            "recent_sigs": [],
-            "recent_tools": [],
-        },
-        # A backstop only: the loop ends itself at MAX_REACT_ITERATIONS.
-        {"recursion_limit": 2 * MAX_REACT_ITERATIONS + 5},
+        {"messages": opening, "iterations": 0, "last_tool": "", "last_result": "",
+         "finished": False, "output": ""},
+        # A backstop only: the loop ends itself at the phase's own cap.
+        {"recursion_limit": 2 * max(phase.max_react_iterations, 1) + 10},
     )
-    return last_text(out["messages"]), list(out["messages"])
+    _persist(list(out["messages"]))
+    return str(out["output"] or "")
 
 
-__all__: list[str] = [
-    "MAX_REACT_ITERATIONS",
-    "MAX_TOOL_RESULT_CHARS",
-    "SAME_TOOL_ABORT_THRESHOLD",
-    "SIG_RESULT_CHARS",
-    "REPEAT_ABORT_THRESHOLD",
-    "SERIALIZED_TOOLS",
-    "ReactState",
-    "SerialToolNode",
-    "batch_signature",
-    "build_phase_agent",
-    "last_text",
-    "progress_guard",
-    "route_after_model",
-    "run_phase",
+# ---------------------------------------------------------------------------
+# `visit [edge ...] by llm(select=1, intent=..., incl_info=...)`
+# ---------------------------------------------------------------------------
+def _safe_repr(value: Any, limit: int = 500) -> str:
+    text = repr(value)
+    if len(text) <= limit:
+        return text
+    keep = (limit - 5) // 2
+    return text[:keep] + " ... " + text[-keep:]
+
+
+def describe_walker(fields: dict[str, Any]) -> str:
+    return "CodeAgent(" + ", ".join(f"{k}={_safe_repr(v)}" for k, v in fields.items()) + ")"
+
+
+def describe_node(phase_name: str) -> str:
+    phase = PHASES[phase_name]
+    return f"{phase.name}(goal={_safe_repr(phase.goal)})"
+
+
+def describe_edge(edge: PhaseCapability) -> str:
+    return (f"{PHASE_CAPABILITY_SEM}(capability ({CAPABILITY_SEM})={_safe_repr(edge.capability)}, "
+            f"kind={_safe_repr(edge.kind)})")
+
+
+def select_edge(
+    candidates: list[PhaseCapability],
+    intent: str,
+    incl_info: dict[str, Any],
+    walker: dict[str, Any],
+    here: str,
+) -> PhaseCapability | None:
+    """One routing call; the chosen edge, or None when the model picked nothing usable."""
+    if not candidates:
+        return None
+    handles = [e.target for e in candidates]      # node class names are unique here
+    lines = [f"{h}) here --({describe_edge(e)})--> {describe_node(e.target)}"
+             for h, e in zip(handles, candidates)]
+    parts = [f"Goal: {intent}", f"Walker:\n{describe_walker(walker)}",
+             f"Current node:\n{describe_node(here)}",
+             "Candidates (choose by handle):\n" + "\n".join(lines)]
+    if incl_info:
+        parts.append("\n".join(f"{k} = {v}" for k, v in incl_info.items()))
+    # byLLM's inject_schema_hint: the enum constraint restated in the last user
+    # message, because ollama-style servers treat response_format as a grammar
+    # at best and answer in prose without it.
+    parts.append(schema_hint(handles))
+    schema = {"type": "object",
+              "properties": {"result": {"type": "array", "items": {"type": "string", "enum": handles}}},
+              "required": ["result"], "additionalProperties": False}
+    try:
+        router = llm.chat().bind(response_format={
+            "type": "json_schema", "json_schema": {"name": "RouteChoice", "strict": True, "schema": schema}})
+        response = router.invoke([SystemMessage(content=ROUTER_SYSTEM),
+                                  HumanMessage(content="\n\n".join(parts))])
+        llm.track(response)
+        text = _text(response)
+    except Exception:  # noqa: BLE001 - a routing failure is the `else` branch, not a crash
+        return None
+    for item in parse_choice(text, handles):
+        return candidates[handles.index(item)]
+    return None
+
+
+def schema_hint(handles: list[str]) -> str:
+    return "Output must be a JSON object matching the schema.\n- result must be one of: " + ", ".join(handles)
+
+
+def parse_choice(text: str, handles: list[str]) -> list[str]:
+    """The handles the answer names, JSON first, then the handles as bare words."""
+    try:
+        data = json.loads(text)
+        chosen = data.get("result") if isinstance(data, dict) else data
+        if isinstance(chosen, str):
+            chosen = [chosen]
+        picked = [c for c in (chosen or []) if isinstance(c, str) and c in handles]
+        if picked:
+            return picked
+    except ValueError:
+        pass
+    found = [(m.start(), h) for h in handles for m in re.finditer(rf"\b{re.escape(h)}\b", text)]
+    return [h for _, h in sorted(found)]
+
+
+__all__ = [
+    "FINAL_INSTRUCTION", "INSTRUCTION_TOOL", "ROUTER_SYSTEM", "SYSTEM_PERSONA", "ReactState",
+    "build_phase_agent", "call_frame", "select_edge", "work",
 ]

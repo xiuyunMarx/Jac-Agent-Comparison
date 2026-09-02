@@ -145,8 +145,8 @@ node draft_responses {
 }
 
 sem draft_responses.filter_emails = "Senior Email Analyst: classify the email from its snippet and sender. Only messages actually directed at the user that need a personal reply are IMPORTANT; newsletters are NEWSLETTER, promotional content is PROMOTIONAL, automated notifications are NOTIFICATIONS, social platform mail is SOCIAL, product/service updates are UPDATES, junk is SPAM.";
-sem draft_responses.email_action_agent = "Email Action Specialist: analyze the complete email thread to understand its context, key points and sentiment. Identify the main query the reply must address, the sender's email address and the communication style of the thread.";
-sem draft_responses.email_response_writer = "Email Response Writer: draft a reply to the thread, assuming the persona of the user (the thread's recipient) and mimicking the communication style of the thread. Address every main point from the analysis. Research the topic with web_search first IF NECESSARY.";
+sem draft_responses.email_action_agent = "Email Action Specialist: analyze the complete email thread to understand its context, key points and sentiment. Identify the main query the reply must address, the sender's email address and the communication style of the thread. You may call web_search when the reply will need facts the thread does not contain. Search only for what the analysis needs, never repeat a search on the same topic, and do not narrate.";
+sem draft_responses.email_response_writer = "Email Response Writer: draft a reply to the thread, assuming the persona of the user (the thread's recipient) and mimicking the communication style of the thread. Address every main point from the analysis. Research the topic with web_search first IF NECESSARY -- if research is needed, do it BEFORE drafting the response, at most once per topic; never repeat a search whose result you already have.";
 
 
 walker EmailAgent {
@@ -191,24 +191,49 @@ walker EmailAgent {
             if len(thread.emails) == 0 {
                 continue;
             }
-            analysis = here.email_action_agent(thread);
+            # A stage that raises (byllm's FinishToolError when the model
+            # mangles the finish_tool payload, a provider error, ...) is a
+            # failure of this one email, recorded like an unstructured answer;
+            # it must not abort the walker and forfeit the rest of the inbox.
+            try {
+                analysis = here.email_action_agent(thread);
+            } except Exception as exc {
+                error = f"email_action_agent raised {type(exc).__name__}: {str(exc)[:500]}";
+                self.mailbox.record_draft_error("", error);
+                print(f"### {abstract.thread_id}: {error}");
+                continue;
+            }
             if not isinstance(analysis, ThreadAnalysis) {
                 error = unstructured_error(analysis, "email_action_agent", "ThreadAnalysis");
                 self.mailbox.record_draft_error(str(analysis), error);
                 print(f"### {abstract.thread_id}: {error}");
                 continue;
             }
-            reply = here.email_response_writer(analysis, thread);
-            if not isinstance(reply, DraftReply) {
-                # One retry, so a single formatting slip does not cost a whole
-                # email; a second failure is recorded and the email skipped.
-                print(f"### {abstract.thread_id}: writer returned unstructured output, retrying");
-                reply = here.email_response_writer(analysis, thread);
+            # One retry, so a single formatting slip (unstructured prose, or a
+            # raised FinishToolError) does not cost a whole email; a second
+            # failure is recorded and the email skipped.
+            reply = None;
+            failure = "";
+            for attempt in range(2) {
+                try {
+                    reply = here.email_response_writer(analysis, thread);
+                } except Exception as exc {
+                    reply = None;
+                    failure = f"email_response_writer raised {type(exc).__name__}: {str(exc)[:500]}";
+                }
+                if isinstance(reply, DraftReply) {
+                    break;
+                }
+                if reply is not None {
+                    failure = unstructured_error(reply, "email_response_writer", "DraftReply");
+                }
+                if attempt == 0 {
+                    print(f"### {abstract.thread_id}: writer failed ({failure[:80]}), retrying");
+                }
             }
             if not isinstance(reply, DraftReply) {
-                error = unstructured_error(reply, "email_response_writer", "DraftReply");
-                self.mailbox.record_draft_error(str(reply), error);
-                print(f"### {abstract.thread_id}: {error}");
+                self.mailbox.record_draft_error(str(reply) if reply is not None else "", failure);
+                print(f"### {abstract.thread_id}: {failure}");
                 continue;
             }
             _ = self.mailbox.create_draft(reply.recipient, reply.subject, reply.message);

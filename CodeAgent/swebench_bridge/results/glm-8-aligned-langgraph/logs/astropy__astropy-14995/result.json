@@ -1,0 +1,246 @@
+{
+  "instance_id": "astropy__astropy-14995",
+  "model": "openai/glm-5.2",
+  "answer": "### Plan\n\n\n### Explore\nReproduction confirmed. The bug is in `astropy/nddata/mixins/ndarithmetic.py`, method `NDArithmeticMixin._arithmetic_mask`, lines 485-527.\n\nThe logic at lines 515-527:\n- Line 516-519: if both masks are None (or handle_mask is None) \u2192 return None. OK.\n- Line 520-522: if self.mask is None but operand has a mask \u2192 return deepcopy(operand.mask). OK.\n- Line 523-524: if operand is None \u2192 return deepcopy(self.mask). OK.\n- Line 525-527: else \u2192 handle_mask(self.mask, operand.mask). This is the BUG: it's reached when self.mask is NOT None but operand.mask IS None (e.g. `nref_mask.multiply(1.)` or `nref_mask.multiply(nref_nomask)`), so it calls `np.bitwise_or(mask, None)` \u2192 TypeError.\n\nRepro output:\n```\nmask * constant:\nERROR: TypeError unsupported operand type(s) for |: 'int' and 'NoneType'\nmask * no mask:\nERROR: TypeError unsupported operand type(s) for |: 'int' and 'NoneType'\n```\n\nFix needed: add a branch (before the else) handling the case where operand is not None but operand.mask is None (and self.mask is not None) \u2192 return deepcopy(self.mask). This mirrors the existing handling for the symmetric case at lines 520-522.\n\n### Edit\n## Summary\n\n**Issue:** In `NDDataRef` arithmetic (v5.3), mask propagation with `handle_mask=np.bitwise_or` (or any callable) failed with `TypeError: unsupported operand type(s) for |: 'int' and 'NoneType'` when one operand had a mask and the other did not.\n\n**Root cause:** In `astropy/nddata/mixins/ndarithmetic.py`, the `_arithmetic_mask` method (lines 515-527) handled the cases where:\n- both masks are None \u2192 return None\n- self.mask is None, operand has a mask \u2192 copy operand.mask\n- operand is None \u2192 copy self.mask\n\nBut it did NOT handle the case where `self.mask` is not None and `operand.mask` is None. In that situation the code fell through to the `else` branch and called `handle_mask(self.mask, operand.mask, ...)` with `operand.mask` being `None`, which made `np.bitwise_or` (or any callable) try to combine an integer array with `None`, raising the TypeError. (When a scalar like `1.` is passed as an operand, it gets wrapped in an `NDDataRef` with `mask=None`, so this path was hit for `mask * constant` and `mask * no_mask`.)\n\n**Fix:** Added a new `elif operand.mask is None:` branch (before the final `else`) that returns a deepcopy of `self.mask` \u2014 mirroring the existing handling for the symmetric case where `self.mask` is None. This means: when only one operand has a mask, that mask is simply copied to the result, which is the expected behavior (and matches v5.2).\n\n**Verification:**\n- The reproduction from the issue now passes for all five cases (no-mask\u00d7constant, no-mask\u00d7no-mask, mask\u00d7constant, mask\u00d7mask, mask\u00d7no-mask) \u2014 the mask is correctly copied when only one operand has a mask, and combined via `handle_mask` when both have masks.\n- The existing test suite `astropy/nddata/mixins/tests/test_ndarithmetic.py` passes: **179 passed**.\n\n**Files changed:** `astropy/nddata/mixins/ndarithmetic.py` (one `elif` branch added in `_arithmetic_mask`).\n\n### Verify\nVerification complete. The fix is in `astropy/nddata/mixins/ndarithmetic.py`, in the `_arithmetic_mask` method (lines 515-530).\n\nRoot cause: When `self.mask` was not None but `operand.mask` was None (e.g. multiplying a masked NDDataRef by a scalar constant or by an unmasked NDDataRef), the code fell through to the final `else` branch and called `handle_mask(self.mask, operand.mask, ...)` with `operand.mask` being `None`, causing `TypeError: unsupported operand type(s) for |: 'int' and 'NoneType'` for `np.bitwise_or`.\n\nFix: Added a new branch `elif operand.mask is None: return deepcopy(self.mask)` before the final `else`, so that when only `self` has a mask, that mask is copied to the result (mirroring the existing symmetric handling for the case where only the operand has a mask).\n\nTest results:\n- `astropy/nddata/mixins/tests/test_ndarithmetic.py`: 179 passed\n- Combined with `astropy/nddata/tests/test_nddata.py`: 398 passed, 0 failed\n\nThe reproduction from the issue now passes all five cases (no-mask*constant -> None, no-mask*no-mask -> None, mask*constant -> mask copied, mask*mask -> bitwise_or result, mask*no-mask -> mask copied). No failures.",
+  "steps": 4,
+  "llm_calls": 37,
+  "prompt_tokens": 229263,
+  "completion_tokens": 4237,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "grep",
+      "args": {
+        "args": "handle_mask in astropy/nddata (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "outline",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:485-530",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:485-530",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:485-530",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:485-528",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:485-528",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:485-528",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:485-528",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:480-528",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:480-528",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "def _arithmetic_mask in astropy/nddata/mixins/ndarithmetic.py (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "_arithmetic_mask in astropy/nddata/mixins/ndarithmetic.py (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "arithmetic_mask in astropy/nddata/mixins/ndarithmetic.py (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "_arithmetic_mask in astropy/nddata (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:485-528",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:485-528",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:485-528",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "with open(\"astropy/nddata/mixins/ndarithmetic.py\") as f:\n    lines = f.readlines",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "with open(\"astropy/nddata/mixins/ndarithmetic.py\") as f:\n    lines = f.readlines",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "with open(\"astropy/nddata/mixins/ndarithmetic.py\") as f:\n    lines = f.readlines",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "with open(\"astropy/nddata/mixins/ndarithmetic.py\") as f:\n    lines = f.readlines",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "with open(\"astropy/nddata/mixins/ndarithmetic.py\") as f:\n    lines = f.readlines",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import numpy as np\nfrom astropy.nddata import NDDataRef\n\narray = np.array([[0, 1",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import numpy as np\nfrom astropy.nddata import NDDataRef\n\narray = np.array([[0, 1",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nprint(subprocess.run([\"git\", \"diff\"], capture_output=True, tex",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nprint(subprocess.run([\"git\", \"--no-pager\", \"diff\"], capture_ou",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "with open(\"astropy/nddata/mixins/ndarithmetic.py\") as f:\n    lines = f.readlines",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"python\", \"-m\", \"pytest\", \"astropy/nddata/",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest astropy/nddata/mixins/tests/test_ndarithmetic.py astropy/nddata/tests/test_nddata.py -q 2>&1 | tail -20",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest astropy/nddata/mixins/tests/test_ndarithmetic.py astropy/nddata/tests/test_nddata.py -q",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 33,
+  "error": "",
+  "wall_clock_sec": 197.176
+}

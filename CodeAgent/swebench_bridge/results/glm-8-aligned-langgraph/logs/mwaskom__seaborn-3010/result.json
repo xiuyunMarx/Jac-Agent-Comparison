@@ -1,0 +1,176 @@
+{
+  "instance_id": "mwaskom__seaborn-3010",
+  "model": "openai/glm-5.2",
+  "answer": "### Plan\n## Summary\n\n**Falsifiable claim:** The call `so.Plot([1, 2, 3, None, 4], [1, 2, 3, 4, 5]).add(so.Line(), so.PolyFit())` raises `LinAlgError: SVD did not converge in Linear Least Squares` because `PolyFit._fit_predict` passes data containing `None`/`NaN` directly to `np.polyfit`, which cannot handle missing values. It should instead drop missing observations before fitting (as other stats like `aggregation.py` and `histogram.py` already do) and produce the polynomial fit line over the non-missing data.\n\n**Source files involved:**\n1. `seaborn/_stats/regression.py` \u2014 the `PolyFit._fit_predict` method (primary; the root cause lives here at line 30 where `np.polyfit(x, y, self.order)` is called on data containing NaN).\n2. `seaborn/_stats/aggregation.py` / `seaborn/_stats/histogram.py` \u2014 reference patterns showing the established convention of calling `.dropna()` before processing (confirming the fix should follow the same pattern).\n\n**Next phase:** Edit `seaborn/_stats/regression.py`'s `_fit_predict` to drop rows with missing `x` or `y` values before fitting, then verify with the relevant test suite.\n\n### Explore\n## Summary\n\n**File:** `seaborn/_stats/regression.py`\n**Symbol:** `PolyFit._fit_predict`\n**Lines:** 22-34 (the `_fit_predict` method; the failing call is line 30: `p = np.polyfit(x, y, self.order)`)\n\n**Repro output:** Confirmed failure \u2014 `ERROR: LinAlgError: SVD did not converge in Linear Least Squares`\n\nThe method reads `x = data[\"x\"]` and `y = data[\"y\"]` then passes them straight to `np.polyfit` without dropping missing values. The fix: drop rows where `x` or `y` is NaN before fitting (mirroring the `.dropna()` pattern used in `aggregation.py` and `histogram.py`).\n\n**Next phase:** Apply the minimal edit to `_fit_predict` to drop missing data before the fit, then re-run the repro and the regression test suite.\n\n### Edit\n## Summary\n\n**Fix applied** in `seaborn/_stats/regression.py`, `PolyFit._fit_predict` (lines 24-27): added a mask to drop rows where `x` or `y` is NaN before passing to `np.polyfit`:\n\n```python\nmask = x.notna() & y.notna()\nx = x[mask]\ny = y[mask]\n```\n\nThis mirrors the `.dropna()` convention used in `aggregation.py` and `histogram.py`.\n\n**Repro result:** `_fit_predict` now runs without `LinAlgError` and returns a 100-row fit DataFrame. The `LinAlgError: SVD did not converge` is gone. (Calling `p.plot()` raises an unrelated `OptionError: \"No such keys(s): 'mode.use_inf_as_null'\"` \u2014 a pandas-version compatibility issue in the plotting machinery, not in PolyFit.)\n\n**Next phase:** Run the existing test suite covering `seaborn/_stats/regression.py` to confirm no regressions, and report the actual output.\n\n### Verify\nFixed PolyFit missing-data crash in seaborn/_stats/regression.py.\n\nRoot cause: PolyFit._fit_predict passed x/y containing NaN directly to np.polyfit, which raised LinAlgError: SVD did not converge in Linear Least Squares.\n\nFix (seaborn/_stats/regression.py, PolyFit._fit_predict): added a notna mask to drop missing observations before fitting, mirroring the dropna convention used in aggregation.py and histogram.py:\n    x = data[\"x\"]\n    y = data[\"y\"]\n    mask = x.notna() & y.notna()\n    x = x[mask]\n    y = y[mask]\n\nVerification:\n- Reproduction so.Plot([1,2,3,None,4],[1,2,3,4,5]).add(so.Line(), so.PolyFit()) previously raised LinAlgError; _fit_predict now returns a valid 100-row fit DataFrame with no error.\n- pytest tests/_stats/ -v: 35 passed in 0.80s (including TestPolyFit::test_no_grouper and test_one_grouper), no failures.\n\n(Note: calling p.plot() surfaces an unrelated OptionError about 'mode.use_inf_as_null' from the plotting machinery under the installed pandas version; that is independent of the PolyFit fix.)",
+  "steps": 4,
+  "llm_calls": 28,
+  "prompt_tokens": 140296,
+  "completion_tokens": 3131,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py:1-0",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/base.py:1-0",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "dropna|notna|dropna in seaborn/_stats (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/aggregation.py:80-100",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/aggregation.py:80-100",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/aggregation.py:1-100",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import seaborn.objects as so\ntry:\n    p = so.Plot([1, 2, 3, None, 4], [1, 2, 3, ",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py:1-0",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py:22-35",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py:1-0",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import seaborn.objects as so\ntry:\n    p = so.Plot([1, 2, 3, None, 4], [1, 2, 3, ",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import pandas as pd\nimport seaborn.objects as so\nfrom seaborn._core.groupby impo",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import pandas as pd\nfrom seaborn._stats.regression import PolyFit\n\ndata = pd.Dat",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "seaborn/_stats/regression.py:1-0",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest tests/_stats/ -v 2>&1 | tail -40",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest tests/_stats/ -v",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest tests/_core/test_plot.py -k \"polyfit or PolyFit or regression\" -v",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 23,
+  "error": "",
+  "wall_clock_sec": 144.855
+}

@@ -37,6 +37,7 @@ class MockMailbox:
         self.draft_errors = []
         self.thread_requests = []
         self.web_queries = []
+        self._seen_search_results = set()
 
     # -- Gmail-like surface ------------------------------------------------
 
@@ -76,12 +77,30 @@ class MockMailbox:
         return "\n".join(lines)
 
     def web_search(self, query):
-        """Canned web search: deterministic stand-in for Tavily."""
+        """Canned web search: deterministic stand-in for Tavily.
+
+        A repeated query (same result as one already returned this run) is
+        answered with a short "unchanged, stop searching" note instead of the
+        full document again. Models that re-query a topic under slightly
+        different wording otherwise loop until the tool-round brake trips,
+        re-sending the whole growing context each time; every arm shares this
+        tool, so the brake applies to all of them equally. The query is still
+        logged, so `counts.web_queries` stays honest.
+        """
         self.web_queries.append(query)
-        for keyword, result in self._search_results.items():
+        result = "No relevant results found for this query."
+        for keyword, canned in self._search_results.items():
             if keyword.lower() in query.lower():
-                return result
-        return "No relevant results found for this query."
+                result = canned
+                break
+        seen = self._seen_search_results
+        if result in seen:
+            return (
+                "You already searched this topic in this session and the result is "
+                "unchanged. Do not search again; answer with what you have."
+            )
+        seen.add(result)
+        return result
 
     def create_draft(self, to, subject, message):
         """Capture a draft instead of creating it in Gmail."""
