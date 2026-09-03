@@ -37,16 +37,16 @@ def _model_name() -> str {
 }
 
 glob llm = Model(model_name=_model_name(), api_key=os.environ.get("OPENAI_API_KEY", ""));
-glob MAILBOX: MailBox | None = None;
+glob MAILBOX_REF: list = [None];   # [MailBox | None]; a holder, since main has no global-rebinding statement
 
 
 # Canned web-search tool for the LLM stages; bound to the active mailbox
 # by EmailAgent.postinit.
 def web_search(query: str) -> str {
-    if MAILBOX is None {
+    if MAILBOX_REF[0] is None {
         return "No mailbox loaded.";
     }
-    return MAILBOX.web_search(query);
+    return MAILBOX_REF[0].web_search(query);
 }
 # Without these the tool schema on the wire described itself as "web_search"
 # with a parameter described as "<class 'str'>"; the other arms carry the
@@ -156,14 +156,12 @@ sem draft_responses.email_response_writer = "Email Response Writer: draft a repl
 
 walker EmailAgent {
     has dataset_path: str;
-    has mailbox: MailBox by postinit;
+    has mailbox: MailBox;   # passed in by the caller (main no longer accepts `by postinit`)
     has abstracts: list[MailAbstract] = [];
     has drafted: list[dict] = [];
 
     def postinit {
-        self.mailbox = MailBox(dataset_path=self.dataset_path);
-        global MAILBOX;
-        MAILBOX = self.mailbox;
+        MAILBOX_REF[0] = self.mailbox;
     }
 
     can start with Root entry {
@@ -254,7 +252,7 @@ with entry:__main__ {
     dataset = os.environ.get("EMAIL_DATASET", "") or os.path.join(
         REPO_ROOT, "mock_mailbox", "datasets", "batch_001.json"
     );
-    agent = EmailAgent(dataset_path=dataset);
+    agent = EmailAgent(dataset_path=dataset, mailbox=MailBox(dataset_path=dataset));
     # Never lose a batch's captured drafts (or its token stats) to a crash
     # partway through the inbox -- results are written either way.
     failure = "";

@@ -73,7 +73,7 @@ def _trace_call(payload: dict, resp: any) {
         "reply": reply
     };
     with open(path, "a", encoding="utf-8") as f {
-        f.write(json.dumps(row, default=_as_str) + "\n");
+        f.write(json.dumps(row, `default=_as_str) + "\n");
     }
 }
 

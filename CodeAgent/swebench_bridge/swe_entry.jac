@@ -84,7 +84,7 @@ with entry:__main__ {
     argv = sys.argv[1:];
     if len(argv) != 2 {
         print("usage: jac run swe_entry.jac <job.json> <result.json>");
-        sys.exit(2);
+        sys.`exit(2);
     }
     result = run_job(argv[0]);
     with open(argv[1], "w", encoding="utf-8") as rf {

@@ -110,6 +110,12 @@ def spawn_agent(args: argparse.Namespace, inst: dict, ws: Path,
     # only when this is set, so a bare `python swe_entry.py` stays quiet.
     env["CODEAGENT_TRACE"] = str(work / "llm_trace.jsonl")
     (work / "llm_trace.jsonl").unlink(missing_ok=True)
+    # byLLM's own per-call logs (jac >= PR #8922 + the bench branch): usage, and
+    # every request as sent, so cache_bench/score.py can replay the session.
+    for var, name in (("BYLLM_USAGE_LOG", "byllm_usage.jsonl"),
+                      ("BYLLM_PROMPT_LOG", "byllm_prompts.jsonl")):
+        env[var] = str(work / name)
+        (work / name).unlink(missing_ok=True)
     try:
         done = run(argv, cwd=args.agent_home, env=env,
                    timeout=args.instance_timeout, check=False)

@@ -137,7 +137,7 @@ obj Repo {
         with open(target, "r", encoding="utf-8", errors="ignore") as f { lines = f.read().splitlines(); }
         out: list[str] = [];
         for (i, line) in enumerate(lines) {
-            if re.match(r"^\s*(async\s+def|def|class)\s+\w+", line) { out.append(f"{i + 1}: {line.rstrip()}"); }
+            if re.`match(r"^\s*(async\s+def|def|class)\s+\w+", line) { out.append(f"{i + 1}: {line.rstrip()}"); }
         }
         return "\n".join(out) if out else f"({path}: no def/class found)";
     }

@@ -30,27 +30,27 @@ obj Thread {
 
 obj MailBox {
     has dataset_path: str;
-    has impl: any by postinit;
+    has backend: any = None;   # set in postinit (`impl` is a keyword on main)
 
     def postinit {
-        self.impl = MockMailbox(self.dataset_path);
+        self.backend = MockMailbox(self.dataset_path);
     }
 
     # read all emails in the mailbox
     def search() -> list[dict] {
-        return [dict(x) for x in self.impl.search()];
+        return [dict(x) for x in self.backend.search()];
     }
 
     def get_thread(thread_id: str) -> Thread {
-        self.impl.get_thread(thread_id);  # records the request for eval
+        self.backend.get_thread(thread_id);  # records the request for eval
         tid = str(thread_id).strip().strip("'\"");
-        for e in self.impl.emails {
+        for e in self.backend.emails {
             if e["threadId"] == tid {
                 return Thread(
                     thread_id=tid,
                     subject=str(e.get("subject", "")),
                     sender=str(e["sender"]),
-                    recipient=str(self.impl.owner_email),
+                    recipient=str(self.backend.owner_email),
                     emails=[
                         Email(
                             subject=str(e.get("subject", "")),
@@ -66,36 +66,36 @@ obj MailBox {
     }
 
     def web_search(query: str) -> str {
-        return str(self.impl.web_search(query));
+        return str(self.backend.web_search(query));
     }
 
     def create_draft(recipient: str, subject: str, message: str) -> str {
-        result = self.impl.create_draft(recipient, subject, message);
+        result = self.backend.create_draft(recipient, subject, message);
         return str(result);
     }
 
     def owner_email() -> str {
-        return str(self.impl.owner_email);
+        return str(self.backend.owner_email);
     }
 
     # A stage that answered in prose instead of the declared type is recorded
     # the same way a malformed Create-Draft call is, so eval sees it.
     def record_draft_error(raw_input: str, error: str) {
-        self.impl.record_draft_error(raw_input, error);
+        self.backend.record_draft_error(raw_input, error);
     }
 
     def case_id() -> str {
-        return str(self.impl.case_id);
+        return str(self.backend.case_id);
     }
 
     # Token/cost totals for the LLM calls made during this run; the harness
     # meters them at the openai-SDK level, so byllm needs no instrumentation.
     def usage_line() -> str {
-        return str(self.impl.usage_line());
+        return str(self.backend.usage_line());
     }
 
     def save_results(path: str) -> str {
-        return str(self.impl.save_results(path));
+        return str(self.backend.save_results(path));
     }
 }
 
