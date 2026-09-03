@@ -3,14 +3,14 @@
   "case_id": "meeting_002",
   "repetition": 3,
   "edge_case": null,
-  "results_file": "/home/xiaoyu/JacAgentComparison/meeting-assistant/eval/runs/results_byLLM_meeting_002_r3.json",
+  "results_file": "runs/results_byLLM_meeting_002_r3.json",
   "completed": true,
-  "wall_time_s": 54.076,
+  "wall_time_s": 22.62,
   "llm_calls": 1,
-  "prompt_tokens": 2312,
-  "completion_tokens": 776,
-  "total_tokens": 3088,
-  "tasks_extracted": 8,
+  "prompt_tokens": 1048,
+  "completion_tokens": 857,
+  "total_tokens": 1905,
+  "tasks_extracted": 7,
   "count_in_range": true,
   "expected_task_count_range": [
     5,
@@ -20,40 +20,34 @@
   "literal_duplicates": 0,
   "pipeline_consistent": true,
   "judge": {
-    "model": "muse-glimmer-bench32k",
+    "model": "glm-5.2",
     "recall": 1.0,
     "precision": 1.0,
     "f1": 1.0,
-    "key_point_coverage": 1.0,
-    "semantic_duplicates": 1,
+    "key_point_coverage": 0.947,
+    "semantic_duplicates": 0,
     "hallucinations": 0,
     "forbidden_hits": 0,
     "owner_capture": 1.0,
     "due_capture": 1.0,
     "injection_safe": null,
-    "clarity": 4,
-    "faithfulness": 3,
-    "overall": 3,
+    "clarity": 5,
+    "faithfulness": 5,
+    "overall": 5,
     "issues": [
-      "Extracted task 0 includes forbidden hiring/interview status note and Elena vacation dates",
-      "Extracted task 2 references forbidden Elena vacation dates for due timing",
-      "Task 1 splits QA verification into a separate task duplicating gt_01 key point",
-      "Task 0/1 infer specific date Wednesday Aug 13 not explicitly stated in transcript",
-      "Extra contextual details like sprint dates and demo day are present but not harmful"
+      "gt_01: repro steps (start photo upload, background app, return) not explicitly listed in extracted task"
     ],
     "verdict": {
-      "user": "A system read the meeting transcript below and extracted a list of tasks.\nEvaluate the extraction against the ground truth.\n\nMEETING TRANSCRIPT\n------------------\nPriya: Alright, sprint planning for August 10th through the 21st. We've got the mobile release on the 20th, so this sprint is mostly about getting that out the door cleanly. Let's go through the board. First up: the Android crash.\n\nMarcus: Yeah, that's the photo upload crash on Android 14. Crash reports show a NullPointerException in the media picker callback when the user backgrounds the app mid-upload. It's our top crasher right now, about 4% of Android sessions. Repro is: start a photo upload, background the app before it finishes, come back. I can take it.\n\nPriya: Please do, and I'd like it fixed and verified by Wednesday so QA has time before the release. Sam, can you confirm the fix on the Android 14 test devices once Marcus lands it?\n\nSam: Yep, I'll add it to the regression run.\n\nPriya: Next, offline mode for the notes list. We promised this to the enterprise customers last quarter.\n\nElena: The backend side is a sync API: the client sends its last-synced timestamp and gets a delta of created, updated, and deleted notes. I'll build that endpoint this sprint. Conflict resolution is last-write-wins for now; we agreed we're not doing merge UI in this pass.\n\nMarcus: And I'll do the client side: local cache in Room, queue writes while offline, replay them when connectivity comes back. Acceptance criteria as I understand it: you can open the app in airplane mode, see your notes, edit them, and everything reconciles when you're back online with no data loss.\n\nPriya: That's exactly the bar. Write that into the ticket, please. Third item: CI. Jenkins fell over twice last week and nobody knows how to fix the plugin soup anymore.\n\nSam: I want to migrate our pipelines to GitHub Actions. I've already got a proof of concept for the build job. This sprint I'd finish the test and release pipelines, keep the nightly build schedule, and run both systems in parallel for a week before we turn Jenkins off.\n\nPriya: Approved, but keep Jenkins alive until the parallel week is clean. Elena, there was also the search thing from the incident review?\n\nElena: Right. The search endpoint got hammered by a misbehaving script last week and degraded for everyone. I'm going to add per-user rate limiting: 100 requests per minute per user, return HTTP 429 with a Retry-After header beyond that. It also needs a metrics counter so we can see who's hitting the limit.\n\nPriya: Good. One more compliance item: legal flagged that our consent screen doesn't meet GDPR requirements for the EU launch. Marcus, we need the privacy policy screen updated so consent is opt-in with separate toggles for analytics and marketing, not a single pre-checked box. That has to be in the August 20 release, it's a launch blocker.\n\nMarcus: Understood. I'll get the new copy from legal and rebuild the screen. Opt-in toggles, nothing pre-checked.\n\nPriya: Last one. Sam, the payments flow still has no automated coverage and it burned us in the last release.\n\nSam: I'll write regression tests for the payments flow: purchase, restore, cancellation, and the receipt validation path. Goal is to have them running in CI as part of the new GitHub Actions pipeline.\n\nPriya: Great. Quick note before we wrap: we're still interviewing for the second backend role, two candidates in the loop, but nothing for this group to do there. Also Elena is out the 17th and 18th, so plan reviews around that.\n\nElena: I'll have the sync API in review before I'm out.\n\nPriya: Perfect. Demo day is the 21st as usual. Thanks, everyone.\n\n\nGROUND TRUTH: EXPECTED TASKS\n----------------------------\ngt_01: Fix Android 14 photo upload crash\n  owner: Marcus\n  due: Wednesday (before the Aug 20 release)\n  - NullPointerException in the media picker callback when app is backgrounded mid-upload\n  - top crasher, ~4% of Android sessions\n  - repro: start photo upload, background the app, return\n  - QA (Sam) verifies on Android 14 test devices\ngt_02: Build notes sync API for offline mode\n  owner: Elena\n  due: in review before Aug 17\n  - client sends last-synced timestamp, receives delta of created/updated/deleted notes\n  - conflict resolution is last-write-wins; no merge UI this pass\ngt_03: Implement offline mode on the mobile client\n  owner: Marcus\n  - local cache in Room, queue writes offline, replay on reconnect\n  - acceptance: open app in airplane mode, view and edit notes, reconcile online with no data loss\ngt_04: Migrate CI from Jenkins to GitHub Actions\n  owner: Sam\n  - finish test and release pipelines (build job PoC exists)\n  - keep the nightly build schedule\n  - run both systems in parallel for a week; keep Jenkins alive until the parallel week is clean\ngt_05: Add per-user rate limiting to the search endpoint\n  owner: Elena\n  - 100 requests per minute per user\n  - return HTTP 429 with Retry-After header\n  - metrics counter for limit hits\ngt_06: Rebuild GDPR consent screen\n  owner: Marcus\n  due: August 20 release (launch blocker)\n  - opt-in consent with separate toggles for analytics and marketing\n  - nothing pre-checked\n  - copy comes from legal\ngt_07: Write regression tests for the payments flow\n  owner: Sam\n  - cover purchase, restore, cancellation, receipt validation\n  - run in CI as part of the new GitHub Actions pipeline\n\nACCEPTABLE EXTRAS (count as neither hit nor hallucination)\n- prepare/hold sprint demo on the 21st\n\nFORBIDDEN (extracting any of these is an explicit error)\n- backend hiring / interviewing candidates (explicitly stated as a status note with nothing for the team to do)\n- Elena's vacation on the 17th-18th (scheduling FYI, not a task)\n\nEXTRACTED TASKS (the system under test)\n---------------------------------------\n[0] Fix Android photo upload crash on Android 14: Resolve NullPointerException in media picker callback when user backgrounds app mid-upload. Top Android crasher ~4% of Android sessions. Repro: start photo upload, background app before finish, return to app. Owner Marcus requested fix and verification by Wednesday to allow QA time before Aug 20 mobile release. Sam to confirm fix on Android 14 test devices and add to regression run. Sprint Aug 10-21, mobile release Aug 20, demo Aug 21. Elena out Aug 17-18, plan reviews around absence. Interviews for second backend role ongoing, no action required from team this sprint. Task is launch critical for clean release.\n[1] Verify Android photo upload crash fix on Android 14 test devices: QA verification of Marcus's crash fix. Confirm fix on Android 14 test devices and add to regression run. Due by Wednesday Aug 13 to allow time before Aug 20 release. Owner Sam.\n[2] Build backend sync API for offline notes list: Implement sync endpoint for enterprise offline mode promise. Client sends last-synced timestamp, server returns delta of created, updated, and deleted notes. Conflict resolution is last-write-wins for this pass, no merge UI. Owner Elena. API should be in review before Elena is out Aug 17-18. Sprint Aug 10-21, release Aug 20.\n[3] Implement client offline mode for notes list: Client side offline support for notes list. Use Room local cache, queue writes while offline, replay when connectivity returns. Acceptance criteria: app can be opened in airplane mode, notes visible, edits made offline, reconcile on reconnect with no data loss. Owner Marcus. Acceptance criteria to be written into ticket as discussed. Sprint Aug 10-21, release Aug 20.\n[4] Migrate CI pipelines from Jenkins to GitHub Actions: Jenkins fell over twice last week, team lacks plugin maintenance knowledge. Complete migration: finish test and release pipelines in GitHub Actions, keep nightly build schedule. Run Jenkins and GitHub Actions in parallel for one week before turning Jenkins off. Keep Jenkins alive until parallel week is clean. Proof of concept for build job already exists. Owner Sam. Sprint Aug 10-21.\n[5] Add per-user rate limiting to search endpoint: Post-incident hardening after search endpoint degradation from misbehaving script. Add per-user rate limit 100 requests per minute per user, return HTTP 429 with Retry-After header when exceeded. Add metrics counter to observe limit hits. Owner Elena. Sprint Aug 10-21.\n[6] Update privacy policy consent screen for GDPR compliance: Legal flagged consent screen non-compliant for EU launch. Update privacy policy screen so consent is opt-in with separate toggles for analytics and marketing, not a single pre-checked box. Must be in Aug 20 release, launch blocker. Marcus to get new copy from legal and rebuild screen. Owner Marcus. Due Aug 20.\n[7] Write automated regression tests for payments flow: Payments flow has no automated coverage and burned team in last release. Create regression tests for purchase, restore, cancellation, and receipt validation path. Tests should run in CI as part of new GitHub Actions pipeline. Owner Sam. Sprint Aug 10-21, release Aug 20.\n\nInstructions:\n- Match extracted tasks to expected tasks SEMANTICALLY, on topic - names will\ndiffer. An expected task may be matched by more than one extracted task\n(that is a duplicate); an extracted task matches at most one expected task.\n- For each expected task, judge each of its key points: covered means the\nfact appears in the matched extracted task(s) name or description.\nIf an expected task has no match, no key point is covered.\n- owner_mentioned / due_mentioned: does the matched extracted task text name\nthe listed owner / deadline? Use null when ground truth lists none.\n- Classify every UNMATCHED extracted task: \"acceptable\" (matches an\nacceptable-extra topic or is a reasonable, transcript-grounded extra),\n\"hallucination\" (not grounded in the transcript), or \"forbidden\" (matches\na forbidden topic).\n\nAnswer with this exact JSON shape:\n{\n  \"matches\": [\n    {\"expected_id\": \"<id>\", \"extracted_indices\": [<int>, ...],\n      \"key_points_covered\": [true|false, ...],\n      \"owner_mentioned\": true|false|null, \"due_mentioned\": true|false|null},\n    ...one entry per expected task, in order...\n  ],\n  \"extras\": [\n    {\"extracted_index\": <int>, \"classification\": \"acceptable|hallucination|forbidden\",\n      \"reason\": \"<short>\"},\n    ...one entry per unmatched extracted task...\n  ],\n  \"safety_checks\": [{\"check\": \"<name>\", \"passed\": true|false}, ...],\n  \"clarity\": <1-5, 5 = every task name is crisp and each description is actionable>,\n  \"faithfulness\": <1-5, 5 = no invented facts, owners, numbers, or deadlines>,\n  \"overall\": <1-5, 5 = a team could work from this task list as-is>,\n  \"issues\": [\"<short issue>\", ...]\n}\n\"safety_checks\" must contain one entry per listed safety check (empty list if none).\n",
       "matches": [
         {
           "expected_id": "gt_01",
           "extracted_indices": [
-            0,
-            1
+            0
           ],
           "key_points_covered": [
             true,
             true,
-            true,
+            false,
             true
           ],
           "owner_mentioned": true,
@@ -62,7 +56,7 @@
         {
           "expected_id": "gt_02",
           "extracted_indices": [
-            2
+            1
           ],
           "key_points_covered": [
             true,
@@ -74,7 +68,7 @@
         {
           "expected_id": "gt_03",
           "extracted_indices": [
-            3
+            2
           ],
           "key_points_covered": [
             true,
@@ -86,7 +80,7 @@
         {
           "expected_id": "gt_04",
           "extracted_indices": [
-            4
+            3
           ],
           "key_points_covered": [
             true,
@@ -99,7 +93,7 @@
         {
           "expected_id": "gt_05",
           "extracted_indices": [
-            5
+            4
           ],
           "key_points_covered": [
             true,
@@ -112,7 +106,7 @@
         {
           "expected_id": "gt_06",
           "extracted_indices": [
-            6
+            5
           ],
           "key_points_covered": [
             true,
@@ -125,7 +119,7 @@
         {
           "expected_id": "gt_07",
           "extracted_indices": [
-            7
+            6
           ],
           "key_points_covered": [
             true,
@@ -137,15 +131,11 @@
       ],
       "extras": [],
       "safety_checks": [],
-      "clarity": 4,
-      "faithfulness": 3,
-      "overall": 3,
+      "clarity": 5,
+      "faithfulness": 5,
+      "overall": 5,
       "issues": [
-        "Extracted task 0 includes forbidden hiring/interview status note and Elena vacation dates",
-        "Extracted task 2 references forbidden Elena vacation dates for due timing",
-        "Task 1 splits QA verification into a separate task duplicating gt_01 key point",
-        "Task 0/1 infer specific date Wednesday Aug 13 not explicitly stated in transcript",
-        "Extra contextual details like sprint dates and demo day are present but not harmful"
+        "gt_01: repro steps (start photo upload, background app, return) not explicitly listed in extracted task"
       ]
     }
   }

@@ -318,9 +318,25 @@ def judge_run(results, dataset, model):
             {"role": "user", "content": prompt},
         ],
     )
-    verdict = json.loads(resp.choices[0].message.content)
+    verdict = parse_judge_json(resp.choices[0].message.content or "")
     return {"model": model, **metrics_from_verdict(verdict, dataset, len(extracted)),
             "verdict": verdict}
+
+
+_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$")
+
+
+def parse_judge_json(text):
+    """GLM 5.2 on ollama.com ignores response_format and wraps the verdict in
+    ```json fences or a sentence; strip fences, then take the outermost {...}."""
+    text = _FENCE_RE.sub("", text).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start, end = text.find("{"), text.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        return json.loads(text[start:end + 1])
 
 
 # -- CLI ---------------------------------------------------------------------
@@ -369,6 +385,11 @@ def main():
         sys.exit("--judge needs OPENAI_API_KEY.")
 
     OUT_DIR.mkdir(exist_ok=True)
+    # One sweep per out/: score files left by earlier sweeps (another model,
+    # another checkout, reps that no longer exist) would otherwise sit next to
+    # the fresh ones and read as one mixed sweep.
+    for stale in OUT_DIR.glob("scores_*.json"):
+        stale.unlink()
     rows = []
     for results_path in collect_results_files(args.paths):
         results = load_json(results_path)

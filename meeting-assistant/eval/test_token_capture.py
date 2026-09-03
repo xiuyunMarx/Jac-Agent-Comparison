@@ -134,6 +134,7 @@ class TokenCaptureTest(unittest.TestCase):
         after = self.snapshot()
         self.assertEqual(after["calls"], before["calls"] + 1)
         self.assertEqual(after["prompt_tokens"], before["prompt_tokens"])
+        self.assertEqual(after["calls_without_usage"], before["calls_without_usage"] + 1)
 
 
 if __name__ == "__main__":

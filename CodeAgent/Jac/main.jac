@@ -26,10 +26,10 @@ walker CodeAgent {
     }
 
     can setup with Root entry {
-        if not [-->] {                       # [-->] 是 list，永远不是 None
+        if not [-->] {                      
             pl = Plan(); ex = Explore(); ed = Edit(); ve = Verify(); fi = Finish();
             here ++> pl;
-            # 边上的 capability 是路由提示：模型在需要选边的地方读它来决定去哪个节点。
+            # Capability is routing hint
             pl +>: PhaseCapability(capability="locate the exact code to change and reproduce the failure") :+> ex;
             ex +>: PhaseCapability(capability="apply the fix to library source and re-run the reproduction") :+> ed;
             ed +>: PhaseCapability(capability="run the repository's own tests against the edited tree") :+> ve;

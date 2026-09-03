@@ -26,11 +26,13 @@ class MeetingAssistantCrew:
     tasks_config: dict[str, Any]
     agents: list[BaseAgent]
     tasks: list[Task]
-    # Hard-coded to the same model as byLLM (nodes.jac) and openai_sdk (nodes.py).
+    # Same model as byLLM (nodes.jac) and openai_sdk (nodes.py), and the same
+    # temperature: CrewAI sends none unless asked, byLLM's default is 0.7.
     llm = LLM(
         model=_model_name(),
         base_url=os.environ.get("OPENAI_BASE_URL", "https://ollama.com/v1"),
         api_key=os.environ.get("OPENAI_API_KEY"),
+        temperature=0.7,
     )
 
     @agent

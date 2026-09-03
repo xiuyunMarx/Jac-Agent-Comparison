@@ -6,17 +6,17 @@
     {
       "to": "sarah.chen@acmecorp.com",
       "subject": "Re: Invoice #2214 discrepancy",
-      "message": "Hi Sarah,\n\nThanks for following up, and apologies for the delay. Here's where things stand:\n\n1. Corrected invoice status: Our billing team has submitted the revised invoice #2214 reflecting the agreed-upon amount of $4,200 (down from $4,800). The correction is now in the queue for processing.\n\n2. Timeline: The corrected invoice is expected to be issued and visible in your portal by end of day tomorrow (Wednesday).\n\n3. Friday deadline: We understand your payment run closes Friday, so we've flagged this as a priority. If, for any reason, the corrected invoice does not appear in your portal by Thursday morning, please reach out and we will escalate immediately.\n\nSorry again for the inconvenience, and please let me know if you need anything else to confirm on your end.\n\nBest,\nImpact Team"
+      "message": "Hi Sarah,\n\nThanks for following up, and apologies for the delay in getting this resolved.\n\nI've checked with our billing team, and the corrected invoice for #2214 (adjusted from $4,800 to $4,200) is being issued today. You should see the updated amount reflected in your portal shortly\u2014our team is processing the revision now, so it may take a few hours to propagate.\n\nI understand your payment run closes this Friday, so we're prioritizing this to make sure the corrected invoice is available well ahead of that deadline. If for any reason the portal still shows the old amount by end of day tomorrow, please let me know and I'll escalate immediately.\n\nThanks again for your patience, and please don't hesitate to reach out if anything else comes up.\n\nBest,\nImpact Team"
     },
     {
       "to": "miguel.alvarez@stateu.edu",
       "subject": "Re: Guest lecture on agentic programming?",
-      "message": "Dear Professor Alvarez,\n\nThank you for reaching out and for your interest in having the Jaseci team speak with your graduate seminar. We are delighted to hear that your students are already experimenting with Jaseci, and we would be happy to arrange a guest lecture on agentic programming.\n\nRegarding the proposed dates, September 22 works well on our end. We can accommodate the 60-minute format within your 2\u20134pm Eastern seminar slot, and a remote presentation is perfectly fine on our side as well.\n\nI will be delivering the lecture, and I plan to cover the foundations of agentic programming in Jaseci, including how to design, orchestrate, and deploy multi-agent systems. I am happy to tailor the content to your students' current level of experience with the framework, so please feel free to share any specific topics or areas of interest you would like emphasized. If it would be helpful, I can also reserve time at the end for Q&A or a brief live demo.\n\nPlease let me know if you have any preferences regarding the lecture format or specific subtopics, and I will prepare accordingly. I will also follow up closer to the date with any connection details or platform requirements.\n\nThank you again for the invitation. We look forward to engaging with your students.\n\nBest regards,\nJaseci Team\nimpact@jaseci.org"
+      "message": "Dear Professor Alvarez,\n\nThank you for reaching out and for your interest in Jaseci. It's wonderful to hear that your students have been experimenting with our platform, and we would be delighted to contribute a guest lecture to your graduate AI systems seminar.\n\nWe can confirm that a member of our team will be available to deliver a 60-minute talk on agentic programming. Of the two dates you proposed, September 15 works best on our end, and we are happy to present remotely during your 2\u20134pm Eastern seminar window.\n\nTo clarify logistics:\n\n- Format: We will plan for a 60-minute remote presentation, which we can deliver via Zoom or any conferencing platform your university prefers. If you have a preferred link or system, please share it and we'll accommodate.\n- Technical requirements: A stable video connection and screen-sharing capability will suffice. If you'd like a live demo portion, we can run it from our end, so no local installation is required for students.\n- Q&A: We'd be glad to leave time for questions, either interleaved or at the end, depending on your preference.\n\nAs a suggested outline, we could cover the following areas within the 60 minutes:\n\n1. Introduction to agentic programming: core concepts and motivation\n2. The Jaseci approach to building and orchestrating agents\n3. Designing agent actions, reasoning loops, and tool use\n4. Multi-agent coordination and communication\n5. Practical demo: a simple agentic application in Jaseci\n6. Open challenges and research directions\n\nPlease let us know if this outline aligns with your syllabus, or if there are specific topics you'd like us to emphasize or adjust. We're happy to tailor the content to your students' background and interests.\n\nWe look forward to joining your seminar on September 15. Please don't hesitate to reach out with any further details or requests.\n\nBest regards,\nJaseci Team\nimpact@jaseci.org"
     },
     {
       "to": "priya.nair@devfleet.io",
-      "subject": "Re: Quick question | byLLM structured output",
-      "message": "Hi Priya,\n\nThanks for reaching out \u2014 great use case. Yes, byLLM fully supports typed/structured outputs, so your team won't need to parse model text manually.\n\nHere's how it works:\n\n1. Declare a type for your structured return. For your log triage scenario, you'd define a type with the fields you need:\n\n   type LogEntry {\n       severity: str;\n       component: str;\n       message: str;\n   }\n\n2. Use the `by llm()` syntax and specify the declared type as the expected return. The runtime will instruct the model to produce output conforming to that type and will enforce conformance \u2014 if the model's response doesn't match the declared schema, the runtime will retry or raise an error rather than silently returning malformed text.\n\n   In practice, your call would look something like:\n\n   entry = by llm(LogEntry, prompt=\"Classify this log line into severity, component, and message: \" + raw_log_line);\n\n   The returned `entry` is a typed object \u2014 you can access `entry.severity`, `entry.component`, and `entry.message` directly, no string parsing required.\n\n3. For batch processing, you can iterate over your log lines and call `by llm(LogEntry, ...)` for each one, or define a list type (e.g., `List[LogEntry]`) if you want to classify multiple lines in a single call.\n\nA minimal example for your pipeline:\n\n   walker log_triage {\n       has raw_lines: list[str];\n       has results: list[LogEntry];\n\n       can triage with `by llm(LogEntry)` entry {\n           results = raw_lines |> map(\n               l => by llm(LogEntry, prompt=\"Extract severity, component, and message from this log line: \" + l)\n           );\n       }\n   }\n\nThis gives you strongly-typed fields directly from the model for each log line.\n\nHappy to share more detailed docs or set up a call if that would help with your evaluation.\n\nBest,\nImpact Team\nJaseci"
+      "subject": "Quick question | byLLM structured output",
+      "message": "Hi Priya,\n\nGreat question \u2014 and good news: byLLM supports typed/structured outputs natively, so you won't need to parse model text yourself.\n\nWhen you declare a function with the `by llm()` syntax and give it a typed return value, the runtime enforces that the model's output conforms to that declared type. In your case, you can define a structured return type with severity, component, and message fields, and byLLM will hand you back a properly typed object rather than raw text.\n\nHere's a quick sketch for your log triage use case:\n\n```python\nfrom dataclasses import dataclass\n\n@dataclass\nclass LogEntry:\n    severity: str\n    component: str\n    message: str\n\ndef triage_log(line: str) -> LogEntry by llm():\n    \"\"\"Parse the given log line and return its severity, component, and message.\"\"\"\n    ...\n```\n\nCalling `triage_log(\"ERROR | walker_spawn | context missing\")` would return a `LogEntry` object you can use directly \u2014 e.g., `entry.severity`, `entry.component`, `entry.message` \u2014 with the runtime validating conformance to the declared type. No manual regex or string splitting required.\n\nIf you'd like, I can point you to the docs section on typed outputs and share more complete examples, including handling multiple log lines in a batch. Happy to help you get the pipeline wired up.\n\nThanks for evaluating byLLM!\n\nBest,\nMikael"
     }
   ],
   "draft_errors": [],
@@ -26,29 +26,20 @@
     "thr_006"
   ],
   "web_queries": [
-    "Jaseci agentic programming jaseci.org",
-    "Jaseci agentic programming guest lecture",
+    "Jaseci agentic programming framework",
+    "Jaseci org team contact impact@jaseci.org",
+    "Jaseci agentic programming framework",
     "byLLM structured output typed output support",
-    "byLLM Jaseci structured output fields",
-    "byLLM structured typed output syntax \"by llm()\" return type",
-    "byLLM jaseci structured output typed return values",
-    "jaseci byLLM \"by llm()\" typed output example",
-    "byLLM structured output typed return fields severity component message",
-    "byllm.ai structured output typed",
-    "byLLM documentation structured outputs typed return",
-    "byLLM log triage structured fields example",
-    "jaseci.org byLLM walker structured output",
-    "byLLM typed return value syntax runtime enforcement",
-    "byLLM structured output support typed returns",
-    "byLLM product structured output feature"
+    "byLLM Jaseci structured output configuration",
+    "byLLM typed structured output \"by llm()\" syntax return type"
   ],
   "usage": {
-    "llm_calls": 25,
-    "prompt_tokens": 24789,
+    "llm_calls": 17,
+    "prompt_tokens": 13133,
     "cached_prompt_tokens": 0,
-    "completion_tokens": 3090,
+    "completion_tokens": 2614,
     "reasoning_tokens": 0,
-    "total_tokens": 27879,
+    "total_tokens": 15747,
     "cost_usd": 0.0,
     "priced": false,
     "unpriced_models": [
@@ -57,12 +48,12 @@
     "streamed_calls": 0,
     "by_model": {
       "glm-5.2": {
-        "calls": 25,
-        "prompt_tokens": 24789,
+        "calls": 17,
+        "prompt_tokens": 13133,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 3090,
+        "completion_tokens": 2614,
         "reasoning_tokens": 0,
-        "total_tokens": 27879,
+        "total_tokens": 15747,
         "cost_usd": null
       }
     },
@@ -72,117 +63,7 @@
         "endpoint": "/chat/completions",
         "prompt_tokens": 296,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 34,
-        "reasoning_tokens": 0,
-        "total_tokens": 330,
-        "cost_usd": null
-      },
-      {
-        "model": "glm-5.2",
-        "endpoint": "/chat/completions",
-        "prompt_tokens": 954,
-        "cached_prompt_tokens": 0,
-        "completion_tokens": 351,
-        "reasoning_tokens": 0,
-        "total_tokens": 1305,
-        "cost_usd": null
-      },
-      {
-        "model": "glm-5.2",
-        "endpoint": "/chat/completions",
-        "prompt_tokens": 1202,
-        "cached_prompt_tokens": 0,
-        "completion_tokens": 383,
-        "reasoning_tokens": 0,
-        "total_tokens": 1585,
-        "cost_usd": null
-      },
-      {
-        "model": "glm-5.2",
-        "endpoint": "/chat/completions",
-        "prompt_tokens": 299,
-        "cached_prompt_tokens": 0,
-        "completion_tokens": 32,
-        "reasoning_tokens": 0,
-        "total_tokens": 331,
-        "cost_usd": null
-      },
-      {
-        "model": "glm-5.2",
-        "endpoint": "/chat/completions",
-        "prompt_tokens": 836,
-        "cached_prompt_tokens": 0,
-        "completion_tokens": 138,
-        "reasoning_tokens": 0,
-        "total_tokens": 974,
-        "cost_usd": null
-      },
-      {
-        "model": "glm-5.2",
-        "endpoint": "/chat/completions",
-        "prompt_tokens": 898,
-        "cached_prompt_tokens": 0,
-        "completion_tokens": 270,
-        "reasoning_tokens": 0,
-        "total_tokens": 1168,
-        "cost_usd": null
-      },
-      {
-        "model": "glm-5.2",
-        "endpoint": "/chat/completions",
-        "prompt_tokens": 1111,
-        "cached_prompt_tokens": 0,
-        "completion_tokens": 38,
-        "reasoning_tokens": 0,
-        "total_tokens": 1149,
-        "cost_usd": null
-      },
-      {
-        "model": "glm-5.2",
-        "endpoint": "/chat/completions",
-        "prompt_tokens": 1159,
-        "cached_prompt_tokens": 0,
-        "completion_tokens": 382,
-        "reasoning_tokens": 0,
-        "total_tokens": 1541,
-        "cost_usd": null
-      },
-      {
-        "model": "glm-5.2",
-        "endpoint": "/chat/completions",
-        "prompt_tokens": 296,
-        "cached_prompt_tokens": 0,
-        "completion_tokens": 5,
-        "reasoning_tokens": 0,
-        "total_tokens": 301,
-        "cost_usd": null
-      },
-      {
-        "model": "glm-5.2",
-        "endpoint": "/chat/completions",
-        "prompt_tokens": 293,
-        "cached_prompt_tokens": 0,
-        "completion_tokens": 4,
-        "reasoning_tokens": 0,
-        "total_tokens": 297,
-        "cost_usd": null
-      },
-      {
-        "model": "glm-5.2",
-        "endpoint": "/chat/completions",
-        "prompt_tokens": 293,
-        "cached_prompt_tokens": 0,
-        "completion_tokens": 6,
-        "reasoning_tokens": 0,
-        "total_tokens": 299,
-        "cost_usd": null
-      },
-      {
-        "model": "glm-5.2",
-        "endpoint": "/chat/completions",
-        "prompt_tokens": 301,
-        "cached_prompt_tokens": 0,
-        "completion_tokens": 32,
+        "completion_tokens": 37,
         "reasoning_tokens": 0,
         "total_tokens": 333,
         "cost_usd": null
@@ -190,131 +71,161 @@
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 844,
+        "prompt_tokens": 959,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 74,
+        "completion_tokens": 326,
         "reasoning_tokens": 0,
-        "total_tokens": 918,
+        "total_tokens": 1285,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 979,
+        "prompt_tokens": 1207,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 212,
+        "completion_tokens": 287,
         "reasoning_tokens": 0,
-        "total_tokens": 1191,
+        "total_tokens": 1494,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 1074,
+        "prompt_tokens": 299,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 60,
+        "completion_tokens": 36,
         "reasoning_tokens": 0,
-        "total_tokens": 1134,
+        "total_tokens": 335,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 1175,
+        "prompt_tokens": 841,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 61,
+        "completion_tokens": 143,
         "reasoning_tokens": 0,
-        "total_tokens": 1236,
+        "total_tokens": 984,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 1229,
+        "prompt_tokens": 900,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 41,
+        "completion_tokens": 23,
         "reasoning_tokens": 0,
-        "total_tokens": 1270,
+        "total_tokens": 923,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 1280,
+        "prompt_tokens": 952,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 18,
+        "completion_tokens": 259,
         "reasoning_tokens": 0,
-        "total_tokens": 1298,
+        "total_tokens": 1211,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 1327,
+        "prompt_tokens": 1117,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 34,
+        "reasoning_tokens": 0,
+        "total_tokens": 1151,
+        "cost_usd": null
+      },
+      {
+        "model": "glm-5.2",
+        "endpoint": "/chat/completions",
+        "prompt_tokens": 1164,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 500,
+        "reasoning_tokens": 0,
+        "total_tokens": 1664,
+        "cost_usd": null
+      },
+      {
+        "model": "glm-5.2",
+        "endpoint": "/chat/completions",
+        "prompt_tokens": 296,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 38,
+        "reasoning_tokens": 0,
+        "total_tokens": 334,
+        "cost_usd": null
+      },
+      {
+        "model": "glm-5.2",
+        "endpoint": "/chat/completions",
+        "prompt_tokens": 293,
+        "cached_prompt_tokens": 0,
+        "completion_tokens": 35,
+        "reasoning_tokens": 0,
+        "total_tokens": 328,
+        "cost_usd": null
+      },
+      {
+        "model": "glm-5.2",
+        "endpoint": "/chat/completions",
+        "prompt_tokens": 293,
         "cached_prompt_tokens": 0,
         "completion_tokens": 19,
         "reasoning_tokens": 0,
-        "total_tokens": 1346,
+        "total_tokens": 312,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 1375,
+        "prompt_tokens": 301,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 20,
+        "completion_tokens": 39,
         "reasoning_tokens": 0,
-        "total_tokens": 1395,
+        "total_tokens": 340,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 1424,
+        "prompt_tokens": 849,
         "cached_prompt_tokens": 0,
         "completion_tokens": 72,
         "reasoning_tokens": 0,
-        "total_tokens": 1496,
+        "total_tokens": 921,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 1474,
+        "prompt_tokens": 984,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 92,
+        "completion_tokens": 334,
         "reasoning_tokens": 0,
-        "total_tokens": 1566,
+        "total_tokens": 1318,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 1523,
+        "prompt_tokens": 1164,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 54,
+        "completion_tokens": 40,
         "reasoning_tokens": 0,
-        "total_tokens": 1577,
+        "total_tokens": 1204,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 1571,
+        "prompt_tokens": 1218,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 18,
+        "completion_tokens": 392,
         "reasoning_tokens": 0,
-        "total_tokens": 1589,
-        "cost_usd": null
-      },
-      {
-        "model": "glm-5.2",
-        "endpoint": "/chat/completions",
-        "prompt_tokens": 1576,
-        "cached_prompt_tokens": 0,
-        "completion_tokens": 674,
-        "reasoning_tokens": 0,
-        "total_tokens": 2250,
+        "total_tokens": 1610,
         "cost_usd": null
       }
     ]

@@ -6,27 +6,27 @@
     {
       "to": "chris@relaymind.ai",
       "subject": "Re: Integrating byLLM into our product - partnership?",
-      "message": "Hi Chris,\n\nThanks for reaching out \u2014 really glad to hear byLLM is outperforming your hand-rolled pipeline. That's exactly the kind of result we're aiming for with developers.\n\nFor partnership and integration conversations, I'm the right person to talk to. Let's set up a call. I've got availability the week of August 11 \u2014 does something like Tuesday Aug 13 or Wednesday Aug 14 in the morning (ET) work for you? Happy to send a calendar invite once you confirm.\n\nIn the meantime, if you have any preliminary notes on what \"deeper integration\" looks like on your end (API surface, deployment model, etc.), feel free to share so we can come prepared. The case study idea is great too \u2014 we can discuss scoping that alongside any co-marketing ideas.\n\nLooking forward to it.\n\nBest,\nImpact Team"
+      "message": "Hi Chris,\n\nThanks for reaching out \u2014 really great to hear that byLLM outperformed your hand-rolled pipeline on both accuracy and cost. That's exactly the kind of result we hoped to see.\n\nI'd be the right person to start the conversation on integration and partnership opportunities. I'm happy to loop in our engineering lead as well depending on how deep the technical integration discussion goes.\n\nI'm available for a call in the next two weeks. Here are a few slots that work on my end:\n\n- Tuesday, Aug 11, 10:00\u201312:00 AM PT\n- Wednesday, Aug 12, 2:00\u20134:00 PM PT\n- Thursday, Aug 13, 10:00 AM\u201312:00 PM PT\n\nIf none of those work, send over a couple of times that suit you and we'll make it happen. A case study and co-marketing are both very much on the table \u2014 let's talk specifics on the call.\n\nLooking forward to it,\n\nImpact Team\nJaseci"
     },
     {
       "to": "fhassan@uwaterloo.ca",
       "subject": "Re: Prospective GSoC contributor - where to start?",
-      "message": "Hi Fatima,\n\nThanks for reaching out \u2014 it's great to see your enthusiasm for contributing ahead of GSoC! Waterloo has a fantastic CS program, so you're already off to a strong start.\n\nHere's what I'd recommend:\n\n1. **Core Repos:** Start by exploring the main Jaseci GitHub org (github.com/Jaseci-Labs). The `jaseci` core repo and `jaseci-ai-kit` are the two most active repositories. `jaseci-ai-kit` is a good fit if you're interested in the AI/LLM side and are comfortable in Python.\n\n2. **Good First Issues:** Look for issues tagged `good-first-issue` or `help wanted` in those repos. Those are curated for newcomers and usually have enough context to get started without deep familiarity with the entire codebase.\n\n3. **Jac Language:** Since you've been learning Jac from the docs, try writing a small walker-based app \u2014 even something simple like a graph-based todo list \u2014 and open a PR or share it for feedback. That's a great way to get familiar with the language internals and get on the maintainers' radar before GSoC applications open.\n\n4. **Community:** Join our Discord/GitHub Discussions if you haven't already \u2014 that's where most contributor conversations happen and it's the best place to ask questions as you ramp up.\n\nLet us know if you get stuck on anything or want pointers on a specific area. We'd love to have you contributing before GSoC season even starts.\n\nBest,\nImpact Team"
+      "message": "Hi Fatima!\n\nThanks so much for reaching out \u2014 we love hearing from students who want to get involved early, especially ahead of GSoC. The fact that you're already comfortable with Python and learning Jac from the docs puts you in a great spot.\n\nHere are a few recommendations to get started:\n\n1. **jaseci-core** (github.com/Jaseci-Labs/jaseci) \u2014 This is the main runtime and compiler for Jac. Look for issues tagged `good-first-issue` and `help-wanted`. These are curated to be approachable for new contributors.\n\n2. **jaseci-ai-kit** (github.com/Jaseci-Labs/jaseci_ai_kit) \u2014 If you're interested in the AI/ML side, this repo contains Jaseci's AI module integrations (encoders, summarizers, etc.). It's a great place to contribute if you want to work at the intersection of AI and language design.\n\n3. **jac-lang docs and examples** \u2014 Even before writing code, improving documentation or adding examples is a valuable contribution and helps you deepen your understanding of Jac.\n\nA few tips:\n- Join our Discord (linked in the GitHub org README) \u2014 that's where most contributor discussion happens, and our maintainers are very responsive there.\n- When you find an issue you'd like to tackle, drop a comment on it so we know you're working on it.\n- Don't hesitate to ask questions \u2014 we'd rather you ask early than get stuck.\n\nWe'll be publishing GSoC project ideas in the coming months, so getting a contribution or two merged before then will definitely strengthen your application.\n\nLooking forward to seeing your first PR!\n\nBest,\nImpact Team\nJaseci"
     },
     {
       "to": "omar.said@nexusanalytica.com",
       "subject": "Re: Bug: edge traversal returns duplicates after node delete (repro attached)",
-      "message": "Hi Omar,\n\nThanks for the detailed repro \u2014 this is helpful. We've seen similar reports around stale edge references after node deletion, so this is on our radar, though I don't believe a fix has landed yet in 0.10.2.\n\n**Workaround:** After deleting a node, explicitly remove or clean up edges connected to that node before relying on `[-->]` traversal from its former neighbors. You can do this by iterating over the edges on the neighbor nodes and filtering out any references to the deleted node prior to traversal. Something like:\n\n```\n// After deleting node B\nA.edges = A.edges.filter(e => e.target != B.id);\n```\n\nThis should prevent stale/duplicate references from surfacing during traversal while we work on a proper fix in the core engine.\n\n**GitHub Issue:** Yes, please do file one with the full snippet \u2014 having the complete reproduction in the issue tracker will help us prioritize and track it properly. Please include your Jac version (0.10.2) and any relevant engine config.\n\nWe'll get eyes on this and work toward a fix in an upcoming release. Appreciate you flagging it with production context \u2014 that helps us prioritize.\n\nBest,\nImpact Team"
+      "message": "Hi Omar,\n\nThanks for the detailed report \u2014 really appreciate the clear repro steps, that makes triaging much easier.\n\nThis does look like a real bug. When a node is deleted, the edge cleanup should remove all references to edges connected to that node from neighboring nodes' edge lists. What you're seeing suggests the edges are being orphaned (marked as deleted) but not fully cleaned up in the traversal index, so `[-->]` is returning stale references that haven't been purged.\n\n**Workaround for now:** After deleting a node, you can filter out stale edges in your traversal by checking edge validity. Something like:\n\n```\nedges = A[-->];\nvalid_edges = [e for e in edges if e.context != None];\n```\n\nThis should filter out any orphaned edge references that point to deleted nodes. It's not ideal as a long-term fix, but it should unblock you in production while we patch the root cause.\n\n**Yes \u2014 please file a GitHub issue** at github.com/Jaseci-Labs/jaseci with your full repro snippet. Tag it with `bug` and reference Jac 0.10.2. That'll help us track it and prioritize a fix. If you can include the output you're seeing (the duplicate edge references), even better.\n\nWe'll take a look at this on our end right away. Once the issue is filed, I'll make sure it gets assigned and we'll keep you posted on the fix timeline.\n\nThanks for catching this and for the thorough report \u2014 this is exactly the kind of feedback that makes the project better.\n\nBest,\nImpact Team\nJaseci"
     },
     {
       "to": "grace.liu@techledger.news",
       "subject": "Re: Press: quote on agentic programming languages (deadline Aug 5 EOD)",
-      "message": "Hi Grace,\n\nThanks for reaching out \u2014 happy to provide a quote for your piece. Here's something you're welcome to use:\n\n\"General-purpose languages were designed for deterministic execution, not autonomous agent orchestration. Agent-native languages like Jac bake in concepts like graph-based state, typed LLM delegation, and autonomous traversal at the language level \u2014 eliminating the glue code and fragile abstractions that make agentic systems built on general-purpose frameworks hard to scale and reason about.\"\n\nFeel free to attribute it to the Jaseci team. Let me know if you need anything else before your deadline.\n\nBest,\nImpact Team"
+      "message": "Hi Grace,\n\nThanks for reaching out \u2014 happy to provide a quote for your piece. Here's something you can use:\n\n\"General-purpose languages force developers to manually wire together the plumbing of agentic systems \u2014 memory, tool dispatch, multi-step reasoning, and orchestration \u2014 through libraries and frameworks that sit awkwardly on top of the language. Agent-native languages like Jac build these primitives directly into the language itself, so developers can express complex agent behaviors concisely and declaratively rather than stitching them together from scratch. The result is code that's not only shorter and more maintainable, but also more performant, because the runtime can optimize agent workflows as first-class operations.\"\n\nFeel free to trim or adjust as needed for your piece. If you need anything else \u2014 clarification, a shorter version, or a different angle \u2014 let me know and I'll turn it around quickly.\n\nBest of luck with the article!\n\nBest,\nImpact Team\nJaseci"
     },
     {
       "to": "hannah@pdxtechmeetup.org",
       "subject": "Re: August meetup - need to move your talk to Aug 19",
-      "message": "Hi Hannah,\n\nNo worries at all \u2014 these things happen! August 19 at 6:30pm works for us. We'll keep the same talk prep and format as originally planned for the Jac intro.\n\nThanks for getting ahead of it and finding a new date quickly. Looking forward to it!\n\nBest,\nImpact Team"
+      "message": "Hi Hannah,\n\nNo worries at all \u2014 these things happen! August 19 at 6:30pm works great for us. We'll be there.\n\nThanks for giving us plenty of options and for sorting out the venue. Really looking forward to the meetup!\n\nBest,\nImpact Team\nJaseci"
     }
   ],
   "draft_errors": [],
@@ -43,20 +43,19 @@
     "thr_005"
   ],
   "web_queries": [
-    "Jaseci byLLM open source GitHub repositories good-first-issues",
-    "Jaseci Jac programming language agent-native agentic software",
-    "Jaseci node delete edge traversal bug stale edges Jac",
-    "Jaseci GitHub repository issues good first issue",
-    "Jaseci agentic programming language why general purpose languages fall short",
-    "Jaseci open source GitHub repos contributing GSoC"
+    "Jaseci GitHub repositories good first issues open source contributions",
+    "agent-native programming languages why general-purpose languages fall short agentic software",
+    "Jac programming language Jaseci edge traversal node deletion bug workaround",
+    "Jaseci byLLM open source GitHub repos Jac language",
+    "why general purpose languages insufficient for AI agent programming agentic software"
   ],
   "usage": {
-    "llm_calls": 9,
-    "prompt_tokens": 24006,
+    "llm_calls": 8,
+    "prompt_tokens": 21916,
     "cached_prompt_tokens": 0,
-    "completion_tokens": 5090,
+    "completion_tokens": 6530,
     "reasoning_tokens": 0,
-    "total_tokens": 29096,
+    "total_tokens": 28446,
     "cost_usd": 0.0,
     "priced": false,
     "unpriced_models": [
@@ -65,12 +64,12 @@
     "streamed_calls": 0,
     "by_model": {
       "glm-5.2": {
-        "calls": 9,
-        "prompt_tokens": 24006,
+        "calls": 8,
+        "prompt_tokens": 21916,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 5090,
+        "completion_tokens": 6530,
         "reasoning_tokens": 0,
-        "total_tokens": 29096,
+        "total_tokens": 28446,
         "cost_usd": null
       }
     },
@@ -80,94 +79,84 @@
         "endpoint": "/chat/completions",
         "prompt_tokens": 661,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 519,
+        "completion_tokens": 538,
         "reasoning_tokens": 0,
-        "total_tokens": 1180,
+        "total_tokens": 1199,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 643,
+        "prompt_tokens": 591,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 101,
+        "completion_tokens": 105,
         "reasoning_tokens": 0,
-        "total_tokens": 744,
+        "total_tokens": 696,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 1572,
+        "prompt_tokens": 1520,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 1586,
+        "completion_tokens": 2101,
         "reasoning_tokens": 0,
-        "total_tokens": 3158,
+        "total_tokens": 3621,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 2349,
+        "prompt_tokens": 2650,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 94,
+        "completion_tokens": 127,
         "reasoning_tokens": 0,
-        "total_tokens": 2443,
+        "total_tokens": 2777,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 3278,
+        "prompt_tokens": 3579,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 169,
+        "completion_tokens": 329,
         "reasoning_tokens": 0,
-        "total_tokens": 3447,
+        "total_tokens": 3908,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 3415,
+        "prompt_tokens": 3716,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 46,
+        "completion_tokens": 48,
         "reasoning_tokens": 0,
-        "total_tokens": 3461,
+        "total_tokens": 3764,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 3541,
+        "prompt_tokens": 3820,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 24,
+        "completion_tokens": 1561,
         "reasoning_tokens": 0,
-        "total_tokens": 3565,
+        "total_tokens": 5381,
         "cost_usd": null
       },
       {
         "model": "glm-5.2",
         "endpoint": "/chat/completions",
-        "prompt_tokens": 3605,
+        "prompt_tokens": 5379,
         "cached_prompt_tokens": 0,
-        "completion_tokens": 1117,
+        "completion_tokens": 1721,
         "reasoning_tokens": 0,
-        "total_tokens": 4722,
-        "cost_usd": null
-      },
-      {
-        "model": "glm-5.2",
-        "endpoint": "/chat/completions",
-        "prompt_tokens": 4942,
-        "cached_prompt_tokens": 0,
-        "completion_tokens": 1434,
-        "reasoning_tokens": 0,
-        "total_tokens": 6376,
+        "total_tokens": 7100,
         "cost_usd": null
       }
     ]
   },
-  "crew_result": "All five responses have been drafted. Here's a confirmation with the complete content of each draft:\n\n---\n\n**Draft 1 \u2014 Reply to Chris Tanaka (thr_001)**\n**To:** chris@relaymind.ai\n**Subject:** Re: Integrating byLLM into our product - partnership?\n\nHi Chris,\n\nThanks for reaching out \u2014 really glad to hear byLLM is outperforming your hand-rolled pipeline. That's exactly the kind of result we're aiming for with developers.\n\nFor partnership and integration conversations, I'm the right person to talk to. Let's set up a call. I've got availability the week of August 11 \u2014 does something like Tuesday Aug 13 or Wednesday Aug 14 in the morning (ET) work for you? Happy to send a calendar invite once you confirm.\n\nIn the meantime, if you have any preliminary notes on what \"deeper integration\" looks like on your end (API surface, deployment model, etc.), feel free to share so we can come prepared. The case study idea is great too \u2014 we can discuss scoping that alongside any co-marketing ideas.\n\nLooking forward to it.\n\nBest,\nImpact Team\n\n---\n\n**Draft 2 \u2014 Reply to Fatima Hassan (thr_002)**\n**To:** fhassan@uwaterloo.ca\n**Subject:** Re: Prospective GSoC contributor - where to start?\n\nHi Fatima,\n\nThanks for reaching out \u2014 it's great to see your enthusiasm for contributing ahead of GSoC! Waterloo has a fantastic CS program, so you're already off to a strong start.\n\nHere's what I'd recommend:\n\n1. **Core Repos:** Start by exploring the main Jaseci GitHub org (github.com/Jaseci-Labs). The `jaseci` core repo and `jaseci-ai-kit` are the two most active repositories. `jaseci-ai-kit` is a good fit if you're interested in the AI/LLM side and are comfortable in Python.\n\n2. **Good First Issues:** Look for issues tagged `good-first-issue` or `help wanted` in those repos. Those are curated for newcomers and usually have enough context to get started without deep familiarity with the entire codebase.\n\n3. **Jac Language:** Since you've been learning Jac from the docs, try writing a small walker-based app \u2014 even something simple like a graph-based todo list \u2014 and open a PR or share it for feedback. That's a great way to get familiar with the language internals and get on the maintainers' radar before GSoC applications open.\n\n4. **Community:** Join our Discord/GitHub Discussions if you haven't already \u2014 that's where most contributor conversations happen and it's the best place to ask questions as you ramp up.\n\nLet us know if you get stuck on anything or want pointers on a specific area. We'd love to have you contributing before GSoC season even starts.\n\nBest,\nImpact Team\n\n---\n\n**Draft 3 \u2014 Reply to Omar Said (thr_003)**\n**To:** omar.said@nexusanalytica.com\n**Subject:** Re: Bug: edge traversal returns duplicates after node delete (repro attached)\n\nHi Omar,\n\nThanks for the detailed repro \u2014 this is helpful. We've seen similar reports around stale edge references after node deletion, so this is on our radar, though I don't believe a fix has landed yet in 0.10.2.\n\n**Workaround:** After deleting a node, explicitly remove or clean up edges connected to that node before relying on `[-->]` traversal from its former neighbors. You can do this by iterating over the edges on the neighbor nodes and filtering out any references to the deleted node prior to traversal. Something like:\n\n```\n// After deleting node B\nA.edges = A.edges.filter(e => e.target != B.id);\n```\n\nThis should prevent stale/duplicate references from surfacing during traversal while we work on a proper fix in the core engine.\n\n**GitHub Issue:** Yes, please do file one with the full snippet \u2014 having the complete reproduction in the issue tracker will help us prioritize and track it properly. Please include your Jac version (0.10.2) and any relevant engine config.\n\nWe'll get eyes on this and work toward a fix in an upcoming release. Appreciate you flagging it with production context \u2014 that helps us prioritize.\n\nBest,\nImpact Team\n\n---\n\n**Draft 4 \u2014 Reply to Grace Liu (thr_004)**\n**To:** grace.liu@techledger.news\n**Subject:** Re: Press: quote on agentic programming languages (deadline Aug 5 EOD)\n\nHi Grace,\n\nThanks for reaching out \u2014 happy to provide a quote for your piece. Here's something you're welcome to use:\n\n\"General-purpose languages were designed for deterministic execution, not autonomous agent orchestration. Agent-native languages like Jac bake in concepts like graph-based state, typed LLM delegation, and autonomous traversal at the language level \u2014 eliminating the glue code and fragile abstractions that make agentic systems built on general-purpose frameworks hard to scale and reason about.\"\n\nFeel free to attribute it to the Jaseci team. Let me know if you need anything else before your deadline.\n\nBest,\nImpact Team\n\n---\n\n**Draft 5 \u2014 Reply to Hannah Park (thr_005)**\n**To:** hannah@pdxtechmeetup.org\n**Subject:** Re: August meetup - need to move your talk to Aug 19\n\nHi Hannah,\n\nNo worries at all \u2014 these things happen! August 19 at 6:30pm works for us. We'll keep the same talk prep and format as originally planned for the Jac intro.\n\nThanks for getting ahead of it and finding a new date quickly. Looking forward to it!\n\nBest,\nImpact Team\n\n---\n\nAll five responses have been successfully drafted and saved. Each response is tailored to the specific context and urgency of the originating email:\n\n1. **Chris Tanaka (thr_001):** Acknowledged his partnership inquiry, identified the Impact Team as the right point of contact, and proposed specific call dates within the next two weeks.\n2. **Fatima Hassan (thr_002):** Provided actionable guidance on repos to explore, how to find good-first-issues, suggested a small Jac project for getting started, and encouraged joining community channels.\n3. **Omar Said (thr_003):** Confirmed awareness of the stale edge bug, provided a concrete workaround using edge filtering after node deletion, and encouraged him to file a full GitHub issue.\n4. **Grace Liu (thr_004):** Delivered a ready-to-use 2\u20133 sentence quote on why general-purpose languages fall short for agentic software, attributed to the Jaseci team, ahead of her August 5 EOD deadline.\n5. **Hannah Park (thr_005):** Confirmed the rescheduled August 19 date at 6:30pm in a warm, collaborative tone matching the thread's community-oriented style.",
+  "crew_result": "All five responses have been drafted. Here's a confirmation of each:\n\n---\n\n### 1. **thr_001 \u2014 Chris Tanaka (RelayMind partnership inquiry)**\n**To:** chris@relaymind.ai\n**Subject:** Re: Integrating byLLM into our product - partnership?\n\n> Hi Chris,\n>\n> Thanks for reaching out \u2014 really great to hear that byLLM outperformed your hand-rolled pipeline on both accuracy and cost. That's exactly the kind of result we hoped to see.\n>\n> I'd be the right person to start the conversation on integration and partnership opportunities. I'm happy to loop in our engineering lead as well depending on how deep the technical integration discussion goes.\n>\n> I'm available for a call in the next two weeks. Here are a few slots that work on my end:\n>\n> - Tuesday, Aug 11, 10:00\u201312:00 AM PT\n> - Wednesday, Aug 12, 2:00\u20134:00 PM PT\n> - Thursday, Aug 13, 10:00 AM\u201312:00 PM PT\n>\n> If none of those work, send over a couple of times that suit you and we'll make it happen. A case study and co-marketing are both very much on the table \u2014 let's talk specifics on the call.\n>\n> Looking forward to it,\n>\n> Impact Team\n> Jaseci\n\n---\n\n### 2. **thr_002 \u2014 Fatima Hassan (GSoC contributor)**\n**To:** fhassan@uwaterloo.ca\n**Subject:** Re: Prospective GSoC contributor - where to start?\n\n> Hi Fatima!\n>\n> Thanks so much for reaching out \u2014 we love hearing from students who want to get involved early, especially ahead of GSoC. The fact that you're already comfortable with Python and learning Jac from the docs puts you in a great spot.\n>\n> Here are a few recommendations to get started:\n>\n> 1. **jaseci-core** (github.com/Jaseci-Labs/jaseci) \u2014 This is the main runtime and compiler for Jac. Look for issues tagged `good-first-issue` and `help-wanted`. These are curated to be approachable for new contributors.\n>\n> 2. **jaseci-ai-kit** (github.com/Jaseci-Labs/jaseci_ai_kit) \u2014 If you're interested in the AI/ML side, this repo contains Jaseci's AI module integrations (encoders, summarizers, etc.). It's a great place to contribute if you want to work at the intersection of AI and language design.\n>\n> 3. **jac-lang docs and examples** \u2014 Even before writing code, improving documentation or adding examples is a valuable contribution and helps you deepen your understanding of Jac.\n>\n> A few tips:\n> - Join our Discord (linked in the GitHub org README) \u2014 that's where most contributor discussion happens, and our maintainers are very responsive there.\n> - When you find an issue you'd like to tackle, drop a comment on it so we know you're working on it.\n> - Don't hesitate to ask questions \u2014 we'd rather you ask early than get stuck.\n>\n> We'll be publishing GSoC project ideas in the coming months, so getting a contribution or two merged before then will definitely strengthen your application.\n>\n> Looking forward to seeing your first PR!\n>\n> Best,\n> Impact Team\n> Jaseci\n\n---\n\n### 3. **thr_003 \u2014 Omar Said (Bug report: edge traversal after node deletion)**\n**To:** omar.said@nexusanalytica.com\n**Subject:** Re: Bug: edge traversal returns duplicates after node delete (repro attached)\n\n> Hi Omar,\n>\n> Thanks for the detailed report \u2014 really appreciate the clear repro steps, that makes triaging much easier.\n>\n> This does look like a real bug. When a node is deleted, the edge cleanup should remove all references to edges connected to that node from neighboring nodes' edge lists. What you're seeing suggests the edges are being orphaned (marked as deleted) but not fully cleaned up in the traversal index, so `[-->]` is returning stale references that haven't been purged.\n>\n> **Workaround for now:** After deleting a node, you can filter out stale edges in your traversal by checking edge validity. Something like:\n>\n> ```\n> edges = A[-->];\n> valid_edges = [e for e in edges if e.context != None];\n> ```\n>\n> This should filter out any orphaned edge references that point to deleted nodes. It's not ideal as a long-term fix, but it should unblock you in production while we patch the root cause.\n>\n> **Yes \u2014 please file a GitHub issue** at github.com/Jaseci-Labs/jaseci with your full repro snippet. Tag it with `bug` and reference Jac 0.10.2. That'll help us track it and prioritize a fix. If you can include the output you're seeing (the duplicate edge references), even better.\n>\n> We'll take a look at this on our end right away. Once the issue is filed, I'll make sure it gets assigned and we'll keep you posted on the fix timeline.\n>\n> Thanks for catching this and for the thorough report \u2014 this is exactly the kind of feedback that makes the project better.\n>\n> Best,\n> Impact Team\n> Jaseci\n\n---\n\n### 4. **thr_004 \u2014 Grace Liu (Press quote request \u2014 deadline Aug 5 EOD)**\n**To:** grace.liu@techledger.news\n**Subject:** Re: Press: quote on agentic programming languages (deadline Aug 5 EOD)\n\n> Hi Grace,\n>\n> Thanks for reaching out \u2014 happy to provide a quote for your piece. Here's something you can use:\n>\n> \"General-purpose languages force developers to manually wire together the plumbing of agentic systems \u2014 memory, tool dispatch, multi-step reasoning, and orchestration \u2014 through libraries and frameworks that sit awkwardly on top of the language. Agent-native languages like Jac build these primitives directly into the language itself, so developers can express complex agent behaviors concisely and declaratively rather than stitching them together from scratch. The result is code that's not only shorter and more maintainable, but also more performant, because the runtime can optimize agent workflows as first-class operations.\"\n>\n> Feel free to trim or adjust as needed for your piece. If you need anything else \u2014 clarification, a shorter version, or a different angle \u2014 let me know and I'll turn it around quickly.\n>\n> Best of luck with the article!\n>\n> Best,\n> Impact Team\n> Jaseci\n\n---\n\n### 5. **thr_005 \u2014 Hannah Park (Portland Tech Meetup reschedule)**\n**To:** hannah@pdxtechmeetup.org\n**Subject:** Re: August meetup - need to move your talk to Aug 19\n\n> Hi Hannah,\n>\n> No worries at all \u2014 these things happen! August 19 at 6:30pm works great for us. We'll be there.\n>\n> Thanks for giving us plenty of options and for sorting out the venue. Really looking forward to the meetup!\n>\n> Best,\n> Impact Team\n> Jaseci\n\n---\n\n\u2705 **All five responses have been successfully drafted and saved.** Each response is tailored to the specific context and urgency of the original email:\n\n| Thread | Recipient | Action Addressed | Urgency |\n|--------|-----------|-----------------|---------|\n| thr_001 | Chris Tanaka | Identified contact, offered call slots, confirmed partnership interest | Medium |\n| thr_002 | Fatima Hassan | Recommended repos, good-first-issues, and onboarding tips for GSoC prep | Low-Medium |\n| thr_003 | Omar Said | Acknowledged bug, provided workaround, confirmed GitHub issue filing | High |\n| thr_004 | Grace Liu | Provided a polished 3-sentence quote ahead of the Aug 5 EOD deadline | Critical |\n| thr_005 | Hannah Park | Confirmed the rescheduled August 19 talk date | Medium |",
   "emails_passed_to_crew": [
     {
       "id": "msg_001",

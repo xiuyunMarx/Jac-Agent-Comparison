@@ -195,11 +195,13 @@ def run_stage(
     *,
     mailbox: Any = None,
     use_tools: bool = False,
+    extra: list[dict[str, Any]] | None = None,
 ) -> str:
     """Drive one stage to its final text (the JSON the schema demanded)."""
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
+        *(extra or []),
     ]
     tools = [web_search_spec()] if use_tools else None
     for _ in range(MAX_TOOL_ROUNDS):
@@ -215,6 +217,67 @@ def run_stage(
     messages.append({"role": "user", "content": FINAL_ANSWER_NUDGE})
     message = complete(messages, tools=None, response_format=response_format)
     return str(message.content or "")
+
+
+# byllm's typed-output loop (byllm/llm.impl/basellm.impl.jac, _invoke_typed_retry):
+# when the reply does not decode into the declared type, the original prompt
+# is sent again with one corrective user message that quotes the rejected
+# reply and the schema, up to max_output_retries=3 times -- four attempts in
+# all. Without this the analyzer's single malformed object cost a whole draft
+# (batch_002) where byLLM would simply have asked again.
+MAX_OUTPUT_RETRIES = 3
+
+
+def salvage_json(text: str) -> Any:
+    """The JSON value in a reply: fences stripped, else the outermost {...}
+    (byllm's parse_response salvages a fenced or prose-wrapped object the same
+    way before it retries)."""
+    candidate = _json_text(text)
+    try:
+        return json.loads(candidate)
+    except ValueError:
+        start, end = candidate.find("{"), candidate.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        return json.loads(candidate[start : end + 1])
+
+
+def correction(text: str, error: str, response_format: dict[str, Any]) -> str:
+    """byllm's corrective message, word for word."""
+    schema = response_format["json_schema"]
+    return (
+        "Your previous response could not be used. The output parser reported: "
+        f"Failed to convert LLM output to '{schema['name']}': {error}.\n"
+        f"Your previous response was:\n{text}\n"
+        "You MUST reply with ONLY a single JSON object that validates against "
+        f"this JSON schema for `{schema['name']}`:\n{json.dumps(schema['schema'])}\n"
+        "Output the raw JSON object only, with no explanation, no reasoning "
+        "text, no markdown code fences, nothing before or after the JSON."
+    )
+
+
+def typed_stage(
+    system: str,
+    user: str,
+    response_format: dict[str, Any],
+    parse: Any,
+    *,
+    mailbox: Any = None,
+    use_tools: bool = False,
+) -> Any:
+    """run_stage plus the typed retry: `parse(raw)` must return the stage's
+    typed value or raise; after the retries the raw text comes back instead."""
+    extra: list[dict[str, Any]] = []
+    raw = ""
+    for _ in range(1 + MAX_OUTPUT_RETRIES):
+        raw = run_stage(
+            system, user, response_format, mailbox=mailbox, use_tools=use_tools, extra=extra
+        )
+        try:
+            return parse(raw)
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            extra = [{"role": "user", "content": correction(raw, str(exc), response_format)}]
+    return raw
 
 
 def strict_schema(name: str, properties: dict[str, Any]) -> dict[str, Any]:
@@ -281,7 +344,18 @@ def classifier_schema() -> dict[str, Any]:
 
 def filter_emails(abstract: MailAbstract, owner: str) -> str:
     """The classification value, or "" when the model answered off-enum."""
-    raw = run_stage(
+
+    def parse(raw: str) -> str:
+        try:
+            category = str(salvage_json(raw).get("category", "")).strip().upper()
+        except (ValueError, AttributeError):
+            # A bare enum value is what byllm's scalar salvage accepts too.
+            category = raw.strip().strip('"').upper()
+        if category not in CLASSIFICATIONS:
+            raise ValueError(f"category must be one of {sorted(CLASSIFICATIONS)}, got {category!r}")
+        return category
+
+    result = typed_stage(
         CLASSIFIER_SYSTEM.format(owner=owner or "the user"),
         CLASSIFIER_USER.format(
             id=abstract.id,
@@ -290,13 +364,9 @@ def filter_emails(abstract: MailAbstract, owner: str) -> str:
             snippet=abstract.snippet,
         ),
         classifier_schema(),
+        parse,
     )
-    try:
-        parsed = json.loads(_json_text(raw))
-        category = str(parsed.get("category", "")).strip().upper()
-    except (ValueError, AttributeError):
-        category = raw.strip().strip('"').upper()
-    return category if category in CLASSIFICATIONS else ""
+    return result if result in CLASSIFICATIONS else ""
 
 
 # ---------------------------------------------------------------------------
@@ -370,15 +440,9 @@ def email_action_agent(
     thread_text: str, owner: str, mailbox: Any
 ) -> ThreadAnalysis | str:
     """A ThreadAnalysis, or the raw model text when it broke the contract."""
-    raw = run_stage(
-        ANALYZER_SYSTEM.format(owner=owner or "the user"),
-        ANALYZER_USER.format(thread_text=thread_text),
-        analysis_schema(),
-        mailbox=mailbox,
-        use_tools=True,
-    )
-    try:
-        parsed = json.loads(_json_text(raw))
+
+    def parse(raw: str) -> ThreadAnalysis:
+        parsed = salvage_json(raw)
         return ThreadAnalysis(
             thread_id=str(parsed["thread_id"]),
             summary=str(parsed["summary"]),
@@ -386,8 +450,15 @@ def email_action_agent(
             sender_email=str(parsed["sender_email"]),
             communication_style=str(parsed["communication_style"]),
         )
-    except (ValueError, KeyError, TypeError):
-        return raw
+
+    return typed_stage(
+        ANALYZER_SYSTEM.format(owner=owner or "the user"),
+        ANALYZER_USER.format(thread_text=thread_text),
+        analysis_schema(),
+        parse,
+        mailbox=mailbox,
+        use_tools=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -465,7 +536,16 @@ def email_response_writer(
     analysis: ThreadAnalysis, thread_text: str, owner: str, mailbox: Any
 ) -> DraftReply | str:
     """A DraftReply, or the raw model text when it broke the contract."""
-    raw = run_stage(
+
+    def parse(raw: str) -> DraftReply:
+        parsed = salvage_json(raw)
+        return DraftReply(
+            recipient=str(parsed["recipient"]),
+            subject=str(parsed["subject"]),
+            message=str(parsed["message"]),
+        )
+
+    return typed_stage(
         WRITER_SYSTEM.format(owner=owner or "the user"),
         WRITER_USER.format(
             thread_id=analysis.thread_id,
@@ -476,22 +556,15 @@ def email_response_writer(
             thread_text=thread_text,
         ),
         reply_schema(),
+        parse,
         mailbox=mailbox,
         use_tools=True,
     )
-    try:
-        parsed = json.loads(_json_text(raw))
-        return DraftReply(
-            recipient=str(parsed["recipient"]),
-            subject=str(parsed["subject"]),
-            message=str(parsed["message"]),
-        )
-    except (ValueError, KeyError, TypeError):
-        return raw
 
 
 __all__ = [
     "CLASSIFICATIONS",
+    "MAX_OUTPUT_RETRIES",
     "MAX_TOOL_ROUNDS",
     "DraftReply",
     "MailAbstract",
@@ -502,6 +575,8 @@ __all__ = [
     "fetch_mail_abstracts",
     "filter_emails",
     "run_stage",
+    "salvage_json",
+    "typed_stage",
     "unstructured_error",
     "web_search_spec",
 ]

@@ -1,10 +1,13 @@
 # Meeting Assistant Eval
 
-Benchmark harness comparing the two meeting-assistant implementations
-(`../CrewAI` and `../byLLM`) on the labeled cases in `../datasets/`. Both
-implementations are pinned to `gpt-4o` and use identical mock Trello/Slack
-tools that collect every output into `tool_outputs.json`, so score
-differences reflect the framework, not the model or the network.
+Benchmark harness comparing the three meeting-assistant implementations
+(`../CrewAI`, `../byLLM`, `../openai_sdk`) on the labeled cases in
+`../datasets/`. Every arm reads the same model from `$BENCH_MODEL` (GLM 5.2
+through `../../glm.env`) and uses identical mock Trello/Slack tools that
+collect every output into `tool_outputs.json`, so score differences reflect
+the framework, not the model or the network. Each result records the model
+and endpoint it ran against, and `score.py` clears `out/` before writing, so
+one `out/` directory is always one sweep.
 
 ## Layout
 
@@ -18,27 +21,27 @@ differences reflect the framework, not the model or the network.
 
 Prerequisites:
 
-- **Python environment with CrewAI installed** — the CrewAI implementation is
-  launched with the same interpreter that runs `run.py`, so activate the env
-  that has `crewai` (here: `conda activate jaseci`). `run.py` exits early with
-  a clear error if `crewai` is not importable. The `meeting_assistant_flow`
-  package itself needs no install: `run.py` puts `../CrewAI/src` on
-  `PYTHONPATH` for the subprocess.
+- **A CrewAI interpreter** — CrewAI needs Python < 3.14, so it gets its own
+  venv: `python3.12 -m venv ../CrewAI/.venv && ../CrewAI/.venv/bin/pip install
+  crewai==1.15.18`. `run.py` uses `$CREW_PYTHON`, else `../CrewAI/.venv`, else
+  its own interpreter, and exits early if `crewai` is not importable there.
+  The `meeting_assistant_flow` package itself needs no install: `run.py` puts
+  `../CrewAI/src` on `PYTHONPATH` for the subprocess.
 - **The installed jac runtime** for the byLLM side: whatever `jac` is on PATH,
   or `$JAC_BIN` if you point it at the directory holding the binary. No path is
   hardcoded, so the arm runs against the jac you installed.
-- **`OPENAI_API_KEY`** — both implementations call gpt-4o; so does the judge.
+- **`../../glm.env`** — `BENCH_MODEL`, `OPENAI_BASE_URL` and `OPENAI_API_KEY`
+  for every arm and for the judge.
 
 ```bash
-conda activate jaseci
+set -a; source ../../glm.env; set +a
 cd eval
-export OPENAI_API_KEY=sk-...
 
-# 1. Run both implementations over all 10 cases, 3 repetitions each
-#    (2 impls x 10 cases x 3 reps = 60 runs; each makes real gpt-4o calls)
+# 1. Run all three implementations over all 10 cases, 3 repetitions each
+#    (3 impls x 10 cases x 3 reps = 90 runs; each makes real model calls)
 python run.py --repeat 3
 
-# 2. Score everything, including the LLM judge (one extra gpt-4o call per run)
+# 2. Score everything, including the LLM judge (one extra model call per run)
 python score.py runs/ --judge
 ```
 
@@ -70,7 +73,7 @@ The metrics follow `../datasets/README.md`'s scoring semantics.
 |---|---|
 | `completed` | The pipeline finished and produced `tool_outputs.json` — framework reliability |
 | `wall_time_s` | End-to-end latency (includes the one gpt-4o call both sides make) |
-| `llm_calls`, `prompt_tokens`, `completion_tokens`, `total_tokens` | LLM token usage of the whole run, collected identically on both sides via a LiteLLM success callback (both frameworks dispatch through LiteLLM) and recorded in `tool_outputs.json` under `token_usage` — framework prompt overhead and cost |
+| `llm_calls`, `prompt_tokens`, `completion_tokens`, `total_tokens` | LLM token usage of the whole run, recorded in `tool_outputs.json` under `token_usage`: byLLM via a LiteLLM callback, openai_sdk from the response, CrewAI from a hook on the openai SDK transport (its `calls_without_usage` counter says when a call carried no usage instead of silently reporting zero). GLM's reasoning tokens are inside `completion_tokens` on every side |
 | `count_in_range` | Extracted count within the labeled range — granularity discipline (catches padding tiny meetings and over-splitting) |
 | `malformed_tasks` | Tasks with empty name/description — schema discipline |
 | `literal_duplicates` | Same task name extracted twice verbatim |
@@ -101,8 +104,10 @@ booleans and per-extra classifications) are in `out/scores_*.json`.
 
 - Agent pipelines are noisy even at temperature 0 — compare means over
   `--repeat 3` or more, not single runs.
-- The judge is gpt-4o judging gpt-4o output. That is fine for comparing the
-  two frameworks (same bias on both sides), but absolute scores should not be
-  read as objective quality. Set `EVAL_JUDGE_MODEL` to cross-check.
+- The judge is the benchmark model judging its own output. That is fine for
+  comparing the frameworks (same bias on every side), but absolute scores
+  should not be read as objective quality. Set `EVAL_JUDGE_MODEL` to
+  cross-check. GLM 5.2 ignores `response_format` and fences its verdict, so
+  `score.py` strips fences and takes the outermost `{...}` before decoding.
 - `wall_time_s` is dominated by the OpenAI call; treat small deltas as noise
   and look at the spread across repetitions.

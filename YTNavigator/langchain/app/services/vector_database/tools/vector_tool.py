@@ -329,8 +329,16 @@ class VectorDatabaseTools:
     @classmethod
     def tool(cls) -> StructuredTool:
         """Create a structured tool for searching videos."""
+
+        async def search_as_json(query: str, channel_id: str) -> str:
+            # LangChain stringifies a pydantic tool result with str(), i.e. a
+            # Python repr; hand the model JSON instead, like the other arms'
+            # readable tool reports.
+            response = await cls.similarity_videos_search(query, channel_id)
+            return response.model_dump_json()
+
         return StructuredTool.from_function(
-            coroutine=cls.similarity_videos_search,
+            coroutine=search_as_json,
             name="similarity_videos_search",
             description="Advanced semantic video search tool powered by vector embeddings. Use this tool to: "
             "- Find videos that match the semantic meaning of your query, not just exact keywords "

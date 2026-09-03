@@ -9,9 +9,11 @@ results JSON:
 
     eval/runs/results_<impl>_<case_id>_r<k>.json
 
-Score the results with score.py. Both implementations call ollama_chat/glm-5.2:cloud
-(hard-coded); OPENAI_API_KEY must still be set. Agent pipelines are noisy even at temperature 0 -
-use --repeat 3 (or more) and compare means.
+Score the results with score.py. Every arm reads $BENCH_MODEL (default glm-5.2)
+and talks to $OPENAI_BASE_URL with $OPENAI_API_KEY (source ../glm.env). Agent
+pipelines are noisy even at temperature 0 - use --repeat 3 (or more) and
+compare means. Each result records the model, endpoint and interpreter it ran
+with, so a directory mixing sweeps is detectable.
 
 Usage:
     python run.py                                  # both impls, all cases
@@ -19,7 +21,6 @@ Usage:
 """
 
 import argparse
-import importlib.util
 import json
 import os
 import shutil
@@ -42,6 +43,22 @@ def default_jac_bin() -> str:
     return str(Path(found).resolve().parent) if found else ""
 
 
+# CrewAI needs Python < 3.14 and its own dependency set, so it gets its own
+# interpreter: $CREW_PYTHON, else CrewAI/.venv (built from CrewAI/pyproject.toml
+# with a 3.12 interpreter), else the interpreter running this script.
+def crew_python() -> str:
+    explicit = os.environ.get("CREW_PYTHON", "")
+    if explicit:
+        return explicit
+    venv = ROOT / "CrewAI" / ".venv" / "bin" / "python"
+    return str(venv) if venv.is_file() else sys.executable
+
+
+def has_module(python: str, module: str) -> bool:
+    probe = subprocess.run([python, "-c", f"import {module}"], capture_output=True)
+    return probe.returncode == 0
+
+
 def implementations():
     jac_bin = os.environ.get("JAC_BIN", "") or default_jac_bin()
     jac_env = dict(os.environ)
@@ -57,7 +74,7 @@ def implementations():
     )
     return {
         "CrewAI": {
-            "cmd": [sys.executable, "-m", "meeting_assistant_flow.main"],
+            "cmd": [crew_python(), "-m", "meeting_assistant_flow.main"],
             "env": crew_env,
         },
         "byLLM": {
@@ -125,6 +142,8 @@ def run_once(impl_name, impl, case, rep, timeout):
         "dataset": str(case["dataset"]),
         "repetition": rep,
         "command": impl["cmd"],
+        "model": os.environ.get("BENCH_MODEL", "glm-5.2"),
+        "base_url": os.environ.get("OPENAI_BASE_URL", ""),
         "wall_time_s": round(elapsed, 3),
         "exit_code": exit_code,
         "success": exit_code == 0 and outputs is not None,
@@ -152,11 +171,11 @@ def main():
     if not os.environ.get("OPENAI_API_KEY"):
         sys.exit("OPENAI_API_KEY is not set - every arm talks to $OPENAI_BASE_URL with it (source ../glm.env).")
 
-    if (not args.impl or "CrewAI" in args.impl) and not importlib.util.find_spec("crewai"):
+    if (not args.impl or "CrewAI" in args.impl) and not has_module(crew_python(), "crewai"):
         sys.exit(
-            f"crewai is not importable with {sys.executable} - run this script "
-            "with the Python environment that has CrewAI installed (e.g. "
-            "`conda activate jaseci`), or restrict to --impl byLLM."
+            f"crewai is not importable with {crew_python()} - build CrewAI/.venv "
+            "with a Python < 3.14 (python -m venv CrewAI/.venv && CrewAI/.venv/bin/pip "
+            "install crewai==1.6.1), set $CREW_PYTHON, or restrict --impl."
         )
 
     impls = implementations()

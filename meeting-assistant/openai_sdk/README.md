@@ -132,10 +132,10 @@ than the frameworks it is benchmarked against:
 | --- | --- |
 | "You are a meeting transcript analysis agent." | CrewAI `agents.yaml` role |
 | "You are an expert in analyzing meeting transcripts and summarizing the discussions into actionable tasks. Your ability to identify important issues helps ensure teams can follow up and address key points effectively." | CrewAI `agents.yaml` backstory, verbatim |
-| "Analyze the meeting transcript and break the discussion down into a list of important, well-structured, actionable tasks that a team can follow up on. Document each task thoroughly." | byLLM `sem GeneratingTasks.analyse_meeting_transcript`, verbatim |
-| "name: Short, actionable title for the task." | byLLM `sem MeetingTask.name`, verbatim |
-| "description: Detailed description of the task: clear instructions, steps to reproduce, and acceptance criteria where applicable." | byLLM `sem MeetingTask.description`, verbatim (CrewAI's `tasks.yaml` expected_output says the same in one sentence) |
-| "Here is the meeting transcript for your reference:" | CrewAI `agents.yaml` goal / `tasks.yaml` description, verbatim |
+| "Extract every concrete action item from the meeting transcript. Return only a JSON list of MeetingTask objects. [...] Document owners, deadlines, requirements, and acceptance criteria stated in the transcript without inventing facts." | byLLM `sem GeneratingTasks.analyse_meeting_transcript`, verbatim (also CrewAI's `tasks.yaml` description since the three arms were re-aligned) |
+| "name: Required, non-empty, short, actionable title for the task." | byLLM `sem MeetingTask.name`, verbatim |
+| "description: Required, non-empty, detailed description of the task: clear instructions, owner, deadline, steps to reproduce, and acceptance criteria where applicable." | byLLM `sem MeetingTask.description`, verbatim (CrewAI's `tasks.yaml` expected_output carries the same two sentences) |
+| "Here is the meeting transcript for your reference:" | CrewAI `tasks.yaml` description, verbatim |
 | the closing JSON-shape sentence | the schema restated in prose, as byLLM's schema hint injection does for its response_format |
 
 The two field sems also appear as `description` entries in `RESPONSE_FORMAT`,
@@ -151,14 +151,15 @@ Four places, and this side follows byLLM at each:
    which its own `llm_calls` metric records. This side makes one call (two
    only if the first reply fails to decode).
 2. **Temperature.** byLLM's runtime sends `temperature=0.7` when jac.toml
-   sets no `[byllm.call_params]`, which this project's does not.
-   `LLM(model="gpt-4o")` on the CrewAI side sends no temperature at all
-   (provider default 1.0). `TEMPERATURE = 0.7` follows byLLM. No `max_tokens`
+   sets no `[byllm.call_params]`, which this project's does not. CrewAI's
+   `LLM(...)` sends no temperature unless asked, so the CrewAI arm now passes
+   `temperature=0.7` explicitly; `TEMPERATURE = 0.7` here. No `max_tokens`
    on any side.
 3. **How often the transcript is sent.** byLLM serializes the `transcript`
-   argument into the request once. CrewAI interpolates `{transcript}` into
-   both the agent's goal and the task description, so every run pays for the
-   transcript twice in one prompt. Once, here.
+   argument into the request once. CrewAI used to interpolate `{transcript}`
+   into both the agent's goal and the task description, so every run paid
+   for the transcript twice in one prompt (its prompts were ~2.2x the other
+   arms'); the goal no longer carries it. Once, everywhere.
 4. **The prompt words themselves.** The sem strings and the YAML overlap but
    are not identical (only CrewAI names Trello and "steps to reproduce" in
    the instruction body; only byLLM's sems define the two fields). The

@@ -1,13 +1,15 @@
 """ReAct Agent to process messages with tool calls."""
 
-import copy
 from typing import Literal
 
+import structlog
 from django.conf import settings
+from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
     SystemMessage,
     ToolMessage,
-    trim_messages,
 )
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.runnables import RunnableConfig
@@ -23,10 +25,13 @@ from app.schemas import (
 )
 from app.services.agent.llm import get_chat_model
 from app.services.agent.prompts import SYSTEM_PROMPT_TEMPLATE
+from app.services.agent.trace import record_event
 from app.services.vector_database.tools import (
     SQLTools,
     VectorDatabaseTools,
 )
+
+logger = structlog.get_logger(__name__)
 
 tools = [
     VectorDatabaseTools.tool(),
@@ -99,18 +104,55 @@ async def call_model(
     )
 
     model = _get_model()
-    trimmed_messages = trim_messages(
-        copy.deepcopy(state.messages),
-        strategy="last",
-        token_counter=model,
-        max_tokens=2000,
-        start_on="human",
-        include_system=False,
-        allow_partial=False,
-    )
-
-    response = await model.ainvoke([system_prompt] + trimmed_messages, config)
+    response = await model.ainvoke([system_prompt] + conversation_window(state.messages), config)
+    if not response.tool_calls:
+        response = normalize_final_answer(response)
     return {"messages": [response]}
+
+
+def conversation_window(messages: list) -> list:
+    """The messages the model sees: the last three prior exchanges plus every
+    message of the current turn.
+
+    This used to be ``trim_messages(max_tokens=2000, start_on="human")``.
+    With ``allow_partial=False`` that returns an empty list as soon as one
+    transcript-sized tool result pushes the turn past the budget (the leading
+    human message is dropped first, then ``start_on`` discards the rest), so
+    the model received a system-only request and answered nothing at all. The
+    other arms never trim inside a turn; prior turns are bounded the way the
+    SDK arm bounds them (three exchanges), so the layout on the wire matches.
+    """
+    turn_start = 0
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], HumanMessage):
+            turn_start = i
+            break
+    prior = [
+        m
+        for m in messages[:turn_start]
+        if isinstance(m, HumanMessage) or (isinstance(m, AIMessage) and not m.tool_calls)
+    ]
+    return prior[-6:] + [m for m in messages[turn_start:] if not isinstance(m, SystemMessage)]
+
+
+def normalize_final_answer(response: AIMessage) -> AIMessage:
+    """Store the final answer as canonical AgentOutput JSON.
+
+    GLM 5.2 wraps the object in ```json fences or a sentence; the
+    PydanticOutputParser reads through both. The non-tool path already did
+    this (main_graph.non_tool_calls_reply); the tool path handed the raw text
+    to the caller, and the benchmark's strict validation then failed on every
+    fenced reply.
+    """
+    output_parser = PydanticOutputParser(pydantic_object=AgentOutput)
+    raw = response.content if isinstance(response.content, str) else str(response.content)
+    try:
+        response.content = output_parser.parse(raw).model_dump_json()
+    except OutputParserException as e:
+        logger.error("Error parsing output", error=e)
+        record_event("output_parse_fallback", node="tool_calls_reply")
+        response.content = AgentOutput(placeholder=raw, videos=[]).model_dump_json()
+    return response
 
 
 def should_continue(state: AgentState) -> Literal["end", "continue"]:

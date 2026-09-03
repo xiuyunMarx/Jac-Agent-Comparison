@@ -25,7 +25,6 @@ from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import (
     BaseMessage,
     messages_to_dict,
-    trim_messages,
 )
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -263,17 +262,22 @@ class AgentGraph:
         try:
             logger.info("Generating non-tool calls reply")
             filtered_messages = self._prepare_messages_for_model(state.messages)
+            output_parser = PydanticOutputParser(pydantic_object=AgentOutput)
+            # The answer schema is stated here as it is on the tool path (and in
+            # the other arms' direct-reply prompts); without it the model
+            # answered in prose and every "No" route fell back.
+            system_text = (
+                NON_TOOL_CALLS_SYSTEM_PROMPT.format(channel=str(state.channel), user=str(state.user))
+                + "\n\n**# FINAL ANSWER FORMAT:**\n"
+                + output_parser.get_format_instructions()
+                + "\n\nPlease respond with only a user friendly object that respects the above format "
+                "instructions,no other text or comments."
+            )
             output = await self.model.ainvoke(
-                [
-                    SystemMessage(
-                        content=NON_TOOL_CALLS_SYSTEM_PROMPT.format(channel=str(state.channel), user=str(state.user))
-                    ),
-                    *filtered_messages,
-                ],
+                [SystemMessage(content=system_text), *filtered_messages],
                 config,
             )
             try:
-                output_parser = PydanticOutputParser(pydantic_object=AgentOutput)
                 output.content = output_parser.parse(output.content).model_dump_json()
             except OutputParserException as e:
                 logger.error("Error parsing output", error=e, traceback=traceback.format_exc())
@@ -297,16 +301,17 @@ class AgentGraph:
         Returns:
             List[BaseMessage]: A list of the prepared messages.
         """
-        trimmed_messages = trim_messages(
-            messages,
-            strategy="last",
-            token_counter=self.model,
-            max_tokens=1000,
-            start_on="human",
-            include_system=False,
-            allow_partial=False,
-        )
-        return [msg for msg in trimmed_messages if isinstance(msg, HumanMessage) or isinstance(msg, AIMessage)]
+        # The last three exchanges plus the current message, as user/assistant
+        # turns: the window the SDK arm sends. The previous token-budget trim
+        # (max_tokens=1000, start_on="human", allow_partial=False) returns an
+        # empty list whenever the newest human message alone exceeds the
+        # budget, which sent the model a system-only request.
+        turns = [
+            msg
+            for msg in messages
+            if isinstance(msg, HumanMessage) or (isinstance(msg, AIMessage) and not msg.tool_calls)
+        ]
+        return turns[-7:]
 
     def _pretty_str_tools(self, tools: list[StructuredTool]) -> str:
         """Pretty string tools.

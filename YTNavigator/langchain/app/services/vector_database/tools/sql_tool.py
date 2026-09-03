@@ -90,7 +90,7 @@ class SQLTools:
         video_db_name = Video._meta.db_table
         chunk_db_name = VideoChunk._meta.db_table
         if video_db_name not in query and chunk_db_name not in query:
-            return f"""DB SCHEMA:\n{cls.get_tables_schema()}\nError: You are allowed only to search in the {video_db_name} and {chunk_db_name} tables"""
+            return f"""DB SCHEMA:\n{cls.get_tables_schema_markdown()}\nError: You are allowed only to search in the {video_db_name} and {chunk_db_name} tables"""
 
         try:
             # Extract connection parameters from the URL
@@ -116,7 +116,7 @@ class SQLTools:
         except Exception as e:
             return f"""
             DB SCHEMA:
-            {cls.get_tables_schema()}
+            {cls.get_tables_schema_markdown()}
         
             #Error: {e}
             """
@@ -147,7 +147,7 @@ class SQLTools:
             "- Filtering and aggregating video metadata "
             "- Performing complex calculations or statistical analysis "
             "- Retrieving specific subsets of data not easily accessible through other methods "
-            f"\n Table schema:\nPOSTGRES SYNTAX:\n{cls.get_tables_schema()}",
+            f"\n Table schema:\nPOSTGRES SYNTAX:\n{cls.get_tables_schema_markdown()}",
             args_schema=SQLQueryToolInput,
             handle_tool_error=True,
         )

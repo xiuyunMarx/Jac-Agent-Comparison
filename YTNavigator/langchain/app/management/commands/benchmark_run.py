@@ -37,6 +37,21 @@ from benchmark.schemas import (
 )
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
+_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$")
+
+
+def _json_body(text: str) -> str:
+    """The JSON object inside a reply: fences stripped, outermost {...} kept.
+
+    The graph now normalizes its answers, but a raw reply can still reach
+    here (e.g. an older checkpoint); the byLLM and SDK runners tolerate fences
+    and prose around the object, so this one does too.
+    """
+    candidate = _FENCE_RE.sub("", text.strip())
+    start, end = candidate.find("{"), candidate.rfind("}")
+    if candidate.startswith("{") or start < 0 or end <= start:
+        return candidate
+    return candidate[start : end + 1]
 
 
 class Command(BaseCommand):
@@ -218,8 +233,10 @@ class Command(BaseCommand):
             answer_raw = AgentGraph.extract_response(result)
             if answer_raw:
                 try:
-                    parsed = AgentOutput.model_validate_json(answer_raw)
-                    answer_parsed = True
+                    parsed = AgentOutput.model_validate_json(_json_body(answer_raw))
+                    # A fallback wrapped raw prose into the schema; that is not
+                    # a parsed answer (the other runners record it the same way).
+                    answer_parsed = not any(e.get("event") == "output_parse_fallback" for e in fallback_events)
                     answer_text = _HTML_TAG_RE.sub("", parsed.placeholder or "").strip()
                     cited_video_ids = [v.id for v in parsed.videos or [] if v.id]
                 except Exception:

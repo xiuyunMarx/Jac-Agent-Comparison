@@ -91,7 +91,7 @@ def main():
     parser.add_argument("--judge", action="store_true", help="Add LLM-as-judge scoring (needs reference answers)")
     parser.add_argument("--judge-model", default="openai/" + os.environ.get("BENCH_MODEL", "glm-5.2"),
                         help="litellm model name for the judge "
-                             "(default: ollama_chat/glm-5.2:cloud)")
+                             "(default: openai/$BENCH_MODEL, i.e. GLM 5.2)")
     args = parser.parse_args()
 
     questions = Path(args.questions)

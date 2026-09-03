@@ -1,13 +1,24 @@
 analyze_meeting:
+  # The instruction text is byLLM's `sem GeneratingTasks.analyse_meeting_transcript`
+  # and the field rules are its `sem MeetingTask.*`, so all three arms ask for
+  # the same thing. The transcript appears once (it used to be in the agent goal
+  # as well, which doubled every prompt).
   description: >
-    Analyze the provided meeting transcript and generate a set of detailed, 
-    well-organized issues based on the discussion.
-    Focus on breaking down the transcript into manageable tasks or issues, 
-    making sure to document each issue thoroughly with steps to reproduce, acceptance criteria, 
-    and any other relevant details.
+    Extract every concrete action item from the meeting transcript. Return only
+    a JSON list of MeetingTask objects. Every object must contain exactly two
+    non-empty string fields: name and description; never return an empty or
+    placeholder task. Keep distinct commitments for different deliverables or
+    owners as separate tasks. Combine discussion steps that belong to the same
+    deliverable into one task, including approval followed by execution, rather
+    than over-splitting them. Return an empty list only when the transcript
+    contains no action items. Document owners, deadlines, requirements, and
+    acceptance criteria stated in the transcript without inventing facts.
 
     Here is the meeting transcript for your reference:\n\n {transcript}
   expected_output: >
-    A JSON list of issues with titles and bodies, containing clear instructions, 
-    steps to reproduce, and acceptance criteria where applicable.
+    A JSON list of tasks. Every task has exactly two fields:
+    name (required, non-empty, short, actionable title for the task) and
+    description (required, non-empty, detailed description of the task: clear
+    instructions, owner, deadline, steps to reproduce, and acceptance criteria
+    where applicable).
   agent: meeting_analyzer

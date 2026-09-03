@@ -9,8 +9,9 @@ implementations, one subprocess per (impl, batch), results left where
 
 Three things this does that the README loop does not:
 
-  * **One model on every side.** ollama_chat/glm-5.2:cloud is hard-coded in all
-    three arms. See eval/README.md, "Token cost".
+  * **One model on every side.** Every arm reads $BENCH_MODEL (default
+    glm-5.2) and talks to $OPENAI_BASE_URL; source ../../glm.env first. See
+    eval/README.md, "Token cost".
   * **The CrewAI arm gets its own interpreter.** It pins langgraph 1.x, which
     cannot coexist with the 0.3.x the other benchmarks need, so it lives in
     `CrewAI-LangGraph/.venv`. That venv is used when present.

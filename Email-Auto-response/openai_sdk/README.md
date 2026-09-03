@@ -170,7 +170,12 @@ Four places, and this side follows byLLM at each:
   for tool-free calls, a response-format schema) with internal output
   retries; here every stage uses strict `response_format` json_schema, with
   tools alongside where the stage has them. Same field names, types and
-  descriptions; different wire mechanism. The pipeline-level contract checks
+  descriptions; different wire mechanism. byllm's output retries are
+  reproduced too (`typed_stage`): a reply that does not decode is salvaged
+  (fences stripped, outermost `{...}`), and failing that the original prompt
+  is re-sent with byllm's corrective message up to `MAX_OUTPUT_RETRIES = 3`
+  times -- before this, one malformed analyzer object cost a whole draft
+  where byllm would have asked again. The pipeline-level contract checks
   (analyzer: record and skip; writer: one retry) are nodes.jac's, unchanged.
 - **Tool-loop brake.** byllm's default `max_react_iterations` is unbounded;
   `run_stage` caps the web-search loop at 10 rounds, then asks once more

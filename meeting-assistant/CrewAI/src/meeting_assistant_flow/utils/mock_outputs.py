@@ -41,14 +41,26 @@ class TokenUsage:
         self.prompt_tokens = 0
         self.completion_tokens = 0
         self.calls = 0
+        self.calls_without_usage = 0
 
     def track(self, path, response):
         if not any(p in str(path) for p in _LLM_PATHS):
             return
         self.calls += 1
         usage = getattr(response, "usage", None)
+        if usage is None and hasattr(response, "parse"):
+            # with_raw_response (litellm's route into the SDK) hands back a
+            # LegacyAPIResponse; the parsed body carries the usage.
+            try:
+                usage = getattr(response.parse(), "usage", None)
+            except Exception:  # noqa: BLE001 - never let accounting break a run
+                usage = None
         if usage is None:
-            return  # e.g. a stream without include_usage: call counted, tokens unknown
+            # A stream without include_usage, or a transport shape this hook
+            # does not know: count the call, and say the tokens are unknown
+            # instead of silently reporting zero.
+            self.calls_without_usage += 1
+            return
         # chat API uses prompt/completion, responses API uses input/output
         self.prompt_tokens += _usage_field(usage, "prompt_tokens", "input_tokens")
         self.completion_tokens += _usage_field(usage, "completion_tokens", "output_tokens")
@@ -59,6 +71,7 @@ class TokenUsage:
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "total_tokens": self.prompt_tokens + self.completion_tokens,
+            "calls_without_usage": self.calls_without_usage,
         }
 
 

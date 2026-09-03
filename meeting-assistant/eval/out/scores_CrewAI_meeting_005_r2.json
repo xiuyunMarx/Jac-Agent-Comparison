@@ -3,14 +3,14 @@
   "case_id": "meeting_005",
   "repetition": 2,
   "edge_case": "noisy_transcript",
-  "results_file": "/home/xiaoyu/JacAgentComparison/meeting-assistant/eval/runs/results_CrewAI_meeting_005_r2.json",
+  "results_file": "runs/results_CrewAI_meeting_005_r2.json",
   "completed": true,
-  "wall_time_s": 112.867,
+  "wall_time_s": 10.814,
   "llm_calls": 1,
-  "prompt_tokens": 0,
-  "completion_tokens": 0,
-  "total_tokens": 0,
-  "tasks_extracted": 7,
+  "prompt_tokens": 1852,
+  "completion_tokens": 841,
+  "total_tokens": 2693,
+  "tasks_extracted": 8,
   "count_in_range": true,
   "expected_task_count_range": [
     6,
@@ -20,26 +20,27 @@
   "literal_duplicates": 0,
   "pipeline_consistent": true,
   "judge": {
-    "model": "muse-glimmer-bench32k",
+    "model": "glm-5.2",
     "recall": 1.0,
     "precision": 1.0,
     "f1": 1.0,
-    "key_point_coverage": 0.895,
+    "key_point_coverage": 0.789,
     "semantic_duplicates": 0,
     "hallucinations": 0,
     "forbidden_hits": 0,
     "owner_capture": 1.0,
     "due_capture": 1.0,
     "injection_safe": null,
-    "clarity": 4,
+    "clarity": 5,
     "faithfulness": 5,
-    "overall": 4,
+    "overall": 5,
     "issues": [
-      "retry fix extraction omits _process_with_retry in payment_worker.py and five immediate retries detail",
-      "runbook refresh extraction omits old Kibana reference dead since March"
+      "gt_01: missing context that outage was invisible for 16 minutes due to no alert",
+      "gt_02: missing current-state detail that retries happen five times with no backoff and re-enqueue at front",
+      "gt_05: missing motivation context (status page not updated until minute 30, ~50 support tickets)",
+      "gt_06: missing context that secondary processor is configured but never exercised"
     ],
     "verdict": {
-      "user": "A system read the meeting transcript below and extracted a list of tasks.\nEvaluate the extraction against the ground truth.\n\nMEETING TRANSCRIPT\n------------------\nInes: Alright, postmortem for Tuesday's outage. Forty-one minutes of degraded service, checkout basically dead for the last fifteen. Blameless as always, we're here for the timeline and the fixes. Kofi, walk us through it?\n\nKofi: So it started at 14:03 when the payment worker queue depth spiked. We didn't know that at the time, because, fun fact, we have no alert on queue depth. First alert we got was customer-facing 500s at 14:19.\n\nInes: Sixteen minutes blind. Okay, that's finding number one. Let's make it concrete: alerting on queue depth for the payment workers, warning at 1,000 jobs, page at 5,000. Kofi, yours?\n\nKofi: Yeah, I'll take it. Honestly the whole worker fleet should have that alert, not just payments, same thresholds everywhere. I'll do it in one pass.\n\nMarta: Before you go on, sorry, quick logistics thing, are we still doing the team lunch Thursday? The Thai place needs a headcount.\n\nInes: Yes, and this is not the venue, put it in the channel. Anyway. Kofi, keep going, what made the queue back up?\n\nKofi: Right, root cause. The retry logic in the payment worker. When the card processor returned 503s, our workers retried immediately, no backoff, no jitter. Every failure multiplied the load. Classic retry storm, we DDoSed ourselves.\n\nMarta: I read that code yesterday. The retry loop is in payment_worker.py, the _process_with_retry function. It retries five times back to back, and, this is the good part, on the fifth failure it re-enqueues the job at the front of the queue.\n\nInes: The front? That's incredible. Okay, that's the second action and it's the big one: fix the retry logic. Exponential backoff with jitter, cap the retries, and failed jobs go to a dead-letter queue at the back, not the front of the main one. Marta, you've clearly already got context, can you own it?\n\nMarta: Yep. I'll add tests that simulate processor 503s too, because clearly nothing covered this.\n\nKofi: While we're in there, the DB connection pool made everything worse. Once workers piled up, they exhausted the pool, which is still at the default of 20 connections, and that's when the API started failing too. That's the coupling.\n\nInes: So two things there? Bump the pool, and stop the workers from sharing the API's pool?\n\nKofi: Honestly, bumping it to 100 gets us through the next incident, and splitting worker and API pools is the real fix. I'd do both in one change, it's the same config file. I'll take that one.\n\nInes: Fine, one task, both parts, Kofi. Now, the human side. Priya was on call. She did fine, but she told me the runbook for payment incidents still references the old Kibana, which we turned off in March. She spent ten minutes on dead links.\n\nMarta: Oh no.\n\nInes: Yeah. So: update the payment incident runbook. New logging links, the queue drain procedure Kofi improvised on Tuesday, actually written down, and while we're at it, verify the escalation phone numbers are current, apparently one of them still goes to someone who left last year.\n\nKofi: Priya said she'd be up for doing that herself, she's got the freshest scars. Let's assign it to her, I'll confirm with her after this.\n\nInes: Good. Next: status page. We didn't update it until minute 30, and customers noticed. Support got fifty tickets in that window, most of them just asking if we knew.\n\nMarta: The status page update is manual, that's why. Someone has to remember, log in, click through three screens. We should automate it: when the checkout error rate alert fires, the status page flips to investigating automatically, with a template message.\n\nInes: Take that one too? It's small, the status provider has an API.\n\nMarta: Sure, I'll wire it to the checkout alert first, we can extend it to other alerts later.\n\nKofi: Can I raise one more? This incident would've been a non-event if failover worked. We have a secondary payment processor configured, in theory. It's never been exercised. Nobody wanted to be the person who tests it in production.\n\nInes: So let's be those people, deliberately. A game day: controlled chaos test of the payment processor failover in staging first, then production during a low-traffic window, with a rollback plan. That's bigger, let's say Kofi leads it and drafts the plan, and we review the plan in two weeks before anything gets executed. Draft first, no execution until the review.\n\nKofi: Deal. I'll write it up.\n\nMarta: Speaking of things that fail constantly, the coffee machine on four has been broken for two weeks, someone should really fix that.\n\nInes: Ha, add it to the backlog for 2030. Okay, last thing. Redis. Kofi, you mentioned in the channel that we're on an EOL version?\n\nKofi: Yeah, 6.0, security fixes ended in June. Not related to the outage, but since we're listing infra debt: we should upgrade to 7.2. It's a minor migration, there's a config rename and the persistence defaults changed, so it needs a proper change window, not a casual Friday deploy.\n\nInes: Agreed, that's a real one, Kofi owns it, schedule it with the infra calendar. Okay, recap and we're done: queue alerts, retry fix with dead-letter queue, connection pool split, runbook refresh with Priya, status page automation, failover game day plan, Redis upgrade. Seven items, all owned. Timeline doc goes out tomorrow, I'll write it up tonight. Thanks all, and Marta, Thai place, channel, headcount.\n\nMarta: Already typing it.\n\n\nGROUND TRUTH: EXPECTED TASKS\n----------------------------\ngt_01: Add queue-depth alerting for the worker fleet\n  owner: Kofi\n  - outage was invisible for 16 minutes because no queue-depth alert exists\n  - warning at 1,000 jobs, page at 5,000\n  - apply to the whole worker fleet, not just payment workers\ngt_02: Fix retry storm in the payment worker\n  owner: Marta\n  - _process_with_retry in payment_worker.py retries five times with no backoff and re-enqueues failures at the FRONT of the queue\n  - add exponential backoff with jitter and a retry cap\n  - failed jobs go to a dead-letter queue, not back to the main queue front\n  - add tests simulating processor 503s\ngt_03: Increase DB connection pool and split worker/API pools\n  owner: Kofi\n  - pool is at default 20; worker pileup exhausted it and took the API down too\n  - bump to 100 AND separate worker and API pools, one change, same config file\ngt_04: Update the payment incident runbook\n  owner: Priya (to be confirmed by Kofi)\n  - runbook still references the old Kibana, dead since March\n  - add new logging links and document the queue drain procedure improvised during the incident\n  - verify escalation phone numbers are current\ngt_05: Automate status page updates from the checkout alert\n  owner: Marta\n  - status page wasn't updated until minute 30; support got ~50 tickets\n  - when the checkout error-rate alert fires, flip status page to 'investigating' automatically with a template message via the provider API\ngt_06: Draft a game-day plan for payment processor failover\n  owner: Kofi\n  due: plan reviewed in two weeks before any execution\n  - secondary processor is configured but has never been exercised\n  - chaos test in staging first, then production in a low-traffic window with a rollback plan\n  - draft only; no execution until the review\ngt_07: Upgrade Redis from EOL 6.0 to 7.2\n  owner: Kofi\n  due: schedule via the infra calendar\n  - 6.0 security fixes ended in June; unrelated to the outage but real debt\n  - config rename and changed persistence defaults, needs a proper change window\n\nACCEPTABLE EXTRAS (count as neither hit nor hallucination)\n- write and send the incident timeline doc (Ines said she'd do it tonight)\n\nFORBIDDEN (extracting any of these is an explicit error)\n- fix the coffee machine on floor four (offhand joke, dismissed with 'add it to the backlog for 2030')\n- Thai restaurant lunch headcount (social logistics, explicitly redirected to the channel)\n\nEXTRACTED TASKS (the system under test)\n---------------------------------------\n[0] queue alerts: Ines: Sixteen minutes blind. Okay, that's finding number one. Let's make it concrete: alerting on queue depth for the payment workers, warning at 1,000 jobs, page at 5,000. Kofi, yours? Kofi: Yeah, I'll take it. Honestly the whole worker fleet should have that alert, not just payments, same thresholds everywhere. I'll do it in one pass.\n[1] retry fix with dead-letter queue: Ines: The front? That's incredible. Okay, that's the second action and it's the big one: fix the retry logic. Exponential backoff with jitter, cap the retries, and failed jobs go to a dead-letter queue at the back, not the front of the main one. Marta, you've clearly already got context, can you own it? Marta: Yep. I'll add tests that simulate processor 503s too, because clearly nothing covered this.\n[2] connection pool split: Kofi: While we're in there, the DB connection pool made everything worse. Once workers piled up, they exhausted the pool, which is still at the default of 20 connections, and that's when the API started failing too. That's the coupling. Ines: So two things there? Bump the pool, and stop the workers from sharing the API's pool? Kofi: Honestly, bumping it to 100 gets us through the next incident, and splitting worker and API pools is the real fix. I'd do both in one change, it's the same config file. I'll take that one. Ines: Fine, one task, both parts, Kofi.\n[3] runbook refresh with Priya: Ines: Yeah. So: update the payment incident runbook. New logging links, the queue drain procedure Kofi improvised on Tuesday, actually written down, and while we're at it, verify the escalation phone numbers are current, apparently one of them still goes to someone who left last year. Kofi: Priya said she'd be up for doing that herself, she's got the freshest scars. Let's assign it to her, I'll confirm with her after this.\n[4] status page automation: Ines: Good. Next: status page. We didn't update it until minute 30, and customers noticed. Support got fifty tickets in that window, most of them just asking if we knew. Marta: The status page update is manual, that's why. Someone has to remember, log in, click through three screens. We should automate it: when the checkout error rate alert fires, the status page flips to investigating automatically, with a template message. Ines: Take that one too? It's small, the status provider has an API. Marta: Sure, I'll wire it to the checkout alert first, we can extend it to other alerts later.\n[5] failover game day plan: Kofi: Can I raise one more? This incident would've been a non-event if failover worked. We have a secondary payment processor configured, in theory. It's never been exercised. Nobody wanted to be the person who tests it in production. Ines: So let's be those people, deliberately. A game day: controlled chaos test of the payment processor failover in staging first, then production during a low-traffic window, with a rollback plan. That's bigger, let's say Kofi leads it and drafts the plan, and we review the plan in two weeks before anything gets executed. Draft first, no execution until the review. Kofi: Deal. I'll write it up.\n[6] Redis upgrade: Ines: Ha, add it to the backlog for 2030. Okay, last thing. Redis. Kofi, you mentioned in the channel that we're on an EOL version? Kofi: Yeah, 6.0, security fixes ended in June. Not related to the outage, but since we're listing infra debt: we should upgrade to 7.2. It's a minor migration, there's a config rename and the persistence defaults changed, so it needs a proper change window, not a casual Friday deploy. Ines: Agreed, that's a real one, Kofi owns it, schedule it with the infra calendar.\n\nInstructions:\n- Match extracted tasks to expected tasks SEMANTICALLY, on topic - names will\ndiffer. An expected task may be matched by more than one extracted task\n(that is a duplicate); an extracted task matches at most one expected task.\n- For each expected task, judge each of its key points: covered means the\nfact appears in the matched extracted task(s) name or description.\nIf an expected task has no match, no key point is covered.\n- owner_mentioned / due_mentioned: does the matched extracted task text name\nthe listed owner / deadline? Use null when ground truth lists none.\n- Classify every UNMATCHED extracted task: \"acceptable\" (matches an\nacceptable-extra topic or is a reasonable, transcript-grounded extra),\n\"hallucination\" (not grounded in the transcript), or \"forbidden\" (matches\na forbidden topic).\n\nAnswer with this exact JSON shape:\n{\n  \"matches\": [\n    {\"expected_id\": \"<id>\", \"extracted_indices\": [<int>, ...],\n      \"key_points_covered\": [true|false, ...],\n      \"owner_mentioned\": true|false|null, \"due_mentioned\": true|false|null},\n    ...one entry per expected task, in order...\n  ],\n  \"extras\": [\n    {\"extracted_index\": <int>, \"classification\": \"acceptable|hallucination|forbidden\",\n      \"reason\": \"<short>\"},\n    ...one entry per unmatched extracted task...\n  ],\n  \"safety_checks\": [{\"check\": \"<name>\", \"passed\": true|false}, ...],\n  \"clarity\": <1-5, 5 = every task name is crisp and each description is actionable>,\n  \"faithfulness\": <1-5, 5 = no invented facts, owners, numbers, or deadlines>,\n  \"overall\": <1-5, 5 = a team could work from this task list as-is>,\n  \"issues\": [\"<short issue>\", ...]\n}\n\"safety_checks\" must contain one entry per listed safety check (empty list if none).\n",
       "matches": [
         {
           "expected_id": "gt_01",
@@ -47,7 +48,7 @@
             0
           ],
           "key_points_covered": [
-            true,
+            false,
             true,
             true
           ],
@@ -86,7 +87,7 @@
             3
           ],
           "key_points_covered": [
-            false,
+            true,
             true,
             true
           ],
@@ -99,7 +100,7 @@
             4
           ],
           "key_points_covered": [
-            true,
+            false,
             true
           ],
           "owner_mentioned": true,
@@ -111,7 +112,7 @@
             5
           ],
           "key_points_covered": [
-            true,
+            false,
             true,
             true
           ],
@@ -131,14 +132,22 @@
           "due_mentioned": true
         }
       ],
-      "extras": [],
+      "extras": [
+        {
+          "extracted_index": 7,
+          "classification": "acceptable",
+          "reason": "Timeline doc is an explicitly listed acceptable extra"
+        }
+      ],
       "safety_checks": [],
-      "clarity": 4,
+      "clarity": 5,
       "faithfulness": 5,
-      "overall": 4,
+      "overall": 5,
       "issues": [
-        "retry fix extraction omits _process_with_retry in payment_worker.py and five immediate retries detail",
-        "runbook refresh extraction omits old Kibana reference dead since March"
+        "gt_01: missing context that outage was invisible for 16 minutes due to no alert",
+        "gt_02: missing current-state detail that retries happen five times with no backoff and re-enqueue at front",
+        "gt_05: missing motivation context (status page not updated until minute 30, ~50 support tickets)",
+        "gt_06: missing context that secondary processor is configured but never exercised"
       ]
     }
   }

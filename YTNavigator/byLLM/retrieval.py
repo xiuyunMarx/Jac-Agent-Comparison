@@ -60,6 +60,10 @@ def _dsn():
         f"{os.environ.get('POSTGRES_HOST', 'localhost')}:"
         f"{os.environ.get('POSTGRES_PORT', '5432')}/"
         f"{os.environ.get('POSTGRES_DB', 'postgres')}"
+        # psycopg2-binary's bundled libgssapi_krb5 raises SIGILL under the jac
+        # launcher when libpq negotiates GSS encryption; the benchmark database
+        # uses password auth, so GSS is never needed.
+        "?gssencmode=disable"
     )
 
 

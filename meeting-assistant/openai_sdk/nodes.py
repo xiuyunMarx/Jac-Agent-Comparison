@@ -75,14 +75,22 @@ SYSTEM_PROMPT = (
     "actionable tasks. Your ability to identify important issues helps "
     "ensure teams can follow up and address key points effectively.\n"
     "\n"
-    "Analyze the meeting transcript and break the discussion down into a "
-    "list of important, well-structured, actionable tasks that a team can "
-    "follow up on. Document each task thoroughly.\n"
+    "Extract every concrete action item from the meeting transcript. Return "
+    "only a JSON list of MeetingTask objects. Every object must contain "
+    "exactly two non-empty string fields: name and description; never return "
+    "an empty or placeholder task. Keep distinct commitments for different "
+    "deliverables or owners as separate tasks. Combine discussion steps that "
+    "belong to the same deliverable into one task, including approval "
+    "followed by execution, rather than over-splitting them. Return an empty "
+    "list only when the transcript contains no action items. Document owners, "
+    "deadlines, requirements, and acceptance criteria stated in the "
+    "transcript without inventing facts.\n"
     "\n"
     "Every task has exactly two fields:\n"
-    "- name: Short, actionable title for the task.\n"
-    "- description: Detailed description of the task: clear instructions, "
-    "steps to reproduce, and acceptance criteria where applicable.\n"
+    "- name: Required, non-empty, short, actionable title for the task.\n"
+    "- description: Required, non-empty, detailed description of the task: "
+    "clear instructions, owner, deadline, steps to reproduce, and acceptance "
+    "criteria where applicable.\n"
     "\n"
     "Reply with a JSON object of the form "
     '{"tasks": [{"name": ..., "description": ...}, ...]}.'
@@ -118,13 +126,17 @@ RESPONSE_FORMAT = {
                         "properties": {
                             "name": {
                                 "type": "string",
-                                "description": "Short, actionable title for the task",
+                                "description": (
+                                    "Required, non-empty, short, actionable "
+                                    "title for the task"
+                                ),
                             },
                             "description": {
                                 "type": "string",
                                 "description": (
-                                    "Detailed description of the task: clear "
-                                    "instructions, steps to reproduce, and "
+                                    "Required, non-empty, detailed description "
+                                    "of the task: clear instructions, owner, "
+                                    "deadline, steps to reproduce, and "
                                     "acceptance criteria where applicable"
                                 ),
                             },

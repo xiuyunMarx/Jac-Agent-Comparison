@@ -11,6 +11,9 @@ MODEL_LLM = LLM(
     model=_BENCH_MODEL if "/" in _BENCH_MODEL else f"openai/{_BENCH_MODEL}",
     base_url=os.environ.get("OPENAI_BASE_URL", "https://ollama.com/v1"),
     api_key=os.environ.get("OPENAI_API_KEY"),
+    # byLLM's default; CrewAI sends no temperature at all unless asked, which
+    # left this arm on the provider default while the other two ran at 0.7.
+    temperature=0.7,
 )
 
 class EmailFilterAgents():

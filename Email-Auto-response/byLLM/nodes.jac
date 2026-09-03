@@ -48,6 +48,11 @@ def web_search(query: str) -> str {
     }
     return MAILBOX.web_search(query);
 }
+# Without these the tool schema on the wire described itself as "web_search"
+# with a parameter described as "<class 'str'>"; the other arms carry the
+# CrewAI tool's sentence, so this one does too.
+sem web_search = "Search the internet for information about a topic and return relevant results.";
+sem web_search.query = "The search query.";
 
 
 # byllm's ReAct loop falls back to the model's raw text when the model answers
