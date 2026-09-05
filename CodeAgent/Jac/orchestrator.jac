@@ -1,4 +1,4 @@
-"""swebench_bridge 的适配层：swe_entry.jac 从这里 import solve / active_model_name"""
+"""Adapter to swebench bridge：swe_entry.jac 从这里 import solve / active_model_name"""
 import json;
 import os;
 import re;
@@ -6,9 +6,7 @@ import litellm;
 import main;
 import from nodes { llm, tool_log }
 
-# token 统计：byLLM 的非流式 ReAct 路径不记录 usage，telemetry 回调里也没有 token 字段，
-# 所以直接在 litellm.completion 外面包一层同步计数。byLLM 每次都按模块属性调用它
-# （model.impl.jac: litellm.completion(...)），替换后每一次模型调用都会经过这里。
+# token usage statistics
 glob usage_log: list = [];
 glob _orig_completion: any = litellm.completion;
 

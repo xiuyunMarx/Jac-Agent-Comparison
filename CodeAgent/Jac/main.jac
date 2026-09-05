@@ -41,7 +41,7 @@ walker CodeAgent {
         history.clear();
         tool_log.clear();
         history.append({"role": "system", "content": SYSTEM.format(issue=self.issue)});
-        visit [-->][?:Plan];                 # 没有 visit，后面的 ability 一个都不会触发
+        visit [-->][?:Plan];                
     }
 
     can planning with Plan entry {
