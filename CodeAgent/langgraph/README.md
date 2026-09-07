@@ -1,82 +1,74 @@
 # Coding agent — LangGraph
 
-One of three implementations of the same agent. The original is
-[`../Jac`](../Jac) (Jac + byLLM); [`../openai_sdk`](../openai_sdk) is the
-no-framework baseline; this one is the LangGraph port. All three present the
-same eight tools with the same string contracts, the same phase goals, the same
-shared conversation across phases, the same guards and the same budgets, so a
-difference in score is a difference between frameworks and not between agents.
+A five-phase coding agent using LangGraph for the workflow and LangChain's
+`create_agent` for each phase's tool loop.
 
-## Running it
+The Jac, OpenAI SDK, and LangGraph implementations share the repository tools,
+task instructions, phase transitions, evidence guards, and budget policy.
+This implementation uses standard LangChain schemas, messages, and structured
+output; it does not reproduce byLLM's internal prompts or wire protocol.
+
+## Run
 
 ```bash
 pip install -e .
-export OLLAMA_API_KEY=...             # ollama cloud; or OPENAI_API_KEY for any /v1 server
-export CODEAGENT_MODEL=openai/glm-5.2 # same default as ../Jac; the prefix is stripped on the wire
+export OLLAMA_API_KEY=...
+export CODEAGENT_MODEL=openai/glm-5.2
 
 python main.py "issue text" /path/to/repo
-python tests/tool_checks.py            # tool layer, no LLM
-python tests/smoke.py                  # a toy bug, end to end
-python -c "import main; print(main.build_app().get_graph().draw_mermaid())"
+python tests/tool_checks.py
+python -m unittest discover -s tests -p 'test_*.py' -v
+python tests/smoke.py  # Calls the configured model.
 ```
 
-## Layout — one file per Jac file
+`OLLAMA_API_BASE`, `OPENAI_API_BASE`, or `OPENAI_BASE_URL` selects the compatible
+endpoint; the default is `https://ollama.com/v1`. `OPENAI_API_KEY` can supply
+the key. `CODEAGENT_TEMPERATURE` defaults to 0.7.
 
-| this | `../Jac` | what it holds |
-| --- | --- | --- |
-| `nodes.py` | `nodes.jac` | model seam, shared run state (`history`, `tool_log`, `TOOL_BUDGET`), the `Repo` toolbox and its `sem` strings as `StructuredTool`s, the phase nodes and the `PhaseCapability` edge |
-| `phase_agent.py` | *(the `by llm(...)` clause)* | the ReAct loop byLLM runs for `work()` as a compiled `model -> tools -> summarize` StateGraph, with byLLM's system message, call-frame prompt, `finish_tool`, forced final answer and write-back into `history`; and `select_edge`, its visit router |
-| `main.py` | `main.jac` | `AgentState`, the phase StateGraph, the Verify guards and routing, `solve()` |
-| `orchestrator.py` | `orchestrator.jac` | the swebench_bridge adapter: `RunResult`, token totals, `solve()` |
-| `tests/` | `tests/` | `tool_checks` (no LLM) and `smoke` (needs a key) |
+## Files
 
-## The graph
+- `nodes.py`: repository tools with typed signatures and tool docstrings,
+  model configuration, shared history/tool log, phase goals, and transitions.
+- `main.py`: the outer `StateGraph`, phase calls through `create_agent`,
+  budget middleware, evidence guards, and structured routing.
+- `orchestrator.py`: the existing SWE-bench result interface and callback
+  telemetry. Set `CODEAGENT_TRACE` to save model messages, tool schemas,
+  replies, and usage when running through this adapter.
 
+## Workflow and budgets
+
+```text
+Plan -> Explore -> Edit -> Verify -> Finish
+                    ^        |
+                    +-- repair
+           ^                 |
+           +------ relocate -+
 ```
-Root -> Plan -> Explore -> Edit -> Verify -> Finish
-                  ^          ^        |
-                  |          |        +-- repair   -> Edit
-                  |          +----------- (forward)
-                  +---------------------- relocate -> Explore
-                                          finish   -> Finish
-```
 
-Plan, Explore and Edit are `add_edge`s. Verify's decision is made inside the
-Verify node, because the Jac ability mutates `repairs`, `relocates` and the
-ledger while deciding and a LangGraph router must not; the conditional edge
-only reads the choice back. The deterministic guards (repair budget, tool
-budget, "did a write land", "did anything run since") come before the model,
-and the relocate edge is offered once, after a first repair has also failed.
+The phase model-round limits are 6 / 20 / 20 / 10. The shared budget is
+60 repository tool calls. As in Jac, the budget is checked between model
+rounds, after the first round of a phase; it is not a hard per-tool cutoff,
+so a tool batch may exceed 60. On exhaustion, the model gets one additional
+call with no repository tools to summarize. Tool execution uses
+`max_concurrency=1`. The summary request is not added to shared history.
 
-## What byLLM was doing
+Verify first checks the repair and tool budgets, then increments the repair
+counter and requires a successful write plus a command/snippet after the
+last edit or revert. Only then does the model choose an outgoing transition.
+The repair limit is 3. Relocation is offered once, after the first repair
+opportunity, and consumes that opportunity even if the model chooses another
+edge. An invalid or failed routing decision falls back to Edit.
 
-`by llm(tools=..., conversation=history, max_react_iterations=N,
-on_iteration=guard)` on each `work()` is the whole of `phase_agent.py`: byLLM's
-own system message and call-frame prompt, the `finish_tool` that ends a phase,
-sequential tool dispatch (one `ToolNode` call per tool call), the guard before
-every round, the "provide only your final answer" nudge on abort, and the
-write-back that keeps one conversation running through every phase. Because
-`add_messages` copies messages, scaffolding is marked in `additional_kwargs`
-rather than tracked by identity. `visit [...] by llm(select=1, intent=...,
-incl_info=...)` is `select_edge`: `ChatOpenAI.bind(response_format=...)` with
-byLLM's own JSON schema for a `list` (`schema_object_wrapper`), byLLM's schema
-hint at the end of the prompt, and its one correction retry when the first
-answer is not JSON. GLM over ollama's `/v1` answers that first call in prose
-every time, so a route costs two calls on every arm alike. Tools are bound as
-the OpenAI-format specs (`nodes.spec`), not as the `StructuredTool`s, because
-LangChain's own conversion drops the `additionalProperties: false` byLLM sends.
+The tests use scripted HTTP responses with the real LangChain/LangGraph
+runtime. They cover tool schemas, shared history, budgets, routing guards,
+and an end-to-end edit/reproduce/verify workflow, including adapter telemetry.
+They require no model credentials.
 
-Set `CODEAGENT_TRACE=<file>` and every model call is appended there as one
-JSON line: the request as LangChain put it on the wire (in full when the call
-opens a phase or routes, else the newest message), the usage and the reply.
-The bridge sets it to `logs/<instance>/llm_trace.jsonl`, and
-`swebench_bridge/trace_diff.py` diffs those files across arms; with the same
-model, the same instance and the same tool results, the traces of the three
-arms are identical byte for byte, so the numbers differ only where the model
-chose differently.
+## Comparison boundary
 
-## SWE-bench
-
-Wired into the shared bridge as `--framework langgraph`; the shim imports
-`solve` / `active_model_name` / `DEFAULT_MODEL` from `orchestrator`, which
-returns the same `RunResult` fields as the Jac side.
+Tool descriptions and parameter descriptions now live in method docstrings;
+`StructuredTool.from_function(..., parse_docstring=True)` infers schemas and
+preserves Python defaults. Routing uses a Pydantic result with
+`with_structured_output`. Native message formatting, final-answer handling,
+and parser retries can produce different requests and model behavior from
+Jac. Score equivalence and byte-identical traces are not claimed.

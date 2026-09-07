@@ -1,23 +1,21 @@
-"""The walk: ../Jac/main.jac's `walker CodeAgent`, as a compiled StateGraph.
-
-Same graph, same guards, same routing. The Jac walker's `has` fields are the
-graph state; each phase ability is a node; Plan -> Explore -> Edit -> Verify are
-fixed edges, and Verify's decision -- deterministic guards first, then the
-model picks an edge, `else` Edit -- is made inside the Verify node and read
-back by its conditional edge, because a LangGraph router must not mutate state
-and the Jac ability mutates `repairs`, `relocates` and the ledger on the way.
-"""
+"""Five-phase coding workflow using LangGraph and standard LangChain agents."""
 
 from __future__ import annotations
 
 import sys
-from typing import Any, TypedDict
+from dataclasses import asdict
+from typing import Any, Literal, TypedDict
 
-from langchain_core.messages import SystemMessage
+from langchain.agents import create_agent
+from langchain.agents.middleware import wrap_model_call, wrap_tool_call
+from langchain_core.exceptions import OutputParserException
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
+from pydantic import ValidationError, create_model
 
-from nodes import PHASES, TOOL_BUDGET, edges_from, history, ran_since_edit, repo, tool_log, written
-from phase_agent import select_edge, work
+from nodes import (PHASES, TOOL_BUDGET, Phase, PhaseCapability, edges_from, get_model,
+                   history, ran_since_edit, repo, tool_log, written)
 
 MAX_REPAIRS: int = 3
 MAX_RELOCATES: int = 1
@@ -41,8 +39,60 @@ RELOCATE_INTENT = (
 )
 
 
+FINAL_INSTRUCTION = "Based on the tool calls and their results above, provide only your final answer."
+
+
+@wrap_tool_call
+def tool_errors(request, handler):
+    """Keep tool failures recoverable, as in the other implementations."""
+    try:
+        return handler(request)
+    except Exception as error:
+        return ToolMessage(content=f"Error: {request.tool_call['name']} failed: {type(error).__name__}: {error}",
+                           tool_call_id=request.tool_call["id"])
+
+
+def work(phase: Phase) -> str:
+    rounds = 0
+
+    @wrap_model_call
+    def budget(request, handler):
+        nonlocal rounds
+        # The shared budget is checked between rounds, after the first call.
+        if rounds and (0 < phase.max_react_iterations <= rounds or len(tool_log) >= TOOL_BUDGET):
+            request = request.override(tools=[], messages=[*request.messages, HumanMessage(FINAL_INSTRUCTION)])
+        rounds += 1
+        return handler(request)
+
+    agent = create_agent(get_model(), tools=phase.toolbox(), middleware=[budget, tool_errors])
+    result = agent.invoke(
+        {"messages": [*history, HumanMessage(f"{phase.sem}\n\n{phase.goal}")]},
+        {"max_concurrency": 1, "recursion_limit": 2 * phase.max_react_iterations + 10},
+    )
+    history[:] = result["messages"]
+    return history[-1].text.strip()
+
+
+def select_edge(candidates: list[PhaseCapability], intent: str, incl_info: dict,
+                walker: dict, here: str) -> PhaseCapability | None:
+    prompt = (f"{intent}\n\nAgent state: {walker}\nCurrent phase: {PHASES[here].goal}\n"
+              f"Candidates: {[asdict(edge) for edge in candidates]}\nContext: {incl_info}\n"
+              "Choose one of the candidate targets.")
+    schema = create_model("Route", target=(Literal[tuple(edge.target for edge in candidates)], ...))
+    router = get_model().with_structured_output(schema, method="function_calling").with_retry(
+        retry_if_exception_type=(OutputParserException, ValidationError),
+        stop_after_attempt=2, wait_exponential_jitter=False,
+    )
+    try:
+        choice = router.invoke(prompt)
+        return next((edge for edge in candidates if edge.target == choice.target), None)
+    except Exception:
+        # An unavailable or invalid routing answer falls back to Edit in main.
+        return None
+
+
 class AgentState(TypedDict):
-    """`walker CodeAgent`'s `has` fields, plus where Verify decided to go."""
+    """Run state and the next phase selected by Verify."""
 
     issue: str
     repo_root: str
@@ -58,7 +108,7 @@ def _record(ledger: list[str], title: str, summary: str) -> list[str]:
 
 
 def _fields(state: AgentState) -> dict[str, Any]:
-    """What byLLM's router shows of the walker: its `has` fields, in order."""
+    """Task state available to the routing decision."""
     return {"issue": state["issue"], "repo_root": state["repo_root"], "ledger": state["ledger"],
             "repairs": state["repairs"], "relocates": state["relocates"], "answer": state["answer"]}
 
@@ -72,8 +122,7 @@ def _phase_node(name: str):
 def verify_node(state: AgentState) -> dict[str, Any]:
     ledger = _record(state["ledger"], "Verify", work(PHASES["Verify"]))
     repairs, relocates = state["repairs"], state["relocates"]
-    # Deterministic guards first, then the model -- the evidence it sees is
-    # exactly the evidence that misleads it (old tests all green on an unedited tree).
+    # Require an edit and fresh execution evidence before asking the model.
     if repairs >= MAX_REPAIRS or len(tool_log) >= TOOL_BUDGET:
         return {"ledger": ledger, "next": "Finish"}
     repairs += 1
@@ -110,7 +159,6 @@ def build_app() -> Any:
     graph.add_node("Verify", verify_node)
     graph.add_node("Finish", finish_node)
     graph.set_entry_point("Plan")
-    # `visit [->:PhaseCapability:->][?:Next]`: the declared forward edges.
     for here in ("Plan", "Explore", "Edit"):
         graph.add_edge(here, edges_from(here)[0].target)
     targets = sorted({e.target for e in edges_from("Verify")})
@@ -119,7 +167,7 @@ def build_app() -> Any:
     return graph.compile()
 
 
-def solve(issue: str, repo_root: str = ".") -> str:
+def solve(issue: str, repo_root: str = ".", config: RunnableConfig | None = None) -> str:
     repo.base_dir = repo_root
     history.clear()
     tool_log.clear()
@@ -127,7 +175,7 @@ def solve(issue: str, repo_root: str = ".") -> str:
     out = build_app().invoke(
         {"issue": issue, "repo_root": repo_root, "ledger": [], "repairs": 0,
          "relocates": 0, "answer": "", "next": ""},
-        {"recursion_limit": 100},
+        {**(config or {}), "recursion_limit": 100},
     )
     return str(out["answer"])
 

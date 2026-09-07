@@ -1,181 +1,34 @@
-"""Phase nodes + the toolbox. Each node = one goal + the tools it may use.
-
-The LangGraph twin of ../Jac/nodes.jac, kept in the same order so the two files
-diff side by side: model seam, shared run state, the `Repo` toolbox, its `sem`
-strings, then the phase nodes and the edge between them. The model seam and the
-tool binding are the only LangChain-shaped parts; the middle is byte-identical
-to ../openai_sdk/nodes.py.
-"""
+"""Repository tools, shared run state, and phase definitions."""
 
 from __future__ import annotations
 
-import inspect
-import json
 import os
 import re
 import shlex
 import shutil
 import subprocess
-import warnings
 from dataclasses import dataclass
 from fnmatch import fnmatch
-from typing import Any, Callable, get_type_hints
+from functools import cache
+from typing import Any
 
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import BaseMessage
 from langchain_core.tools import BaseTool, StructuredTool
-from pydantic import Field, create_model
+from langchain_openai import ChatOpenAI
 
-# GLM 5.2 over ollama cloud's OpenAI-compatible endpoint. The Jac side reaches
-# it through litellm's `openai/` provider and $OPENAI_API_BASE; ChatOpenAI takes
-# the same base URL directly. Same three variables, same defaults.
-MODEL_NAME: str = os.environ.get("CODEAGENT_MODEL", "openai/glm-5.2")
-MODEL_BASE: str = (
-    os.environ.get("OLLAMA_API_BASE")
-    or os.environ.get("OPENAI_API_BASE")
-    or os.environ.get("OPENAI_BASE_URL")
-    or "https://ollama.com/v1"
-)
-API_KEY: str = os.environ.get("OLLAMA_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
-# byLLM's defaults when `by llm(...)` names no call params: temperature 0.7,
-# no max_tokens, no streaming.
-TEMPERATURE: float = float(os.environ.get("CODEAGENT_TEMPERATURE", "0.7"))
-warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
+MODEL_NAME = os.environ.get("CODEAGENT_MODEL", "openai/glm-5.2")
+MODEL_BASE = (os.environ.get("OLLAMA_API_BASE") or os.environ.get("OPENAI_API_BASE")
+              or os.environ.get("OPENAI_BASE_URL") or "https://ollama.com/v1")
+API_KEY = os.environ.get("OLLAMA_API_KEY") or os.environ.get("OPENAI_API_KEY") or "ollama"
+TEMPERATURE = float(os.environ.get("CODEAGENT_TEMPERATURE", "0.7"))
 
 
-# ---------------------------------------------------------------------------
-# Per-call trace, when $CODEAGENT_TRACE names a file (the bridge points it at
-# logs/<instance>/llm_trace.jsonl). One JSON line per model call: the request
-# as it went on the wire -- in full when the call opens a phase or routes,
-# i.e. ends on a user message; otherwise just the newest message -- plus the
-# usage and the reply. Same shape on all three arms, so traces diff directly.
-# ---------------------------------------------------------------------------
-_trace_n: int = 0
-_KNOWN_KEYS = {"model", "messages", "tools", "temperature", "response_format"}
+@cache
+def get_model() -> ChatOpenAI:
+    return ChatOpenAI(model=MODEL_NAME.removeprefix("openai/"), base_url=MODEL_BASE,
+                      api_key=API_KEY, temperature=TEMPERATURE)
 
 
-def trace_call(payload: dict[str, Any], reply: Any, usage: Any) -> None:
-    global _trace_n
-    _trace_n += 1
-    path = os.environ.get("CODEAGENT_TRACE", "")
-    if not path:
-        return
-    messages = list(payload.get("messages") or [])
-    last = messages[-1] if messages else {}
-    opens = isinstance(last, dict) and last.get("role") == "user"
-    row = {
-        "call": _trace_n,
-        "model": payload.get("model"),
-        "n_messages": len(messages),
-        "tools": [t["function"]["name"] for t in payload.get("tools") or []],
-        "tool_schemas": payload.get("tools") if opens else None,
-        "temperature": payload.get("temperature"),
-        "response_format": payload.get("response_format"),
-        "extra": sorted(k for k in payload if k not in _KNOWN_KEYS),
-        "usage": usage,
-        "messages": messages if opens else None,
-        "last": None if opens else last,
-        "reply": reply,
-    }
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(row, default=str) + "\n")
-
-
-class _TracedCompletions:
-    """ChatOpenAI's `client` (an openai `Completions` resource), with the one
-    call LangChain makes -- `with_raw_response.create(**payload)` -- traced.
-    The payload is what LangChain built from its messages, so the trace shows
-    the wire request, not the LangChain objects."""
-
-    def __init__(self, inner: Any) -> None:
-        self._inner = inner
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._inner, name)
-
-    @property
-    def with_raw_response(self) -> Any:
-        raw = self._inner.with_raw_response
-
-        class _Raw:
-            def __getattr__(self, name: str) -> Any:
-                return getattr(raw, name)
-
-            def parse(self, **payload: Any) -> Any:
-                return self.create(**payload)
-
-            def create(self, **payload: Any) -> Any:
-                response = raw.create(**payload)
-                parsed = response.parse()
-                usage = getattr(parsed, "usage", None)
-                choice = parsed.choices[0].message if getattr(parsed, "choices", None) else None
-                trace_call(payload,
-                           choice.model_dump(exclude_none=True) if choice is not None else None,
-                           usage.model_dump(exclude_none=True) if usage is not None else None)
-                return response
-
-        return _Raw()
-
-    def create(self, **payload: Any) -> Any:
-        response = self._inner.create(**payload)
-        usage = getattr(response, "usage", None)
-        choice = response.choices[0].message if getattr(response, "choices", None) else None
-        trace_call(payload,
-                   choice.model_dump(exclude_none=True) if choice is not None else None,
-                   usage.model_dump(exclude_none=True) if usage is not None else None)
-        return response
-
-
-class Model:
-    """The model seam: what `glob llm = Model(...)` is on the Jac side.
-
-    One ChatOpenAI, constructed lazily so importing the agent needs no key.
-    `track` appends each response's usage to `usage_log` in the OpenAI usage
-    shape, so orchestrator.py is the same file on both Python sides.
-    """
-
-    def __init__(self, model_name: str, api_key: str, base_url: str) -> None:
-        self.model_name = model_name
-        self.api_key = api_key
-        self.base_url = base_url
-        self._chat: Any = None
-
-    @property
-    def wire_name(self) -> str:
-        # litellm's provider prefix is stripped; the bare id goes on the wire.
-        return self.model_name.split("/", 1)[-1]
-
-    def chat(self) -> Any:
-        if self._chat is None:
-            from langchain_openai import ChatOpenAI
-
-            self._chat = ChatOpenAI(model=self.wire_name, api_key=self.api_key or "ollama",
-                                    base_url=self.base_url, temperature=TEMPERATURE)
-            self._chat.client = _TracedCompletions(self._chat.client)
-            # A json_schema response_format goes through root_client...parse().
-            self._chat.root_client.chat.completions = _TracedCompletions(self._chat.root_client.chat.completions)
-        return self._chat
-
-    def track(self, response: BaseMessage) -> None:
-        meta = getattr(response, "usage_metadata", None) or {}
-        if not meta and isinstance(response, AIMessage):
-            meta = (response.response_metadata or {}).get("token_usage") or {}
-        if not meta:
-            return
-        details = meta.get("input_token_details") or {}
-        usage_log.append({
-            "prompt_tokens": int(meta.get("input_tokens") or meta.get("prompt_tokens") or 0),
-            "completion_tokens": int(meta.get("output_tokens") or meta.get("completion_tokens") or 0),
-            "prompt_tokens_details": {"cached_tokens": int(details.get("cache_read") or 0)},
-        })
-
-
-usage_log: list[Any] = []
-llm = Model(model_name=MODEL_NAME, api_key=API_KEY, base_url=MODEL_BASE)
-
-# ---------------------------------------------------------------------------
-# State shared by the whole run. The design point: one conversation runs the
-# whole run; a phase change only swaps the tools and the goal.
-# ---------------------------------------------------------------------------
 history: list[BaseMessage] = []         # appended in place, one turn per round
 tool_log: list[dict[str, Any]] = []     # one {"name", "ok", "args"} per tool call
 TOOL_BUDGET: int = 60                   # budgeted in tool calls, not phases
@@ -205,18 +58,6 @@ def ran_since_edit() -> bool:
     return ran
 
 
-def guard(iteration: int, last_tool: str, last_result: str) -> str:
-    """The ReAct loop's brake: the total budget only. Returns "continue" or "abort_with_summary"."""
-    if len(tool_log) >= TOOL_BUDGET:
-        return "abort_with_summary"
-    return "continue"
-
-
-# ---------------------------------------------------------------------------
-# The toolbox. Every tool returns str, never raises, never returns "":
-#   read success -> the content; mutation -> "OK: ..."; recoverable error ->
-#   "Error: ... and what to do next".
-# ---------------------------------------------------------------------------
 class Repo:
     def __init__(self, base_dir: str = ".") -> None:
         self.base_dir = base_dir
@@ -234,6 +75,13 @@ class Repo:
         return ("tests" in parts) or ("test" in parts) or name.startswith("test_") or name.endswith("_test.py")
 
     def read_file(self, path: str, start_line: int = 1, end_line: int = 0) -> str:
+        """Read a file from the repository. Files up to 400 lines come back whole; larger ones come back as the requested window. Content has no line-number prefixes, so it can be copied verbatim as an edit anchor.
+
+        Args:
+            path: Path relative to the repository root.
+            start_line: First line to show (1-based).
+            end_line: Last line to show, inclusive; 0 means to the end.
+        """
         log_call("read_file", args=f"{path}:{start_line}-{end_line}")
         target = self._abs(path)
         if target is None or not os.path.isfile(target):
@@ -252,6 +100,13 @@ class Repo:
         return f"# {path} lines {first}-{last} of {total}\n{body}"
 
     def grep(self, pattern: str, path: str = ".", file_glob: str = "*.py") -> str:
+        """Search file contents with a Python regex. Returns 'path:line: text' per match. Use this to find where a symbol is defined or used.
+
+        Args:
+            pattern: Python regular expression.
+            path: File or directory to search, relative to the repository root.
+            file_glob: Glob restricting file names, e.g. '*.py'.
+        """
         log_call("grep", args=f"{pattern} in {path} ({file_glob})")
         try:
             rx = re.compile(pattern)
@@ -281,6 +136,11 @@ class Repo:
         return "\n".join(hits) if hits else f"No matches for '{pattern}' under '{path}'."
 
     def outline(self, path: str) -> str:
+        """List every def/class in a file with its line number. Much cheaper than reading the whole file; use it to decide which window to read.
+
+        Args:
+            path: Path relative to the repository root.
+        """
         log_call("outline", args=path)
         target = self._abs(path)
         if target is None or not os.path.isfile(target):
@@ -292,6 +152,13 @@ class Repo:
         return "\n".join(out) if out else f"({path}: no def/class found)"
 
     def replace_in_file(self, path: str, old: str, new: str) -> str:
+        """Replace an exact, unique piece of text in a file. Literal match, not regex. Test files are refused. If 'old' is not found or not unique, the file is unchanged and the error says what to do.
+
+        Args:
+            path: Path relative to the repository root.
+            old: Exact existing text, copied character for character including indentation.
+            new: Replacement text.
+        """
         call = log_call("replace_in_file", ok=False, args=path)
         target = self._abs(path)
         if target is None or not os.path.isfile(target):
@@ -322,10 +189,17 @@ class Repo:
         return f"OK: replaced 1 occurrence in {path} at line {line_no}.{warn}"
 
     def view_diff(self) -> str:
+        """Show the git diff of everything changed so far in this run.
+        """
         log_call("view_diff")
         return self._exec(["git", "diff", "--no-color", "--", ".", f":(exclude){SCRATCH}"])
 
     def run_command(self, command: str) -> str:
+        """Run one command in the prepared environment, with the working directory already at the repository root: pytest <path>, python <script or -c ...>, or read-only git (status/diff/log/show). This is not a shell: no cd, pipes, redirects, && or environment-variable prefixes -- pass a single command line and the full output comes back with the exit code.
+
+        Args:
+            command: The command line, e.g. 'pytest tests/test_x.py -k name'.
+        """
         log_call("run_command", args=command)
         try:
             argv = shlex.split(command)
@@ -343,6 +217,11 @@ class Repo:
         return self._exec(argv)
 
     def run_snippet(self, code: str) -> str:
+        """Run a short Python script (for example a reproduction of the issue) inside the prepared environment. Returns exit code and output.
+
+        Args:
+            code: Complete Python source of the script.
+        """
         log_call("run_snippet", args=code[:80])
         scratch = os.path.join(os.path.realpath(self.base_dir), SCRATCH)
         os.makedirs(scratch, exist_ok=True)
@@ -390,6 +269,11 @@ class Repo:
         return f"exit code {done.returncode}\n{out}" if out else f"exit code {done.returncode} (no output)"
 
     def revert_file(self, path: str) -> str:
+        """Undo every change this run made to one file, restoring the original. Use it when an edit turned out to be in the wrong place.
+
+        Args:
+            path: Path relative to the repository root.
+        """
         log_call("revert_file", args=path)
         if self._abs(path) is None:
             return f"Error: '{path}' is outside the repository."
@@ -402,116 +286,10 @@ class Repo:
             shutil.rmtree(scratch, ignore_errors=True)
 
 
-repo: Repo = Repo()
 
-# The `sem` strings, verbatim from nodes.jac: (tool description, {param: description}).
-SEM: dict[str, tuple[str, dict[str, str]]] = {
-    "read_file": (
-        "Read a file from the repository. Files up to 400 lines come back whole; larger ones come back as the requested window. Content has no line-number prefixes, so it can be copied verbatim as an edit anchor.",
-        {"path": "Path relative to the repository root.",
-         "start_line": "First line to show (1-based).",
-         "end_line": "Last line to show, inclusive; 0 means to the end."}),
-    "grep": (
-        "Search file contents with a Python regex. Returns 'path:line: text' per match. Use this to find where a symbol is defined or used.",
-        {"pattern": "Python regular expression.",
-         "path": "File or directory to search, relative to the repository root.",
-         "file_glob": "Glob restricting file names, e.g. '*.py'."}),
-    "outline": (
-        "List every def/class in a file with its line number. Much cheaper than reading the whole file; use it to decide which window to read.",
-        {"path": "Path relative to the repository root."}),
-    "replace_in_file": (
-        "Replace an exact, unique piece of text in a file. Literal match, not regex. Test files are refused. If 'old' is not found or not unique, the file is unchanged and the error says what to do.",
-        {"path": "Path relative to the repository root.",
-         "old": "Exact existing text, copied character for character including indentation.",
-         "new": "Replacement text."}),
-    "view_diff": ("Show the git diff of everything changed so far in this run.", {}),
-    "run_command": (
-        "Run one command in the prepared environment, with the working directory already at the repository root: pytest <path>, python <script or -c ...>, or read-only git (status/diff/log/show). This is not a shell: no cd, pipes, redirects, && or environment-variable prefixes -- pass a single command line and the full output comes back with the exit code.",
-        {"command": "The command line, e.g. 'pytest tests/test_x.py -k name'."}),
-    "run_snippet": (
-        "Run a short Python script (for example a reproduction of the issue) inside the prepared environment. Returns exit code and output.",
-        {"code": "Complete Python source of the script."}),
-    "revert_file": (
-        "Undo every change this run made to one file, restoring the original. Use it when an edit turned out to be in the wrong place.",
-        {"path": "Path relative to the repository root."}),
-}
-
-_PY_TYPES = {str: str, int: int, float: float, bool: bool}
+repo = Repo()
 
 
-_JSON_TYPES = {str: "string", int: "integer", float: "number", bool: "boolean"}
-
-
-def make_tool(fn: Callable[..., str]) -> BaseTool:
-    """byLLM's `tool_to_schema` over a `Repo` method: signature + sem strings, as a StructuredTool.
-
-    The args schema is a plain JSON-schema dict rather than a pydantic model so
-    that it is byte-for-byte what `Tool(repo.read_file).get_json_schema()`
-    produces on the Jac side: the description prefixed with the name, every
-    parameter listed as required and no defaults in the schema. The last two
-    matter: with them the model always supplies `start_line`/`end_line` and
-    reads a window; with defaults it omits them and reads whole files into the
-    shared conversation. A parameter the model leaves out falls back to the
-    Python default, as byLLM's parse_arguments does.
-    """
-    name = fn.__name__
-    description, param_sem = SEM[name]
-    props: dict[str, Any] = {}
-    hints = get_type_hints(fn)      # resolved types; `param.annotation` is a string under postponed annotations
-    for pname, param in inspect.signature(fn).parameters.items():
-        props[pname] = {"type": _JSON_TYPES.get(hints.get(pname, str), "string"),
-                        "description": param_sem.get(pname, "")}
-    args_schema = {"type": "object", "properties": props, "required": list(props),
-                   "additionalProperties": False}
-
-    def safe(**kwargs: Any) -> str:
-        # byLLM's parse_arguments: coerce each supplied argument to its annotation.
-        args: dict[str, Any] = {}
-        for k, v in kwargs.items():
-            if k not in props:
-                continue
-            want = hints.get(k, str)
-            try:
-                args[k] = v if isinstance(v, want) and not (want is int and isinstance(v, bool)) else want(v)
-            except (TypeError, ValueError):
-                return f"Error: argument '{k}' of {name} must be {want.__name__}; got {v!r}."
-        try:
-            out = fn(**args)
-        except Exception as e:  # noqa: BLE001 - a tool must not end the phase
-            return f"Error: {name} failed: {type(e).__name__}: {e}"
-        return out if isinstance(out, str) else str(out)
-
-    return StructuredTool.from_function(func=safe, name=name, description=f"{name}: {description}",
-                                        args_schema=args_schema)
-
-
-def spec(tool: BaseTool) -> dict[str, Any]:
-    """The OpenAI tool spec byLLM's `tool_to_schema` emits for this tool."""
-    schema = tool.args_schema if isinstance(tool.args_schema, dict) else tool.args_schema.model_json_schema()
-    return {"type": "function", "function": {
-        "name": tool.name, "description": tool.description,
-        "parameters": {"type": "object",
-                       "properties": {k: {"type": v["type"], "description": v.get("description", "")}
-                                      for k, v in schema["properties"].items()},
-                       "required": list(schema["properties"]), "additionalProperties": False}}}
-
-
-def _finish(final_output: str) -> str:
-    return final_output
-
-
-FINISH_TOOL: BaseTool = StructuredTool.from_function(
-    func=_finish, name="finish_tool",
-    description="This tool is used to finish the tool calls and return the final output.",
-    args_schema=create_model("finish_tool_args", final_output=(
-        str, Field(..., description="The final output of the tool calls."))),
-)
-
-
-# ---------------------------------------------------------------------------
-# Phase nodes. Each: goal + a `work()` driven by the model; `tools` is the
-# phase's capability boundary. `sem` is what byLLM folds into the prompt.
-# ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class Phase:
     name: str
@@ -521,7 +299,8 @@ class Phase:
     sem: str
 
     def toolbox(self) -> list[BaseTool]:
-        return [make_tool(getattr(repo, t)) for t in self.tools]
+        return [StructuredTool.from_function(getattr(repo, name), parse_docstring=True)
+                for name in self.tools]
 
 
 PHASES: dict[str, Phase] = {
@@ -551,7 +330,6 @@ PHASES: dict[str, Phase] = {
         sem="Carry out the verification phase with the tools provided, then reply with a short summary of the test results."),
     "Finish": Phase(name="Finish", goal="Done.", tools=(), max_react_iterations=0, sem=""),
 }
-DIRECTIVE_SEM = "The goal of this phase."
 
 
 @dataclass(frozen=True)
@@ -562,9 +340,6 @@ class PhaseCapability:
     capability: str
     kind: str = "forward"       # forward | repair | relocate | finish
 
-
-PHASE_CAPABILITY_SEM = "A transition to the next phase of the coding task."
-CAPABILITY_SEM = "What taking this transition accomplishes; choose the edge whose capability matches what the work needs next."
 
 EDGES: dict[str, tuple[PhaseCapability, ...]] = {
     "Plan": (PhaseCapability("Explore", "locate the exact code to change and reproduce the failure"),),
@@ -580,17 +355,8 @@ EDGES: dict[str, tuple[PhaseCapability, ...]] = {
 
 
 def edges_from(phase: str, target: str | None = None, exclude_kind: str | None = None) -> list[PhaseCapability]:
-    """`[->:PhaseCapability:->]`, optionally filtered the way the walker's visits are."""
+    """Outgoing transitions allowed for this decision."""
     out = [e for e in EDGES[phase] if exclude_kind is None or e.kind != exclude_kind]
     if target is not None:
         out = [e for e in out if e.target == target]
     return out
-
-
-__all__ = [
-    "API_KEY", "CAPABILITY_SEM", "DIRECTIVE_SEM", "EDGES", "FINISH_TOOL", "MODEL_BASE",
-    "MODEL_NAME", "PHASES", "PHASE_CAPABILITY_SEM", "Phase", "PhaseCapability", "Repo",
-    "SCRATCH", "SEM", "TOOL_BUDGET", "WRITE_TOOLS", "edges_from", "guard",
-    "history", "llm", "log_call", "make_tool", "ran_since_edit", "repo", "tool_log",
-    "usage_log", "written",
-]
