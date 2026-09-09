@@ -1,0 +1,364 @@
+### Plan
+Plan: Restate as falsifiable claim — Pickling a Float in Python 2 writes an mpf tuple whose hex exponent string carries a trailing 'L' (from hex() of a long), so unpickling in Python 3 fails at sympy/core/numbers.py Float.__new__ line ~1045 with `num[1] = long(num[1], 16)` raising ValueError: invalid literal for int() with base 16: '1L'. The fix belongs in sympy/core/numbers.py: normalize the pickled hex string (strip trailing 'L'/'l') before long(num[1], 16). Most likely files: 1) sympy/core/numbers.py (Float.__new__ hex branch and Float.__getnewargs__ using mlib.to_pickable). Next phase: edit that branch to strip trailing L, then verify with a Py2->Py3-style pickle round trip and run pytest sympy/core/tests/test_numbers.py.
+
+### Plan
+## Restated issue (falsifiable claim)
+
+When a `sympy.Float` is unpickled from data produced by Python 2, `Float.__new__` raises `ValueError: invalid literal for int() with base 16: '1L'`. It should instead reconstruct the Float correctly.
+
+## Root cause (preliminary)
+
+- `sympy/core/numbers.py` line ~1086: `Float.__getnewargs__` returns `(mlib.to_pickable(self._mpf_),)`. `to_pickable` is `mpmath.libmp`'s helper that turns the mpf tuple's mantissa into a *hex string* so the tuple can be pickled portably.
+- On unpickle, `Float.__new__` (sympy/core/numbers.py lines ~1042-1047) handles a 3/4-tuple whose second element `num[1]` is a `str` (hex), doing `num[1] = long(num[1], 16)`.
+- The problem: `long` in this codebase is `sympy.core.compat.long`. When pickled in **Python 2**, the pickled hex mantissa string carries Python 2's long-literal `L` suffix (e.g. `'1L'`), which `long(s, 16)` / `int(s, 16)` cannot parse, so loading in Python 3 fails.
+
+So the misbehavior is in `Float.__new__` (sympy/core/numbers.py) parsing the hex mantissa; it must strip a trailing `'L'` (or otherwise tolerate it) before `int(..., 16)`.
+
+## Files most likely involved
+
+1. `sympy/core/numbers.py` — `Float.__new__` (hex-mantissa branch ~line 1042-1047) and `Float.__getnewargs__` (~line 1085-1086); also `sympy/core/compatibility.py` for the `long` definition.
+2. `sympy/core/compatibility.py` — `long` alias (only relevant for confirming the parse path).
+
+Next phase: edit `sympy/core/numbers.py` so the hex-mantissa parsing tolerates a trailing `L` left by Python 2's `to_pickable`, then run `python -m pytest sympy/core/tests/test_arit.py` / `test_numbers.py` to confirm.
+
+### Explore
+Root cause located and reproduced.
+
+Falsifiable claim: `Float.__new__`, when reconstructing a `Float` from a pickled mpf tuple whose second element is a hexadecimal string, calls `long(num[1], 16)` at line 1045 of `sympy/core/numbers.py`. When the pickle was produced by Python 2, `mpmath`'s `to_pickable` used `hex(man)[2:]`, and on Python 2 `hex()` of a long appends a trailing `L` (e.g. `'1L'`). On Python 3, `int('1L', 16)` raises `ValueError: invalid literal for int() with base 16: '1L'`. So unpickling a Python-2 Float containing a float fails; it should strip the trailing `L` and parse the hex correctly.
+
+Reproduction (in this Py3 environment, simulating the Py2 pickle):
+  from sympy.core.numbers import Float
+  Float((0, '1L', -1, 1))   # raises ValueError: invalid literal for int() with base 16: '1L'
+
+Files/symbols involved (1 source file):
+  - sympy/core/numbers.py, `Float.__new__`, lines 1038-1046 (specifically line 1045: `num[1] = long(num[1], 16)`).
+
+This is the only edit site needed: strip a trailing 'L' (case-insensitive) from `num[1]` before `int(..., 16)`. `to_pickable` itself lives in mpmath (third party), so the fix belongs in sympy's unpickling code.
+
+### Explore
+I have confirmed the failure and located the exact issue.
+
+## Summary for the next phase
+
+**Falsifiable claim:** When a sympy `Float` is pickled in Python 2 (protocol 2) and unpickled in Python 3, `Float.__new__` raises `ValueError: invalid literal for int() with base 16: '1L'` because the pickled hex string from Python 2's `mpmath.libmp.libmpf.to_pickable` (which uses `hex(man)[2:]`) carries a trailing `L` for long integers (e.g. `'1L'`), and the Python 3 unpickling code does not strip it.
+
+**Minimal reproduction (confirmed failing on Python 3):**
+```python
+from sympy.core.numbers import Float
+Float((0, '1L', -1, 1))   # simulates the py2-pickled mpf tuple
+# -> ValueError: invalid literal for int() with base 16: '1L'
+```
+
+**Root cause / location to fix:**
+- File: `sympy/core/numbers.py`
+- Symbol: `Float.__new__`
+- Lines: 1040-1047 (specifically line 1045):
+  ```python
+  num = list(num)
+  num[1] = long(num[1], 16)
+  _mpf_ = tuple(num)
+  ```
+  `long` is `int` on Python 3, and `int('1L', 16)` fails because of the trailing `L`.
+
+**Fix (next phase):** strip a trailing `'L'` from the hex string before converting, e.g. `num[1] = long(num[1].rstrip('L'), 16)` (or strip `'l'`/`'L'`), so Python-2-pickled Floats can be loaded in Python 3. This is in library source only (`sympy/core/numbers.py`); no test files should be edited.
+
+### Edit
+Fix applied in library source `sympy/core/numbers.py`, in `Float.__new__` (the branch handling pickled hexadecimal mpf tuples). The Python 2 `mpmath.libmp.libmpf.to_pickable` emits `hex(man)[2:]`, which for long integers includes a trailing `L` (e.g. `'1L'`). Python 3's unpickling code called `long(num[1], 16)` → `int('1L', 16)`, raising `ValueError: invalid literal for int() with base 16: '1L'`.
+
+Change (one line, with explanatory comment):
+```python
+num[1] = long(num[1].rstrip('L'), 16)
+```
+This strips a trailing `'L'` before parsing, restoring Python 2→3 pickle compatibility without affecting normal (no-L) hex strings.
+
+Verification:
+- Reproduction `Float((0, '1L', -1, 1))` previously raised `ValueError: invalid literal for int() with base 16: '1L'`; now returns `0.500000000000000`.
+- Normal protocol-2 pickle round-trip of `x + Float(1.0)` still works.
+- `sympy/core/tests/test_numbers.py`: 82 passed, 1 skipped, 1 expected to fail (no regressions).
+
+No test files were edited.
+
+### Edit
+The fix has already been applied and verified. Here is the complete status:
+
+## Edit applied
+
+**File:** `sympy/core/numbers.py` (library source only)
+**Symbol:** `Float.__new__`, lines 1041-1047
+**Change:**
+```python
+            if type(num[1]) is str:
+                # it's a hexadecimal (coming from a pickled object)
+                # assume that it is in standard form
+                num = list(num)
+                # Py2->Py3 pickle compatibility: long hex literals may carry
+                # a trailing 'L' (e.g. '1L') which int(..., 16) rejects.
+                num[1] = long(num[1].rstrip('L'), 16)
+                _mpf_ = tuple(num)
+```
+The only functional change is `long(num[1], 16)` → `long(num[1].rstrip('L'), 16)`, which strips the trailing `L` that Python 2's `hex(long)` appends to long-integer literals before parsing as base-16.
+
+## Verification (run_snippet output)
+Reproduction now passes:
+```
+0.500000000000000       # Float((0, '1L', -1, 1))  -> was ValueError before
+0.996093750000000       # Float((0, 'ffL', -8, 8))
+x + 1.0                 # round-trip pickle.loads(pickle.dumps(f, 2))
+```
+
+## Tests
+`sympy/core/tests/test_numbers.py` via `sympy.utilities.runtests`:
+```
+== tests finished: 82 passed, 1 skipped, 1 expected to fail, in 0.49 seconds ===
+```
+All passing, no regressions.
+
+## view_diff
+The environment is not a git repository (`git diff` reported "Not a git repository"), so `view_diff`/`git diff` cannot produce a patch. The applied change was confirmed by re-reading lines 1040-1050 of `sympy/core/numbers.py`, which match the intended edit exactly.
+
+The next phase needs: the fix is complete and minimal — a one-line behavior change in `sympy/core/numbers.py` `Float.__new__` to `.rstrip('L')` the pickled hex string before `long(..., 16)`, resolving Python 2→3 pickle failures for float-containing expressions. Reproduction passes and `test_numbers.py` passes with no regressions. No test files were modified.
+
+### Verify
+## Verification phase summary
+
+### Tests run (using the repo's own runner, `sympy.utilities.runtests`, since `pytest` is not installed)
+
+**1. `sympy/core/tests/test_numbers.py`** — the test file nearest the changed code (`Float.__new__` in `sympy/core/numbers.py`):
+```
+sympy/core/tests/test_numbers.py[84] ...........................................
+...................f....................s                                   [OK]
+
+== tests finished: 82 passed, 1 skipped, 1 expected to fail, in 0.49 seconds ==
+```
+Result: **82 passed, 1 skipped, 1 expected to fail, 0 failures.**
+
+**2. `sympy/core/tests/test_arit.py`** (exercises Float operations):
+```
+= tests finished: 76 passed, 3 expected to fail, 2 exceptions, in 1.22 seconds =
+```
+The 2 "exceptions" are pre-existing and **unrelated to my change** — both are `DeprecationWarning: Using or importing the ABCs from 'collections' instead of from 'collections.abc'` raised as an exception inside `sympy/assumptions/sathandlers.py` (imported via `ask`/`satask`) when evaluating `exp(I*pi/3)` and `k**(I*pi/log(k))`. They originate in the assumptions/exp power machinery under Python 3.9, not in `Float.__new__` hex parsing. No `ValueError: invalid literal for int() with base 16` appears.
+
+**3. Direct reproduction (now passing):**
+```
+Float((0, '1L', -1, 1))  ->  0.500000000000000   # was ValueError before fix
+Float((0, 'ffL', -8, 8)) ->  0.996093750000000
+pickle.loads(pickle.dumps(x + Float(1.0), 2)) -> x + 1.0   # round-trip OK
+```
+
+### Conclusion
+The fix — changing `long(num[1], 16)` to `long(num[1].rstrip('L'), 16)` in `Float.__new__` (`sympy/core/numbers.py`, ~line 1045) — resolves the Python 2→3 pickle `ValueError` for float-containing expressions. The targeted test suite (`test_numbers.py`) passes fully (82 passed, 1 skipped, 1 xfail). The only non-passing items in the broader `test_arit.py` run are pre-existing environment/Python-3.9 `collections`-ABC deprecation exceptions in unrelated assumptions code, not caused by this change. No test files were modified.
+
+### Verify
+Verification phase complete.
+
+## Tests run (using the repo's own runner, sympy.utilities.runtests)
+
+### sympy/core/tests/test_numbers.py (nearest the changed code — directly tests Float)
+```
+sympy/core/tests/test_numbers.py[84] ...........................................
+...................f....................s                                   [OK]
+
+== tests finished: 82 passed, 1 skipped, 1 expected to fail, in 0.49 seconds ===
+```
+**Result: 82 passed, 1 skipped, 1 expected-to-fail, 0 failures.** No failure lines.
+
+### sympy/core/tests/test_arit.py (broader, exercises Float operations)
+```
+= tests finished: 76 passed, 3 expected to fail, 2 exceptions, in 1.22 seconds =
+```
+The 2 exceptions are **pre-existing and unrelated to the change**: `test_real_Pow` and `test_mul_coeff` fail with a `DeprecationWarning: Using or importing the ABCs from 'collections' instead of from 'collections.abc'` originating in `sympy/assumptions/sathandlers.py` (`from collections import MutableMapping, defaultdict`). These are environment/Python-version issues in the assumptions module, not the `Float.__new__` hex-parsing code I touched.
+
+## Reproduction (now passing)
+```
+Float((0, '1L', -1, 1))   ->  0.500000000000000   (was: ValueError: invalid literal for int() with base 16: '1L')
+Float((0, 'ffL', -8, 8))  ->  0.996093750000000
+pickle.loads(pickle.dumps(x + sympy.Float(1.0), 2)) -> x + 1.0
+```
+
+## Summary
+- Fix: one-line change in `sympy/core/numbers.py`, `Float.__new__` (line 1045): `long(num[1], 16)` → `long(num[1].rstrip('L'), 16)`, stripping the trailing `L` that Python 2's `hex(long)` appends to long-int literals so Python 3 can parse the pickled hex string.
+- Library source only; no test files modified.
+- Nearest test file (`test_numbers.py`) passes with no failures; the unrelated `test_arit.py` exceptions are pre-existing `collections`-ABC deprecation issues, not caused by this fix.
+### Plan
+Plan: Restate as falsifiable claim — Pickling a Float in Python 2 writes an mpf tuple whose hex exponent string carries a trailing 'L' (from hex() of a long), so unpickling in Python 3 fails at sympy/core/numbers.py Float.__new__ line ~1045 with `num[1] = long(num[1], 16)` raising ValueError: invalid literal for int() with base 16: '1L'. The fix belongs in sympy/core/numbers.py: normalize the pickled hex string (strip trailing 'L'/'l') before long(num[1], 16). Most likely files: 1) sympy/core/numbers.py (Float.__new__ hex branch and Float.__getnewargs__ using mlib.to_pickable). Next phase: edit that branch to strip trailing L, then verify with a Py2->Py3-style pickle round trip and run pytest sympy/core/tests/test_numbers.py.
+
+### Plan
+## Restated issue (falsifiable claim)
+
+When a `sympy.Float` is unpickled from data produced by Python 2, `Float.__new__` raises `ValueError: invalid literal for int() with base 16: '1L'`. It should instead reconstruct the Float correctly.
+
+## Root cause (preliminary)
+
+- `sympy/core/numbers.py` line ~1086: `Float.__getnewargs__` returns `(mlib.to_pickable(self._mpf_),)`. `to_pickable` is `mpmath.libmp`'s helper that turns the mpf tuple's mantissa into a *hex string* so the tuple can be pickled portably.
+- On unpickle, `Float.__new__` (sympy/core/numbers.py lines ~1042-1047) handles a 3/4-tuple whose second element `num[1]` is a `str` (hex), doing `num[1] = long(num[1], 16)`.
+- The problem: `long` in this codebase is `sympy.core.compat.long`. When pickled in **Python 2**, the pickled hex mantissa string carries Python 2's long-literal `L` suffix (e.g. `'1L'`), which `long(s, 16)` / `int(s, 16)` cannot parse, so loading in Python 3 fails.
+
+So the misbehavior is in `Float.__new__` (sympy/core/numbers.py) parsing the hex mantissa; it must strip a trailing `'L'` (or otherwise tolerate it) before `int(..., 16)`.
+
+## Files most likely involved
+
+1. `sympy/core/numbers.py` — `Float.__new__` (hex-mantissa branch ~line 1042-1047) and `Float.__getnewargs__` (~line 1085-1086); also `sympy/core/compatibility.py` for the `long` definition.
+2. `sympy/core/compatibility.py` — `long` alias (only relevant for confirming the parse path).
+
+Next phase: edit `sympy/core/numbers.py` so the hex-mantissa parsing tolerates a trailing `L` left by Python 2's `to_pickable`, then run `python -m pytest sympy/core/tests/test_arit.py` / `test_numbers.py` to confirm.
+
+### Explore
+Root cause located and reproduced.
+
+Falsifiable claim: `Float.__new__`, when reconstructing a `Float` from a pickled mpf tuple whose second element is a hexadecimal string, calls `long(num[1], 16)` at line 1045 of `sympy/core/numbers.py`. When the pickle was produced by Python 2, `mpmath`'s `to_pickable` used `hex(man)[2:]`, and on Python 2 `hex()` of a long appends a trailing `L` (e.g. `'1L'`). On Python 3, `int('1L', 16)` raises `ValueError: invalid literal for int() with base 16: '1L'`. So unpickling a Python-2 Float containing a float fails; it should strip the trailing `L` and parse the hex correctly.
+
+Reproduction (in this Py3 environment, simulating the Py2 pickle):
+  from sympy.core.numbers import Float
+  Float((0, '1L', -1, 1))   # raises ValueError: invalid literal for int() with base 16: '1L'
+
+Files/symbols involved (1 source file):
+  - sympy/core/numbers.py, `Float.__new__`, lines 1038-1046 (specifically line 1045: `num[1] = long(num[1], 16)`).
+
+This is the only edit site needed: strip a trailing 'L' (case-insensitive) from `num[1]` before `int(..., 16)`. `to_pickable` itself lives in mpmath (third party), so the fix belongs in sympy's unpickling code.
+
+### Explore
+I have confirmed the failure and located the exact issue.
+
+## Summary for the next phase
+
+**Falsifiable claim:** When a sympy `Float` is pickled in Python 2 (protocol 2) and unpickled in Python 3, `Float.__new__` raises `ValueError: invalid literal for int() with base 16: '1L'` because the pickled hex string from Python 2's `mpmath.libmp.libmpf.to_pickable` (which uses `hex(man)[2:]`) carries a trailing `L` for long integers (e.g. `'1L'`), and the Python 3 unpickling code does not strip it.
+
+**Minimal reproduction (confirmed failing on Python 3):**
+```python
+from sympy.core.numbers import Float
+Float((0, '1L', -1, 1))   # simulates the py2-pickled mpf tuple
+# -> ValueError: invalid literal for int() with base 16: '1L'
+```
+
+**Root cause / location to fix:**
+- File: `sympy/core/numbers.py`
+- Symbol: `Float.__new__`
+- Lines: 1040-1047 (specifically line 1045):
+  ```python
+  num = list(num)
+  num[1] = long(num[1], 16)
+  _mpf_ = tuple(num)
+  ```
+  `long` is `int` on Python 3, and `int('1L', 16)` fails because of the trailing `L`.
+
+**Fix (next phase):** strip a trailing `'L'` from the hex string before converting, e.g. `num[1] = long(num[1].rstrip('L'), 16)` (or strip `'l'`/`'L'`), so Python-2-pickled Floats can be loaded in Python 3. This is in library source only (`sympy/core/numbers.py`); no test files should be edited.
+
+### Edit
+Fix applied in library source `sympy/core/numbers.py`, in `Float.__new__` (the branch handling pickled hexadecimal mpf tuples). The Python 2 `mpmath.libmp.libmpf.to_pickable` emits `hex(man)[2:]`, which for long integers includes a trailing `L` (e.g. `'1L'`). Python 3's unpickling code called `long(num[1], 16)` → `int('1L', 16)`, raising `ValueError: invalid literal for int() with base 16: '1L'`.
+
+Change (one line, with explanatory comment):
+```python
+num[1] = long(num[1].rstrip('L'), 16)
+```
+This strips a trailing `'L'` before parsing, restoring Python 2→3 pickle compatibility without affecting normal (no-L) hex strings.
+
+Verification:
+- Reproduction `Float((0, '1L', -1, 1))` previously raised `ValueError: invalid literal for int() with base 16: '1L'`; now returns `0.500000000000000`.
+- Normal protocol-2 pickle round-trip of `x + Float(1.0)` still works.
+- `sympy/core/tests/test_numbers.py`: 82 passed, 1 skipped, 1 expected to fail (no regressions).
+
+No test files were edited.
+
+### Edit
+The fix has already been applied and verified. Here is the complete status:
+
+## Edit applied
+
+**File:** `sympy/core/numbers.py` (library source only)
+**Symbol:** `Float.__new__`, lines 1041-1047
+**Change:**
+```python
+            if type(num[1]) is str:
+                # it's a hexadecimal (coming from a pickled object)
+                # assume that it is in standard form
+                num = list(num)
+                # Py2->Py3 pickle compatibility: long hex literals may carry
+                # a trailing 'L' (e.g. '1L') which int(..., 16) rejects.
+                num[1] = long(num[1].rstrip('L'), 16)
+                _mpf_ = tuple(num)
+```
+The only functional change is `long(num[1], 16)` → `long(num[1].rstrip('L'), 16)`, which strips the trailing `L` that Python 2's `hex(long)` appends to long-integer literals before parsing as base-16.
+
+## Verification (run_snippet output)
+Reproduction now passes:
+```
+0.500000000000000       # Float((0, '1L', -1, 1))  -> was ValueError before
+0.996093750000000       # Float((0, 'ffL', -8, 8))
+x + 1.0                 # round-trip pickle.loads(pickle.dumps(f, 2))
+```
+
+## Tests
+`sympy/core/tests/test_numbers.py` via `sympy.utilities.runtests`:
+```
+== tests finished: 82 passed, 1 skipped, 1 expected to fail, in 0.49 seconds ===
+```
+All passing, no regressions.
+
+## view_diff
+The environment is not a git repository (`git diff` reported "Not a git repository"), so `view_diff`/`git diff` cannot produce a patch. The applied change was confirmed by re-reading lines 1040-1050 of `sympy/core/numbers.py`, which match the intended edit exactly.
+
+The next phase needs: the fix is complete and minimal — a one-line behavior change in `sympy/core/numbers.py` `Float.__new__` to `.rstrip('L')` the pickled hex string before `long(..., 16)`, resolving Python 2→3 pickle failures for float-containing expressions. Reproduction passes and `test_numbers.py` passes with no regressions. No test files were modified.
+
+### Verify
+## Verification phase summary
+
+### Tests run (using the repo's own runner, `sympy.utilities.runtests`, since `pytest` is not installed)
+
+**1. `sympy/core/tests/test_numbers.py`** — the test file nearest the changed code (`Float.__new__` in `sympy/core/numbers.py`):
+```
+sympy/core/tests/test_numbers.py[84] ...........................................
+...................f....................s                                   [OK]
+
+== tests finished: 82 passed, 1 skipped, 1 expected to fail, in 0.49 seconds ==
+```
+Result: **82 passed, 1 skipped, 1 expected to fail, 0 failures.**
+
+**2. `sympy/core/tests/test_arit.py`** (exercises Float operations):
+```
+= tests finished: 76 passed, 3 expected to fail, 2 exceptions, in 1.22 seconds =
+```
+The 2 "exceptions" are pre-existing and **unrelated to my change** — both are `DeprecationWarning: Using or importing the ABCs from 'collections' instead of from 'collections.abc'` raised as an exception inside `sympy/assumptions/sathandlers.py` (imported via `ask`/`satask`) when evaluating `exp(I*pi/3)` and `k**(I*pi/log(k))`. They originate in the assumptions/exp power machinery under Python 3.9, not in `Float.__new__` hex parsing. No `ValueError: invalid literal for int() with base 16` appears.
+
+**3. Direct reproduction (now passing):**
+```
+Float((0, '1L', -1, 1))  ->  0.500000000000000   # was ValueError before fix
+Float((0, 'ffL', -8, 8)) ->  0.996093750000000
+pickle.loads(pickle.dumps(x + Float(1.0), 2)) -> x + 1.0   # round-trip OK
+```
+
+### Conclusion
+The fix — changing `long(num[1], 16)` to `long(num[1].rstrip('L'), 16)` in `Float.__new__` (`sympy/core/numbers.py`, ~line 1045) — resolves the Python 2→3 pickle `ValueError` for float-containing expressions. The targeted test suite (`test_numbers.py`) passes fully (82 passed, 1 skipped, 1 xfail). The only non-passing items in the broader `test_arit.py` run are pre-existing environment/Python-3.9 `collections`-ABC deprecation exceptions in unrelated assumptions code, not caused by this change. No test files were modified.
+
+### Verify
+Verification phase complete.
+
+## Tests run (using the repo's own runner, sympy.utilities.runtests)
+
+### sympy/core/tests/test_numbers.py (nearest the changed code — directly tests Float)
+```
+sympy/core/tests/test_numbers.py[84] ...........................................
+...................f....................s                                   [OK]
+
+== tests finished: 82 passed, 1 skipped, 1 expected to fail, in 0.49 seconds ===
+```
+**Result: 82 passed, 1 skipped, 1 expected-to-fail, 0 failures.** No failure lines.
+
+### sympy/core/tests/test_arit.py (broader, exercises Float operations)
+```
+= tests finished: 76 passed, 3 expected to fail, 2 exceptions, in 1.22 seconds =
+```
+The 2 exceptions are **pre-existing and unrelated to the change**: `test_real_Pow` and `test_mul_coeff` fail with a `DeprecationWarning: Using or importing the ABCs from 'collections' instead of from 'collections.abc'` originating in `sympy/assumptions/sathandlers.py` (`from collections import MutableMapping, defaultdict`). These are environment/Python-version issues in the assumptions module, not the `Float.__new__` hex-parsing code I touched.
+
+## Reproduction (now passing)
+```
+Float((0, '1L', -1, 1))   ->  0.500000000000000   (was: ValueError: invalid literal for int() with base 16: '1L')
+Float((0, 'ffL', -8, 8))  ->  0.996093750000000
+pickle.loads(pickle.dumps(x + sympy.Float(1.0), 2)) -> x + 1.0
+```
+
+## Summary
+- Fix: one-line change in `sympy/core/numbers.py`, `Float.__new__` (line 1045): `long(num[1], 16)` → `long(num[1].rstrip('L'), 16)`, stripping the trailing `L` that Python 2's `hex(long)` appends to long-int literals so Python 3 can parse the pickled hex string.
+- Library source only; no test files modified.
+- Nearest test file (`test_numbers.py`) passes with no failures; the unrelated `test_arit.py` exceptions are pre-existing `collections`-ABC deprecation issues, not caused by this fix.
+[swe_entry] sympy__sympy-13471 ok steps=8 tools=33
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jac-upstream/jac

@@ -1,0 +1,234 @@
+### Plan
+
+
+### Plan
+## Plan summary for the next phase
+
+**Falsifiable claim:** Unpickling a `Float` (and any expression containing one) in Python 3 that was pickled in Python 2 fails. In Python 2, `Float.__getnewargs__` stores the mpf mantissa via `mlib.to_pickable(...)`, which serializes the large integer as a hex *string*. Python 2's long-hex string carries a trailing `L` (e.g. `'1L'`). On the Python 3 side, `Float.__new__` (sympy/core/numbers.py, ~line 1043–1045) parses it with `num[1] = long(num[1], 16)`, where `long` is just `int` (sympy/core/compatibility.py:71), so `int('1L', 16)` raises `ValueError: invalid literal for int() with base 16: '1L'`. It should instead tolerate/strip the trailing `L` so the round-trip succeeds.
+
+**Most likely source files (1–3):**
+1. `sympy/core/numbers.py` — the hex-parsing branch in `Float.__new__` (`num[1] = long(num[1], 16)`) and `Float.__getnewargs__`; this is where the fix belongs.
+2. `sympy/core/compatibility.py` — defines `long = int` for PY3 (context only; the `long(..., 16)` call resolves to `int(..., 16)`).
+
+**Next phase action:** In `sympy/core/numbers.py`, change the hex-parsing line to strip a trailing `L` before converting, e.g. `num[1] = long(num[1].rstrip('L'), 16)`, keeping the change minimal and confined to the library source. Then verify with the relevant `sympy/core/tests/test_numbers.py` tests (and ideally a Python-2-style pickle round-trip reproducer).
+
+### Explore
+Confirmed the failure.
+
+**File:** `sympy/core/numbers.py`
+**Symbol:** `Float.__new__`
+**Line range:** 1043–1047 (the hex-parsing branch); specifically line 1045 `num[1] = long(num[1], 16)`
+
+**Repro output:**
+```
+pickable: (0, '4f03290a3167edc69ef85adad5', -102, 103)
+type pickable[1]: <class 'str'>
+p2 style: (0, '4f03290a3167edc69ef85adad5L', -102, 103)
+ERROR: ValueError invalid literal for int() with base 16: '4f03290a3167edc69ef85adad5L'
+```
+
+The Python 2 pickle stores the mantissa as a hex string with a trailing `L`; Python 3's `int('...L', 16)` rejects it. Next phase should strip the trailing `L` before converting.
+
+### Explore
+File: sympy/core/numbers.py
+Symbol: Float.__new__
+Line range: 1043-1047; failing line 1045: `num[1] = long(num[1], 16)`
+
+Root cause: Python 2 pickles store the mpf mantissa as a hex string with a trailing `L` (e.g. '4f03290a3167edc69ef85adad5L'); Python 3's `long` aliases `int`, and `int('...L', 16)` raises ValueError. Fix: strip the trailing `L` before converting.
+
+Reproduction (confirmed failing):
+pickable: (0, '4f03290a3167edc69ef85adad5', -102, 103)
+type pickable[1]: <class 'str'>
+p2 style: (0, '4f03290a3167edc69ef85adad5L', -102, 103)
+ERROR: ValueError invalid literal for int() with base 16: '4f03290a3167edc69ef85adad5L'
+
+### Edit
+Edit applied to sympy/core/numbers.py in Float.__new__ (the hex-parsing branch around lines 1041-1047). When a pickled mpf tuple has a string mantissa, Python 2 emits a trailing 'L' (e.g. '1L'), which Python 3's int(..., 16) rejects. The fix strips a trailing 'L' before converting:
+
+    if type(num[1]) is str:
+        # it's a hexadecimal (coming from a pickled object)
+        # assume that it is in standard form
+        num = list(num)
+        if num[1].endswith('L'):
+            num[1] = num[1][:-1]
+        num[1] = long(num[1], 16)
+        _mpf_ = tuple(num)
+
+Verification:
+- Reproduction (simulated Python-2 pickle tuple with trailing 'L' mantissa) previously raised `ValueError: invalid literal for int() with base 16: '...L'`; after the fix it loads correctly and equals the original Float. The issue's round-trip example (`pickle.loads(pickle.dumps(x + 1.0, 2))`) also succeeds.
+- Ran existing tests: `bin/test sympy/core/tests/test_numbers.py` -> "82 passed, 1 skipped, 1 expected to failed" (OK), no failures.
+
+Note: the repo is not a git working tree, so view_diff could not produce a diff; the edited region was confirmed by reading the file.
+
+Next phase: likely final/verification phase — confirm the full diff scope and that only sympy/core/numbers.py library source was changed (no test files).
+
+### Edit
+Edit phase complete. Applied the minimal fix in sympy/core/numbers.py (Float.__new__, hex-parsing branch) to strip a trailing 'L' from Python 2 long-hex mantissa strings before `long(num[1], 16)`. Reproduction now passes (the Python-2-style pickled Float loads correctly and equals the original; the issue's `x + 1.0` pickle round-trips). Existing tests: `bin/test sympy/core/tests/test_numbers.py` → 82 passed, 1 skipped, 1 expected to fail (no regressions). Next phase should broaden verification of the touched Float pickle/`__new__` code path.
+
+### Verify
+## Summary
+
+**Root cause:** In `sympy/core/numbers.py`, `Float.__new__` parses pickled mpf tuples whose mantissa is a hexadecimal string. Python 2 pickles this hex string with a trailing `L` (e.g. `'1L'`). On Python 3, `long` is aliased to `int` (sympy/core/compatibility.py), so `long(num[1], 16)` became `int('...L', 16)`, raising `ValueError: invalid literal for int() with base 16`.
+
+**Fix (sympy/core/numbers.py, `Float.__new__`, ~line 1045):** strip a trailing `L` from the hex mantissa string before converting:
+```python
+num = list(num)
+if num[1].endswith('L'):
+    num[1] = num[1][:-1]
+num[1] = long(num[1], 16)
+```
+
+**Reproduction:**
+- Before: simulating a Python-2-style pickled mpf tuple `(0, '4f03290a3167edc69ef85adad5L', -102, 103)` produced `ValueError: invalid literal for int() with base 16: '4f03290a3167edc69ef85adad5L'`.
+- After: `Float(...)` loads it correctly (`1.23456789012346`, equal to the original), and a normal `pickle.dumps(x + 1.0, 2)` / `pickle.loads` round-trip returns `x + 1.0`.
+
+**Test results (repo runner `bin/test`):**
+- `sympy/core/tests/test_numbers.py`: 82 passed, 1 skipped, 1 expected to fail — [OK]
+- `sympy/utilities/tests/test_pickling.py`: 115 passed total, 1 skipped, 7 expected to fail — [OK]
+
+No regressions; only non-test library source was changed.
+
+### Verify
+Verification phase complete.
+
+## Summary
+
+**Issue:** Python 2→3 pickle of float-containing expressions failed because Python 2 pickles the Float mpf mantissa as a hex string with a trailing `L` (e.g. `'1L'`), and Python 3's `Float.__new__` parsed it with `int('1L', 16)`, raising `ValueError: invalid literal for int() with base 16: '1L'`.
+
+**Fix:** In `sympy/core/numbers.py`, inside `Float.__new__`'s hex-parsing branch, strip a trailing `'L'` before converting:
+```python
+num = list(num)
+if num[1].endswith('L'):
+    num[1] = num[1][:-1]
+num[1] = long(num[1], 16)
+```
+
+**Reproduction:** Before the fix, loading a simulated Python-2-style mpf tuple `(0, '4f03290a3167edc69ef85adad5L', -102, 103)` raised `ValueError: invalid literal for int() with base 16: '4f03290a3167edc69ef85adad5L'`. After the fix, it loads correctly (`1.23456789012346`, equal to the original), and `pickle.loads(pickle.dumps(x + 1.0, 2))` round-trips as `x + 1.0`.
+
+**Test results** (`python bin/test sympy/core/tests/test_numbers.py sympy/utilities/tests/test_pickling.py`):
+```
+sympy/core/tests/test_numbers.py[84] ...........................................
+...................f....................s                                   [OK]
+sympy/utilities/tests/test_pickling.py[39] .........f..........ff..f..........ff
+..                                                                          [OK]
+== tests finished: 115 passed, 1 skipped, 7 expected to fail, in 1.39 seconds ==
+```
+All tests passed (115 passed; the 1 skipped and 7 expected-to-fail are pre-existing `xfail`/`skip` markers, not regressions). No new failures.
+### Plan
+
+
+### Plan
+## Plan summary for the next phase
+
+**Falsifiable claim:** Unpickling a `Float` (and any expression containing one) in Python 3 that was pickled in Python 2 fails. In Python 2, `Float.__getnewargs__` stores the mpf mantissa via `mlib.to_pickable(...)`, which serializes the large integer as a hex *string*. Python 2's long-hex string carries a trailing `L` (e.g. `'1L'`). On the Python 3 side, `Float.__new__` (sympy/core/numbers.py, ~line 1043–1045) parses it with `num[1] = long(num[1], 16)`, where `long` is just `int` (sympy/core/compatibility.py:71), so `int('1L', 16)` raises `ValueError: invalid literal for int() with base 16: '1L'`. It should instead tolerate/strip the trailing `L` so the round-trip succeeds.
+
+**Most likely source files (1–3):**
+1. `sympy/core/numbers.py` — the hex-parsing branch in `Float.__new__` (`num[1] = long(num[1], 16)`) and `Float.__getnewargs__`; this is where the fix belongs.
+2. `sympy/core/compatibility.py` — defines `long = int` for PY3 (context only; the `long(..., 16)` call resolves to `int(..., 16)`).
+
+**Next phase action:** In `sympy/core/numbers.py`, change the hex-parsing line to strip a trailing `L` before converting, e.g. `num[1] = long(num[1].rstrip('L'), 16)`, keeping the change minimal and confined to the library source. Then verify with the relevant `sympy/core/tests/test_numbers.py` tests (and ideally a Python-2-style pickle round-trip reproducer).
+
+### Explore
+Confirmed the failure.
+
+**File:** `sympy/core/numbers.py`
+**Symbol:** `Float.__new__`
+**Line range:** 1043–1047 (the hex-parsing branch); specifically line 1045 `num[1] = long(num[1], 16)`
+
+**Repro output:**
+```
+pickable: (0, '4f03290a3167edc69ef85adad5', -102, 103)
+type pickable[1]: <class 'str'>
+p2 style: (0, '4f03290a3167edc69ef85adad5L', -102, 103)
+ERROR: ValueError invalid literal for int() with base 16: '4f03290a3167edc69ef85adad5L'
+```
+
+The Python 2 pickle stores the mantissa as a hex string with a trailing `L`; Python 3's `int('...L', 16)` rejects it. Next phase should strip the trailing `L` before converting.
+
+### Explore
+File: sympy/core/numbers.py
+Symbol: Float.__new__
+Line range: 1043-1047; failing line 1045: `num[1] = long(num[1], 16)`
+
+Root cause: Python 2 pickles store the mpf mantissa as a hex string with a trailing `L` (e.g. '4f03290a3167edc69ef85adad5L'); Python 3's `long` aliases `int`, and `int('...L', 16)` raises ValueError. Fix: strip the trailing `L` before converting.
+
+Reproduction (confirmed failing):
+pickable: (0, '4f03290a3167edc69ef85adad5', -102, 103)
+type pickable[1]: <class 'str'>
+p2 style: (0, '4f03290a3167edc69ef85adad5L', -102, 103)
+ERROR: ValueError invalid literal for int() with base 16: '4f03290a3167edc69ef85adad5L'
+
+### Edit
+Edit applied to sympy/core/numbers.py in Float.__new__ (the hex-parsing branch around lines 1041-1047). When a pickled mpf tuple has a string mantissa, Python 2 emits a trailing 'L' (e.g. '1L'), which Python 3's int(..., 16) rejects. The fix strips a trailing 'L' before converting:
+
+    if type(num[1]) is str:
+        # it's a hexadecimal (coming from a pickled object)
+        # assume that it is in standard form
+        num = list(num)
+        if num[1].endswith('L'):
+            num[1] = num[1][:-1]
+        num[1] = long(num[1], 16)
+        _mpf_ = tuple(num)
+
+Verification:
+- Reproduction (simulated Python-2 pickle tuple with trailing 'L' mantissa) previously raised `ValueError: invalid literal for int() with base 16: '...L'`; after the fix it loads correctly and equals the original Float. The issue's round-trip example (`pickle.loads(pickle.dumps(x + 1.0, 2))`) also succeeds.
+- Ran existing tests: `bin/test sympy/core/tests/test_numbers.py` -> "82 passed, 1 skipped, 1 expected to failed" (OK), no failures.
+
+Note: the repo is not a git working tree, so view_diff could not produce a diff; the edited region was confirmed by reading the file.
+
+Next phase: likely final/verification phase — confirm the full diff scope and that only sympy/core/numbers.py library source was changed (no test files).
+
+### Edit
+Edit phase complete. Applied the minimal fix in sympy/core/numbers.py (Float.__new__, hex-parsing branch) to strip a trailing 'L' from Python 2 long-hex mantissa strings before `long(num[1], 16)`. Reproduction now passes (the Python-2-style pickled Float loads correctly and equals the original; the issue's `x + 1.0` pickle round-trips). Existing tests: `bin/test sympy/core/tests/test_numbers.py` → 82 passed, 1 skipped, 1 expected to fail (no regressions). Next phase should broaden verification of the touched Float pickle/`__new__` code path.
+
+### Verify
+## Summary
+
+**Root cause:** In `sympy/core/numbers.py`, `Float.__new__` parses pickled mpf tuples whose mantissa is a hexadecimal string. Python 2 pickles this hex string with a trailing `L` (e.g. `'1L'`). On Python 3, `long` is aliased to `int` (sympy/core/compatibility.py), so `long(num[1], 16)` became `int('...L', 16)`, raising `ValueError: invalid literal for int() with base 16`.
+
+**Fix (sympy/core/numbers.py, `Float.__new__`, ~line 1045):** strip a trailing `L` from the hex mantissa string before converting:
+```python
+num = list(num)
+if num[1].endswith('L'):
+    num[1] = num[1][:-1]
+num[1] = long(num[1], 16)
+```
+
+**Reproduction:**
+- Before: simulating a Python-2-style pickled mpf tuple `(0, '4f03290a3167edc69ef85adad5L', -102, 103)` produced `ValueError: invalid literal for int() with base 16: '4f03290a3167edc69ef85adad5L'`.
+- After: `Float(...)` loads it correctly (`1.23456789012346`, equal to the original), and a normal `pickle.dumps(x + 1.0, 2)` / `pickle.loads` round-trip returns `x + 1.0`.
+
+**Test results (repo runner `bin/test`):**
+- `sympy/core/tests/test_numbers.py`: 82 passed, 1 skipped, 1 expected to fail — [OK]
+- `sympy/utilities/tests/test_pickling.py`: 115 passed total, 1 skipped, 7 expected to fail — [OK]
+
+No regressions; only non-test library source was changed.
+
+### Verify
+Verification phase complete.
+
+## Summary
+
+**Issue:** Python 2→3 pickle of float-containing expressions failed because Python 2 pickles the Float mpf mantissa as a hex string with a trailing `L` (e.g. `'1L'`), and Python 3's `Float.__new__` parsed it with `int('1L', 16)`, raising `ValueError: invalid literal for int() with base 16: '1L'`.
+
+**Fix:** In `sympy/core/numbers.py`, inside `Float.__new__`'s hex-parsing branch, strip a trailing `'L'` before converting:
+```python
+num = list(num)
+if num[1].endswith('L'):
+    num[1] = num[1][:-1]
+num[1] = long(num[1], 16)
+```
+
+**Reproduction:** Before the fix, loading a simulated Python-2-style mpf tuple `(0, '4f03290a3167edc69ef85adad5L', -102, 103)` raised `ValueError: invalid literal for int() with base 16: '4f03290a3167edc69ef85adad5L'`. After the fix, it loads correctly (`1.23456789012346`, equal to the original), and `pickle.loads(pickle.dumps(x + 1.0, 2))` round-trips as `x + 1.0`.
+
+**Test results** (`python bin/test sympy/core/tests/test_numbers.py sympy/utilities/tests/test_pickling.py`):
+```
+sympy/core/tests/test_numbers.py[84] ...........................................
+...................f....................s                                   [OK]
+sympy/utilities/tests/test_pickling.py[39] .........f..........ff..f..........ff
+..                                                                          [OK]
+== tests finished: 115 passed, 1 skipped, 7 expected to fail, in 1.39 seconds ==
+```
+All tests passed (115 passed; the 1 skipped and 7 expected-to-fail are pre-existing `xfail`/`skip` markers, not regressions). No new failures.
+[swe_entry] sympy__sympy-13471 ok steps=8 tools=26
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jac-upstream/jac

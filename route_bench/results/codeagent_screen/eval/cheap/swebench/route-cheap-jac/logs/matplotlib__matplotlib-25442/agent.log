@@ -1,0 +1,164 @@
+### Plan
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue is that `DraggableBase.disconnect()` (called by `_check_still_parented`) attempts to access `self.canvas`, which is a property that relies on `self.ref_artist.figure.canvas`. However, `_check_still_parented` is called specifically when `self.ref_artist.figure` is `None`, leading to an `AttributeError: 'NoneType' object has no attribute 'canvas'` because `self.ref_artist.figure` is `None`.
+
+Falsifiable claim: In `lib/matplotlib/offsetbox.py`, calling `DraggableBase._check_still_parented()` when `self.ref_artist.figure` is `None` triggers an `AttributeError` in `disconnect()` because it accesses the `canvas` property. It should instead handle the case where the figure (and thus the canvas) is no longer available.
+
+Most likely involved file: `lib/matplotlib/offsetbox.py`"}}</tool_call>
+
+### Plan
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue is that `DraggableBase._check_still_parented()` in `lib/matplotlib/offsetbox.py` calls `self.disconnect()` when `self.ref_artist.figure` is `None`. However, `self.disconnect()` accesses `self.canvas`, which is a property defined as `lambda self: self.ref_artist.figure.canvas`. This results in an `AttributeError: 'NoneType' object has no attribute 'canvas'` because `self.ref_artist.figure` is `None`.
+
+Falsifiable claim: Calling `DraggableBase._check_still_parented()` when `self.ref_artist.figure` is `None` triggers an `AttributeError` because `disconnect()` attempts to access the `canvas` property via a `None` figure. It should safely disconnect or skip disconnection if the figure/canvas is already gone.
+
+Source file involved: `lib/matplotlib/offsetbox.py`"}}</tool_call>
+
+### Explore
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue is located in `lib/matplotlib/offsetbox.py` within the `DraggableBase` class. Specifically, `_check_still_parented` (lines 1552-1558) calls `disconnect()` (lines 1559-1569) when `self.ref_artist.figure` is `None`. `disconnect()` then accesses `self.canvas`, which is a property (line 1517) that attempts to access `self.ref_artist.figure.canvas`, resulting in an `AttributeError`.
+
+File: `lib/matplotlib/offsetbox.py`
+Symbol: `DraggableBase._check_still_parented` / `DraggableBase.disconnect`
+Line range: 1552-1569
+
+Reproduction Output:
+```
+Caught expected AttributeError: 'NoneType' object has no attribute 'canvas'
+```"}}</tool_call>
+
+### Explore
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue is located in `lib/matplotlib/offsetbox.py` within the `DraggableBase` class. Specifically, `_check_still_parented` (lines 1552-1558) calls `disconnect()` (lines 1559-1569) when `self.ref_artist.figure` is `None`. `disconnect()` then accesses `self.canvas`, which is a property (line 1517) that attempts to access `self.ref_artist.figure.canvas`, resulting in an `AttributeError`.
+
+File: `lib/matplotlib/offsetbox.py`
+Symbol: `DraggableBase._check_still_parented` and `DraggableBase.disconnect`
+Line range: 1552-1569
+
+Reproduction Output:
+```
+Caught expected AttributeError: 'NoneType' object has no attribute 'canvas'
+```"}}</tool_call>
+
+### Edit
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "I have fixed the `AttributeError` in `lib/matplotlib/offsetbox.py` by adding a guard clause in `DraggableBase.disconnect()` to check if `self.ref_artist.figure` is `None` before attempting to access `self.canvas`. This prevents the error when `_check_still_parented()` calls `disconnect()` after the artist has been detached from its figure.
+
+The fix was verified using a reproduction script that simulated the condition where the artist's figure becomes `None`, confirming that no `AttributeError` is now raised.
+
+```python
+    def disconnect(self):
+        """Disconnect the callbacks."""
+        if self.ref_artist.figure is None:
+            return
+        for cid in self.cids:
+            self.canvas.mpl_disconnect(cid)
+        # ... rest of the function
+```"}}</tool_call>
+
+### Edit
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "I have fixed the `AttributeError` in `lib/matplotlib/offsetbox.py` by adding a guard clause in `DraggableBase.disconnect()` to check if `self.ref_artist.figure` is `None` before attempting to access `self.canvas`. This prevents the error when `_check_still_parented()` calls `disconnect()` after the artist has been detached from its figure.
+
+The fix was verified using a reproduction script that simulated the condition where the artist's figure becomes `None`, confirming that no `AttributeError` is now raised.
+
+```python
+    def disconnect(self):
+        \"\"\"Disconnect the callbacks.\"\"\"
+        if self.ref_artist.figure is None:
+            return
+        for cid in self.cids:
+            self.canvas.mpl_disconnect(cid)
+        # ... rest of the function
+```"}}</tool_call>
+
+### Verify
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The fix for the `AttributeError` in `DraggableBase.disconnect` was verified. 
+
+Test results:
+`pytest lib/matplotlib/tests/test_offsetbox.py`
+283 passed, 2 skipped in 2.28s"}}</tool_call>
+
+### Verify
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The fix for the `AttributeError` in `DraggableBase.disconnect` was verified by running the tests nearest the changed code.
+
+Test results:
+`pytest lib/matplotlib/tests/test_offsetbox.py`
+Output: `283 passed, 2 skipped in 2.28s`"}}</tool_call>
+### Plan
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue is that `DraggableBase.disconnect()` (called by `_check_still_parented`) attempts to access `self.canvas`, which is a property that relies on `self.ref_artist.figure.canvas`. However, `_check_still_parented` is called specifically when `self.ref_artist.figure` is `None`, leading to an `AttributeError: 'NoneType' object has no attribute 'canvas'` because `self.ref_artist.figure` is `None`.
+
+Falsifiable claim: In `lib/matplotlib/offsetbox.py`, calling `DraggableBase._check_still_parented()` when `self.ref_artist.figure` is `None` triggers an `AttributeError` in `disconnect()` because it accesses the `canvas` property. It should instead handle the case where the figure (and thus the canvas) is no longer available.
+
+Most likely involved file: `lib/matplotlib/offsetbox.py`"}}</tool_call>
+
+### Plan
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue is that `DraggableBase._check_still_parented()` in `lib/matplotlib/offsetbox.py` calls `self.disconnect()` when `self.ref_artist.figure` is `None`. However, `self.disconnect()` accesses `self.canvas`, which is a property defined as `lambda self: self.ref_artist.figure.canvas`. This results in an `AttributeError: 'NoneType' object has no attribute 'canvas'` because `self.ref_artist.figure` is `None`.
+
+Falsifiable claim: Calling `DraggableBase._check_still_parented()` when `self.ref_artist.figure` is `None` triggers an `AttributeError` because `disconnect()` attempts to access the `canvas` property via a `None` figure. It should safely disconnect or skip disconnection if the figure/canvas is already gone.
+
+Source file involved: `lib/matplotlib/offsetbox.py`"}}</tool_call>
+
+### Explore
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue is located in `lib/matplotlib/offsetbox.py` within the `DraggableBase` class. Specifically, `_check_still_parented` (lines 1552-1558) calls `disconnect()` (lines 1559-1569) when `self.ref_artist.figure` is `None`. `disconnect()` then accesses `self.canvas`, which is a property (line 1517) that attempts to access `self.ref_artist.figure.canvas`, resulting in an `AttributeError`.
+
+File: `lib/matplotlib/offsetbox.py`
+Symbol: `DraggableBase._check_still_parented` / `DraggableBase.disconnect`
+Line range: 1552-1569
+
+Reproduction Output:
+```
+Caught expected AttributeError: 'NoneType' object has no attribute 'canvas'
+```"}}</tool_call>
+
+### Explore
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue is located in `lib/matplotlib/offsetbox.py` within the `DraggableBase` class. Specifically, `_check_still_parented` (lines 1552-1558) calls `disconnect()` (lines 1559-1569) when `self.ref_artist.figure` is `None`. `disconnect()` then accesses `self.canvas`, which is a property (line 1517) that attempts to access `self.ref_artist.figure.canvas`, resulting in an `AttributeError`.
+
+File: `lib/matplotlib/offsetbox.py`
+Symbol: `DraggableBase._check_still_parented` and `DraggableBase.disconnect`
+Line range: 1552-1569
+
+Reproduction Output:
+```
+Caught expected AttributeError: 'NoneType' object has no attribute 'canvas'
+```"}}</tool_call>
+
+### Edit
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "I have fixed the `AttributeError` in `lib/matplotlib/offsetbox.py` by adding a guard clause in `DraggableBase.disconnect()` to check if `self.ref_artist.figure` is `None` before attempting to access `self.canvas`. This prevents the error when `_check_still_parented()` calls `disconnect()` after the artist has been detached from its figure.
+
+The fix was verified using a reproduction script that simulated the condition where the artist's figure becomes `None`, confirming that no `AttributeError` is now raised.
+
+```python
+    def disconnect(self):
+        """Disconnect the callbacks."""
+        if self.ref_artist.figure is None:
+            return
+        for cid in self.cids:
+            self.canvas.mpl_disconnect(cid)
+        # ... rest of the function
+```"}}</tool_call>
+
+### Edit
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "I have fixed the `AttributeError` in `lib/matplotlib/offsetbox.py` by adding a guard clause in `DraggableBase.disconnect()` to check if `self.ref_artist.figure` is `None` before attempting to access `self.canvas`. This prevents the error when `_check_still_parented()` calls `disconnect()` after the artist has been detached from its figure.
+
+The fix was verified using a reproduction script that simulated the condition where the artist's figure becomes `None`, confirming that no `AttributeError` is now raised.
+
+```python
+    def disconnect(self):
+        \"\"\"Disconnect the callbacks.\"\"\"
+        if self.ref_artist.figure is None:
+            return
+        for cid in self.cids:
+            self.canvas.mpl_disconnect(cid)
+        # ... rest of the function
+```"}}</tool_call>
+
+### Verify
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The fix for the `AttributeError` in `DraggableBase.disconnect` was verified. 
+
+Test results:
+`pytest lib/matplotlib/tests/test_offsetbox.py`
+283 passed, 2 skipped in 2.28s"}}</tool_call>
+
+### Verify
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The fix for the `AttributeError` in `DraggableBase.disconnect` was verified by running the tests nearest the changed code.
+
+Test results:
+`pytest lib/matplotlib/tests/test_offsetbox.py`
+Output: `283 passed, 2 skipped in 2.28s`"}}</tool_call>
+[swe_entry] matplotlib__matplotlib-25442 ok steps=8 tools=9
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jac-upstream/jac

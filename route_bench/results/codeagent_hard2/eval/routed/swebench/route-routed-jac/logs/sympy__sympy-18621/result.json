@@ -1,0 +1,421 @@
+{
+  "instance_id": "sympy__sympy-18621",
+  "model": "openai/glm-5.2",
+  "answer": "### Plan\nThe issue is that creating a `sympy.Matrix` from a `sympy.BlockDiagMatrix` containing only one element raises a `TypeError: 'One' object is not subscriptable`. Specifically, `sympy.Matrix(sympy.BlockDiagMatrix(sympy.Matrix([[1, 2], [3, 4]])))` should return a regular `sympy.Matrix` but instead crashes.\n\nThe root cause is likely in `sympy/matrices/expressions/blockmatrix.py`, specifically in how `BlockMatrix._entry` or `BlockDiagMatrix.blocks` handles a single-block matrix.\n\nMost likely involved files:\n1. `sympy/matrices/expressions/blockmatrix.py` (contains `BlockMatrix._entry` and `BlockDiagMatrix`)\n\n### Plan\nClaim: Calling `sympy.Matrix(sympy.BlockDiagMatrix(M))` where `M` is a single `sympy.Matrix` raises `TypeError: 'One' object is not subscriptable`, but it should instead return a `sympy.Matrix` equivalent to `M`.\n\nMost likely involved files:\n- `sympy/matrices/expressions/blockmatrix.py`\n\n### Explore\n\n\n### Explore\n## Locating Phase Summary\n\n**Falsifiable claim:** Calling `sympy.Matrix(sympy.BlockDiagMatrix(M))` where `M = sympy.Matrix([[1, 2], [3, 4]])` (a single block) raises `TypeError: 'One' object is not subscriptable`, but should return a `sympy.Matrix` equivalent to `M`. The two-block case `sympy.BlockDiagMatrix(M, M)` works correctly.\n\n**Root cause:** `sympy/matrices/expressions/blockmatrix.py`, the `BlockDiagMatrix.blocks` property (lines 298\u2013305):\n```python\n@property\ndef blocks(self):\n    from sympy.matrices.immutable import ImmutableDenseMatrix\n    mats = self.args\n    data = [[mats[i] if i == j else ZeroMatrix(mats[i].rows, mats[j].cols)\n                    for j in range(len(mats))]\n                    for i in range(len(mats))]\n    return ImmutableDenseMatrix(data)\n```\n\nWhen `len(mats) == 1`, `data = [[M]]`. `ImmutableDenseMatrix([[M]])` calls `_handle_creation_inputs`, which treats a single `MatrixBase` element (or a `MatrixSymbol` with concrete integer shape) as a matrix to be **expanded/flattened** rather than as a scalar block element. So `blocks` becomes `M` itself (shape `(2,2)`), not a `1\u00d71` block matrix containing `M`. Consequently `blocks[0,0]` returns the scalar `1` (a `One`), and `BlockMatrix._entry` (line 247, `return self.blocks[row_block, col_block][i, j]`) tries to subscript that scalar \u2192 `TypeError`.\n\nWith two blocks, each row contains a `MatrixBase` plus a `ZeroMatrix` (a `MatrixExpr`, not `MatrixBase`), so the `all(ismat(...))` flattening path is NOT triggered, and the matrix elements are preserved \u2014 which is why the 2-block case works.\n\n**Key supporting evidence:**\n- `ImmutableDenseMatrix._handle_creation_inputs([[M]])` \u2192 `(2, 2, [1, 2, 3, 4])` (collapsed), but with `evaluate=False` \u2192 `(1, 1, [Matrix([[1,2],[3,4]])])` (preserved).\n- Same collapse happens for a single concrete-shape `MatrixSymbol('X', 2, 2)`: `blocks` becomes `Matrix([[X[0,0], X[0,1]], [X[1,0], X[1,1]]])` and `_entry` fails with `'MatrixElement' object is not subscriptable`.\n\n**File/symbol/line range to change:** `sympy/matrices/expressions/blockmatrix.py`, `BlockDiagMatrix.blocks` property, lines 298\u2013305. The fix must make the single-block (and any-block) `blocks` matrix keep each `mats[i]` as an element rather than being expanded \u2014 e.g., constructing the `ImmutableDenseMatrix` with `evaluate=False` so the block structure is preserved for both concrete matrices and matrix symbols.\n\n**Minimal repro output (currently failing):**\n```\nFailed with: TypeError: 'One' object is not subscriptable\n```\n\nTests covering this code: `sympy/matrices/expressions/tests/test_blockmatrix.py` (notably `test_BlockDiagMatrix`, `test_block_collapse_explicit_matrices`, `test_block_collapse_type`).\n\n### Edit\nApplied the smallest fix in `sympy/matrices/expressions/blockmatrix.py`, `BlockDiagMatrix.blocks` property (line 304):\n\n```diff\n-        return ImmutableDenseMatrix(data)\n+        return ImmutableDenseMatrix(data, evaluate=False)\n```\n\nRoot cause: when `BlockDiagMatrix` has a single block, `data = [[M]]` and `ImmutableDenseMatrix([[M]])` (via `_handle_creation_inputs`, evaluate=True) treats a single `MatrixBase` element (or a concrete-shape `MatrixSymbol`) as a matrix to be expanded/flattened, collapsing `blocks` into `M` itself (shape (2,2)) instead of a 1x1 block matrix containing `M`. Then `BlockMatrix._entry` does `self.blocks[0,0][i,j]` where `blocks[0,0]` is now the scalar `1` \u2192 `TypeError: 'One' object is not subscriptable`. With two blocks each row mixes a `MatrixBase` with a `ZeroMatrix` (a non-`MatrixBase` `MatrixExpr`), so the flattening path was not triggered \u2014 which is why the 2-block case worked. Passing `evaluate=False` preserves the block structure for both concrete matrices and matrix symbols.\n\nVerification:\n- Repro `sympy.Matrix(sympy.BlockDiagMatrix(sympy.Matrix([[1,2],[3,4]])))` now returns `Matrix([[1,2],[3,4]])` (previously raised `TypeError: 'One' object is not subscriptable`). The 2-block case still works, and a single concrete `MatrixSymbol` block now correctly gives `blocks` of shape (1,1) with `_entry` returning `X[0,0]` instead of crashing.\n- `sympy.test('sympy/matrices/expressions/tests/test_blockmatrix.py')`: 16 passed.\n- `sympy.test('sympy/matrices/expressions/tests/test_permutation.py')`: 12 passed.\n\nNext phase should run the broader matrices test suite (e.g. `sympy/matrices/`) to confirm no regressions from the `evaluate=False` change in `BlockDiagMatrix.blocks`.\n\n### Edit\nEdit phase complete.\n\nRoot cause: In sympy/matrices/expressions/blockmatrix.py, BlockDiagMatrix.blocks built `ImmutableDenseMatrix(data)` where `data = [[mats[i] ...]]`. With a single block, `ImmutableDenseMatrix([[M]])` expands/flattens the lone MatrixBase (or concrete-shape MatrixSymbol) element via _handle_creation_inputs, so `blocks` became the matrix M itself instead of a 1\u00d71 block matrix containing M. Then BlockMatrix._entry did `self.blocks[0,0][i,j]`, subscripting the scalar `One` -> `TypeError: 'One' object is not subscriptable`. The two-block case worked because each row mixed a MatrixBase with a ZeroMatrix (a MatrixExpr, not MatrixBase), so the flattening path wasn't triggered.\n\nFix (one line): changed `return ImmutableDenseMatrix(data)` to `return ImmutableDenseMatrix(data, evaluate=False)`, so each mats[i] is kept as a block element rather than expanded. This fixes both single concrete matrices and single concrete-shape MatrixSymbols.\n\nVerification:\n- `sympy.Matrix(sympy.BlockDiagMatrix(sympy.Matrix([[1,2],[3,4]])))` now returns `Matrix([[1, 2], [3, 4]])` (was TypeError).\n- Two-block case unchanged: `Matrix([[1,2,0,0],[3,4,0,0],[0,0,1,2],[0,0,3,4]])`.\n- Single concrete MatrixSymbol: blocks is `Matrix([[X]])` (1\u00d71), `_entry(0,0)` returns `X[0,0]`.\n\nTests run via sympy.test:\n- sympy/matrices/expressions/tests/test_blockmatrix.py: 16 passed.\n- sympy/matrices/expressions/tests/test_permutation.py: 12 passed.\n\nDiff:\n  sympy/matrices/expressions/blockmatrix.py, BlockDiagMatrix.blocks:\n  -        return ImmutableDenseMatrix(data)\n  +        return ImmutableDenseMatrix(data, evaluate=False)\n\n### Verify\nVerification complete.\n\n## Fix\nIn `sympy/matrices/expressions/blockmatrix.py`, the `BlockDiagMatrix.blocks` property built the block matrix with `ImmutableDenseMatrix(data)`. When there is only one block (`data = [[M]]`), the matrix constructor's `_handle_creation_inputs` expands/flattens a single `MatrixBase` (or concrete-shape `MatrixSymbol`) element instead of keeping it as a block element, so `blocks` collapsed to `M` itself. Then `BlockMatrix._entry` did `self.blocks[0, 0][i, j]`, subscripting the scalar `1` (a `One`), raising `TypeError: 'One' object is not subscriptable`.\n\nChanged the construction to `ImmutableDenseMatrix(data, evaluate=False)` so each `mats[i]` is preserved as a block element regardless of block count.\n\n## Reproduction (now passes)\n- `sympy.Matrix(sympy.BlockDiagMatrix(sympy.Matrix([[1, 2], [3, 4]])))` \u2192 `Matrix([[1, 2], [3, 4]])`\n- Two-block case still works: `Matrix([[1,2,0,0],[3,4,0,0],[0,0,1,2],[0,0,3,4]])`\n- Single concrete `MatrixSymbol('X', 2, 2)` block: `blocks` is now `Matrix([[X]])` (1\u00d71), `_entry(0,0)` \u2192 `X[0, 0]`.\n\n## Test results\n- `sympy/matrices/expressions/tests/test_blockmatrix.py`: 16 passed.\n- `sympy/matrices/expressions/tests/test_permutation.py`: 12 passed.\n- Full `sympy/matrices/expressions/tests/` directory: 206 passed, 5 expected to fail (all `f`/xfail, pre-existing).\n- `sympy/matrices/tests/test_immutable.py`: 10 passed.\n- `sympy/matrices/tests/test_matrices.py`: 204 passed, 4 skipped, 9 expected to fail (all pre-existing xfail).\n\nNo new failures introduced. The only changed line is in `BlockDiagMatrix.blocks`.\n\n### Verify\nVerification phase complete.\n\nFix applied (smallest possible change) in `sympy/matrices/expressions/blockmatrix.py`, `BlockDiagMatrix.blocks` property:\n- Before:  `return ImmutableDenseMatrix(data)`\n- After:   `return ImmutableDenseMatrix(data, evaluate=False)`\n\nRoot cause: with a single block, `data = [[M]]` and `ImmutableDenseMatrix([[M]])` (via `_handle_creation_inputs`) expands/flattens the single `MatrixBase` element (or a concrete-shape `MatrixSymbol`) into the matrix's scalar contents. So `blocks` lost its 1\u00d71 block structure and `blocks[0,0]` returned a scalar like `One`, which `BlockMatrix._entry` then tried to subscript \u2192 `TypeError: 'One' object is not subscriptable`. Passing `evaluate=False` preserves each `mats[i]` as a block element for both concrete matrices and matrix symbols.\n\nReproduction now passes:\n- `sympy.Matrix(sympy.BlockDiagMatrix(sympy.Matrix([[1,2],[3,4]])))` \u2192 `Matrix([[1, 2], [3, 4]])`\n- two-block case still works as before.\n\nTest results (run with the repo's own runner `sympy.test`):\n\n1. `sympy/matrices/expressions/tests/test_blockmatrix.py`:\n   `tests finished: 16 passed, in 0.16 seconds` \u2014 all ok, no failures.\n\n2. Full `sympy/matrices/expressions/tests/` directory:\n   `tests finished: 206 passed, 5 expected to fail, in 2.96 seconds` \u2014 the 5 `f` entries are pre-existing expected failures (e.g. `test_matrix_add_with_scalar`, `test_factor_expand`, `test_matmul_args_cnc_symbols`, `test_MatAdd_postprocessor_xfail`, `test_symmetry`); none newly failed.\n\n3. `sympy/matrices/tests/test_immutable.py`: `10 passed`.\n4. `sympy/matrices/tests/test_matrices.py`: `204 passed, 4 skipped, 9 expected to fail` (only pre-existing expected failures).\n\nNo new failures introduced.",
+  "steps": 8,
+  "llm_calls": 68,
+  "prompt_tokens": 884143,
+  "completion_tokens": 13846,
+  "cached_tokens": 801789,
+  "tool_calls": [
+    {
+      "name": "grep",
+      "args": {
+        "args": "class BlockDiagMatrix in sympy/matrices/expressions/blockmatrix.py (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "class BlockDiagMatrix in sympy/ (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "outline",
+      "args": {
+        "args": "sympy/matrices/expressions/blockmatrix.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nM = sympy.Matrix([[1, 2], [3, 4]])\nD = sympy.BlockDiagMatrix(M)\ntry",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sympy/matrices/expressions/blockmatrix.py:235-260",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sympy/matrices/expressions/blockmatrix.py:273-325",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sympy/matrices/expressions/blockmatrix.py:131-160",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import BlockDiagMatrix, Matrix\nM = Matrix([[1, 2], [3, 4",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import BlockDiagMatrix, Matrix\nM = Matrix([[1, 2], [3, 4",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sympy/matrices/expressions/blockmatrix.py:288-345",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import BlockDiagMatrix, Matrix, ImmutableDenseMatrix\nM =",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix\nM = Matrix([[1, 2], ",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "class ImmutableDenseMatrix in sympy/matrices (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "_handle_creation_inputs|_sympify| sympify|flatt in sympy/matrices (immutable.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix\nM = Matr",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix, MatrixS",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix\n# When a",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix, MatrixS",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix, MatrixS",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix, MatrixS",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import BlockDiagMatrix, MatrixSymbol, Matrix, symbols\nn ",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "_handle_creation_inputs in sympy/matrices (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sympy/matrices/matrices.py:901-990",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sympy/matrices/matrices.py:990-1060",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sympy/matrices/matrices.py:1060-1130",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix\nfrom sym",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix\nfrom sympy.matrices.",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix\nfrom sym",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix\nfrom sym",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix\nfrom sym",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix, MatrixS",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix, MatrixS",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix\nM = Matr",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix\nM = Matr",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix\nM = Matr",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix\nM = Matr",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sympy/matrices/immutable.py:40-75",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "BlockDiagMatrix in sympy/matrices/tests (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "BlockDiagMatrix in sympy (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "sympy/matrices/expressions/tests/test_blockmatrix.py:157-240",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix\nM = Matr",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import Matrix, ImmutableDenseMatrix, ZeroMatrix, MatrixS",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nfrom sympy import BlockDiagMatrix, Matrix, MatrixSymbol, symbols\nn ",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "sympy/matrices/expressions/blockmatrix.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import sympy\nM = sympy.Matrix([[1, 2], [3, 4]])\n\n# single block\nD = sympy.BlockD",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"python\", \"-m\", \"pytest\", \"sympy/matrices/",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"python\", \"-m\", \"sympy.test\", \"sympy/matri",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"python\", \"-c\", \"import sympy; sympy.test(",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"python\", \"-c\", \"import sympy; sympy.test(",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"git\", \"diff\"], capture_output=True, text=",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"git\", \"diff\", \"--no-ext-diff\"], capture_o",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess, os\nprint(\"cwd:\", os.getcwd())\nr = subprocess.run([\"git\", \"sta",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"git\", \"config\", \"--global\", \"--add\", \"saf",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -c \"import sympy; sympy.test('sympy/matrices/expressions/tests/', verbose=True)\"",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -c \"import sympy; sympy.test('sympy/matrices/tests/test_immutable.py', verbose=True); sympy.test('sympy/matrices/tests/test_matrices.py', verbose=False)\"",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -c \"import sympy; sympy.test('sympy/matrices/expressions/tests/test_blockmatrix.py', verbose=True)\"",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 58,
+  "error": "",
+  "wall_clock_sec": 529.313
+}

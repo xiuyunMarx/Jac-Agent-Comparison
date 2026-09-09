@@ -1,0 +1,182 @@
+### Plan
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "Falsifiable Claim: When `Field.get_choices()` is called on a ForeignKey field where `limit_choices_to` involves a join (e.g., using a `Q` object that spans relationships), the resulting QuerySet may contain duplicate records if the join produces multiple rows for the same related object, leading to duplicate options in the form field. It should return distinct choices.
+
+Likely involved files:
+1. `django/db/models/fields/__init__.py` (specifically the `get_choices` method)
+2. `django/db/models/fields/related.py` (handling of `limit_choices_to` and related field logic)"}}</tool_call>
+
+### Plan
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "Falsifiable Claim: When `Field.get_choices()` is called on a ForeignKey field where `limit_choices_to` involves a join (e.g., using a `Q` object that spans relationships), the resulting QuerySet may contain duplicate records if the join produces multiple rows for the same related object, leading to duplicate options in the form field. It should return distinct choices.
+
+Likely involved files:
+1. `django/db/models/fields/__init__.py` (specifically the `get_choices` method)
+2. `django/db/models/fields/related.py` (handling of `limit_choices_to` and related field logic)"}}</tool_call>
+
+### Explore
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue is located in `django/db/models/fields/__init__.py` in the `get_choices` method. Specifically, at line 883, the code calls `rel_model._default_manager.complex_filter(limit_choices_to)`, which returns a QuerySet. When `limit_choices_to` involves a join (e.g., a Many-to-Many relationship or a reverse ForeignKey), and the filter matches multiple related objects for a single instance of the model, the resulting QuerySet contains duplicate entries for that instance.
+
+Reproduction results:
+- With one matching category: `Choices: [('', '---------'), (1, 'Project object (1)'), (2, 'Project object (2)')]`
+- With two matching categories for Project 1: `Choices after adding second Urgent category: [('', '---------'), (1, 'Project object (1)'), (2, 'Project object (2)'), (1, 'Project object (1)')]`
+
+File: `django/db/models/fields/__init__.py`
+Symbol: `Field.get_choices`
+Line range: 864-889 (specifically line 883)"}}</tool_call>
+
+### Explore
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue is located in `django/db/models/fields/__init__.py` in the `get_choices` method. Specifically, at line 883, the code calls `rel_model._default_manager.complex_filter(limit_choices_to)`, which returns a QuerySet. When `limit_choices_to` involves a join (e.g., a Many-to-Many relationship), and the filter matches multiple related objects for a single instance of the model, the resulting QuerySet contains duplicate entries for that instance.
+
+Reproduction Output:
+```
+Choices: [('', '---------'), (1, 'Project object (1)'), (1, 'Project object (1)')]
+FAIL: Duplicate choices found
+```
+
+File: `django/db/models/fields/__init__.py`
+Symbol: `Field.get_choices`
+Line range: 864-889 (specifically line 883)"}}</tool_call>
+
+### Edit
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "I have fixed the issue where `limit_choices_to` on a ForeignKey could render duplicate options in formfields when joins were involved. I achieved this by adding `.distinct()` to the QuerySet generated in `Field.get_choices()` in `django/db/models/fields/__init__.py`.
+
+The fix was verified with a reproduction script that created a Many-to-Many relationship where multiple related objects matched the `limit_choices_to` filter, causing duplicates before the fix and returning distinct choices after the fix.
+
+Summary of change:
+- In `django/db/models/fields/__init__.py`, line 883:
+  Changed `qs = rel_model._default_manager.complex_filter(limit_choices_to)`
+  to `qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()`"}}</tool_call>
+
+### Edit
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue was that `Field.get_choices` on a ForeignKey field could return duplicate options if `limit_choices_to` involved a join (e.g., a ManyToMany relationship) that matched multiple times for the same object. I fixed this by adding `.distinct()` to the QuerySet in `django/db/models/fields/__init__.py` at line 883.
+
+Reproduction script confirmed that before the fix, duplicate IDs were present in the choices list, and after the fix, they are removed.
+
+```python
+# django/db/models/fields/__init__.py
+-        qs = rel_model._default_manager.complex_filter(limit_choices_to)
++        qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()
+```"}}</tool_call>
+
+### Verify
+The issue was that `Field.get_choices()` on a `ForeignKey` field could return duplicate options if the `limit_choices_to` filter involved joins (such as Many-to-Many relationships) that produced multiple rows for the same model instance.
+
+I fixed this by adding `.distinct()` to the QuerySet created from `complex_filter` in `django/db/models/fields/__init__.py`.
+
+**Change:**
+In `django/db/models/fields/__init__.py`, line 883:
+```python
+-        qs = rel_model._default_manager.complex_filter(limit_choices_to)
++        qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()
+```
+
+**Verification:**
+A reproduction script was created where a `Project` had multiple `Category` objects matching the `limit_choices_to` filter. Before the fix, `get_choices()` returned the same project multiple times. After the fix, it returned the project only once.
+
+The fix is minimal and addresses the root cause by ensuring the QuerySet used to generate form choices contains distinct model instances.
+
+### Verify
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue was that `Field.get_choices()` on a `ForeignKey` field could return duplicate options if `limit_choices_to` involved joins (such as Many-to-Many relationships) that produced multiple rows for the same model instance. This was fixed by adding `.distinct()` to the QuerySet in `django/db/models/fields/__init__.py`.
+
+**Change:**
+In `django/db/models/fields/__init__.py` (line 883):
+```python
+-        qs = rel_model._default_manager.complex_filter(limit_choices_to)
++        qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()
+```
+
+**Verification:**
+A reproduction script confirmed that before the fix, duplicate IDs were present in the choices list when a model instance matched the `limit_choices_to` filter via multiple related objects. After the fix, duplicates are removed, and the reproduction script passes.
+
+I attempted to run the Django test suite for the `models` label using `python tests/runtests.py models`, but the test runner failed to find the module. However, the fix was verified against the provided reproduction scenario, which directly exercises the affected code path."}}</tool_call>
+### Plan
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "Falsifiable Claim: When `Field.get_choices()` is called on a ForeignKey field where `limit_choices_to` involves a join (e.g., using a `Q` object that spans relationships), the resulting QuerySet may contain duplicate records if the join produces multiple rows for the same related object, leading to duplicate options in the form field. It should return distinct choices.
+
+Likely involved files:
+1. `django/db/models/fields/__init__.py` (specifically the `get_choices` method)
+2. `django/db/models/fields/related.py` (handling of `limit_choices_to` and related field logic)"}}</tool_call>
+
+### Plan
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "Falsifiable Claim: When `Field.get_choices()` is called on a ForeignKey field where `limit_choices_to` involves a join (e.g., using a `Q` object that spans relationships), the resulting QuerySet may contain duplicate records if the join produces multiple rows for the same related object, leading to duplicate options in the form field. It should return distinct choices.
+
+Likely involved files:
+1. `django/db/models/fields/__init__.py` (specifically the `get_choices` method)
+2. `django/db/models/fields/related.py` (handling of `limit_choices_to` and related field logic)"}}</tool_call>
+
+### Explore
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue is located in `django/db/models/fields/__init__.py` in the `get_choices` method. Specifically, at line 883, the code calls `rel_model._default_manager.complex_filter(limit_choices_to)`, which returns a QuerySet. When `limit_choices_to` involves a join (e.g., a Many-to-Many relationship or a reverse ForeignKey), and the filter matches multiple related objects for a single instance of the model, the resulting QuerySet contains duplicate entries for that instance.
+
+Reproduction results:
+- With one matching category: `Choices: [('', '---------'), (1, 'Project object (1)'), (2, 'Project object (2)')]`
+- With two matching categories for Project 1: `Choices after adding second Urgent category: [('', '---------'), (1, 'Project object (1)'), (2, 'Project object (2)'), (1, 'Project object (1)')]`
+
+File: `django/db/models/fields/__init__.py`
+Symbol: `Field.get_choices`
+Line range: 864-889 (specifically line 883)"}}</tool_call>
+
+### Explore
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue is located in `django/db/models/fields/__init__.py` in the `get_choices` method. Specifically, at line 883, the code calls `rel_model._default_manager.complex_filter(limit_choices_to)`, which returns a QuerySet. When `limit_choices_to` involves a join (e.g., a Many-to-Many relationship), and the filter matches multiple related objects for a single instance of the model, the resulting QuerySet contains duplicate entries for that instance.
+
+Reproduction Output:
+```
+Choices: [('', '---------'), (1, 'Project object (1)'), (1, 'Project object (1)')]
+FAIL: Duplicate choices found
+```
+
+File: `django/db/models/fields/__init__.py`
+Symbol: `Field.get_choices`
+Line range: 864-889 (specifically line 883)"}}</tool_call>
+
+### Edit
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "I have fixed the issue where `limit_choices_to` on a ForeignKey could render duplicate options in formfields when joins were involved. I achieved this by adding `.distinct()` to the QuerySet generated in `Field.get_choices()` in `django/db/models/fields/__init__.py`.
+
+The fix was verified with a reproduction script that created a Many-to-Many relationship where multiple related objects matched the `limit_choices_to` filter, causing duplicates before the fix and returning distinct choices after the fix.
+
+Summary of change:
+- In `django/db/models/fields/__init__.py`, line 883:
+  Changed `qs = rel_model._default_manager.complex_filter(limit_choices_to)`
+  to `qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()`"}}</tool_call>
+
+### Edit
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue was that `Field.get_choices` on a ForeignKey field could return duplicate options if `limit_choices_to` involved a join (e.g., a ManyToMany relationship) that matched multiple times for the same object. I fixed this by adding `.distinct()` to the QuerySet in `django/db/models/fields/__init__.py` at line 883.
+
+Reproduction script confirmed that before the fix, duplicate IDs were present in the choices list, and after the fix, they are removed.
+
+```python
+# django/db/models/fields/__init__.py
+-        qs = rel_model._default_manager.complex_filter(limit_choices_to)
++        qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()
+```"}}</tool_call>
+
+### Verify
+The issue was that `Field.get_choices()` on a `ForeignKey` field could return duplicate options if the `limit_choices_to` filter involved joins (such as Many-to-Many relationships) that produced multiple rows for the same model instance.
+
+I fixed this by adding `.distinct()` to the QuerySet created from `complex_filter` in `django/db/models/fields/__init__.py`.
+
+**Change:**
+In `django/db/models/fields/__init__.py`, line 883:
+```python
+-        qs = rel_model._default_manager.complex_filter(limit_choices_to)
++        qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()
+```
+
+**Verification:**
+A reproduction script was created where a `Project` had multiple `Category` objects matching the `limit_choices_to` filter. Before the fix, `get_choices()` returned the same project multiple times. After the fix, it returned the project only once.
+
+The fix is minimal and addresses the root cause by ensuring the QuerySet used to generate form choices contains distinct model instances.
+
+### Verify
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue was that `Field.get_choices()` on a `ForeignKey` field could return duplicate options if `limit_choices_to` involved joins (such as Many-to-Many relationships) that produced multiple rows for the same model instance. This was fixed by adding `.distinct()` to the QuerySet in `django/db/models/fields/__init__.py`.
+
+**Change:**
+In `django/db/models/fields/__init__.py` (line 883):
+```python
+-        qs = rel_model._default_manager.complex_filter(limit_choices_to)
++        qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()
+```
+
+**Verification:**
+A reproduction script confirmed that before the fix, duplicate IDs were present in the choices list when a model instance matched the `limit_choices_to` filter via multiple related objects. After the fix, duplicates are removed, and the reproduction script passes.
+
+I attempted to run the Django test suite for the `models` label using `python tests/runtests.py models`, but the test runner failed to find the module. However, the fix was verified against the provided reproduction scenario, which directly exercises the affected code path."}}</tool_call>
+[swe_entry] django__django-13315 ok steps=8 tools=29
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jac-upstream/jac

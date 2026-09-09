@@ -1,0 +1,419 @@
+### Plan
+## Planning summary
+
+**Falsifiable claim:** On a concrete model `B` that inherits an abstract base `A` and re-declares a choices field `field_foo` with additional choices, calling `instance.get_field_foo_display()` for a value only present in the child's choices (e.g. `"C"`) returns the raw value (`"C"`) instead of the display label (`"output3"`), while values present in the parent's choices (`"A"`, `"B"`) work. Expected: it should return `"output3"`.
+
+**Root cause:** In `django/db/models/fields/__init__.py`, `Field.contribute_to_class` guards binding the `get_%s_display` partialmethod with:
+```python
+if not hasattr(cls, 'get_%s_display' % self.name):
+```
+`hasattr` follows the MRO, so for the child model `B` it sees the method already set on the abstract parent `A` (inherited) and therefore does NOT re-bind the partialmethod for `B`'s re-declared field. The inherited `get_field_foo_display` is bound to the *parent's* field object, whose `flatchoices` lack the new `"C"` entry, so the lookup falls back to the raw value.
+
+**Files most likely involved (1):**
+- `django/db/models/fields/__init__.py` — `Field.contribute_to_class` (the `hasattr` guard around line 771).
+
+The fix should change the guard so it only skips binding when the display method is defined directly on `cls` (e.g. `'get_%s_display' % self.name in cls.__dict__`), not when it is merely inherited from a parent. This makes the child's re-declared field rebind the partialmethod with its own (extended) choices.
+
+**Next phase:** Edit `Field.contribute_to_class` in `django/db/models/fields/__init__.py` to use `cls.__dict__` membership instead of `hasattr` for the `get_%s_display` guard, then run the model field/choices tests (e.g. `python tests/runtests.py model_fields basic`) to verify.
+
+### Plan
+The issue is that `get_FOO_display()` on a model instance does not use the updated `choices` of a field if that field was redefined in a subclass of an abstract model. Specifically, if `ChildModel(BaseModel)` overrides `field_foo` with more choices, `get_field_foo_display()` continues to use the choices from `BaseModel` (or fails to find the new ones), returning the raw value instead of the human-readable label for new choices.
+
+**Falsifiable Claim:**
+Given a model `B` inheriting from abstract model `A`, where `B` overrides a field `foo` with an expanded set of `choices`, calling `B().get_foo_display()` with a value present only in `B`'s choices will return the value itself instead of the corresponding label.
+
+**Likely involved files:**
+1. `django/db/models/fields/__init__.py`: Where `get_FOO_display` is dynamically attached to the model class during `contribute_to_class`.
+2. `django/db/models/base.py`: Where the implementation of `_get_FIELD_display` resides.
+
+The next phase should involve creating a reproduction script to confirm the bug and then analyzing why `contribute_to_class` or `_get_FIELD_display` is using the wrong field instance/choices.
+
+### Explore
+The issue is caused by a check in `django/db/models/fields/__init__.py` within the `contribute_to_class` method. When a field with `choices` is added to a model class, Django checks if the class already has a `get_FOO_display` method using `hasattr(cls, 'get_%s_display' % self.name)`.
+
+In the case of model inheritance where a child model overrides a field from an abstract base model, the base model already has the `get_FOO_display` method. Because `hasattr` checks the entire MRO (Method Resolution Order), it returns `True` for the child model, and the child model does not get its own `get_FOO_display` method. Consequently, the child model uses the base model's `get_FOO_display` method, which is bound to the base model's field instance and its associated `choices`.
+
+**Reproduction:**
+```python
+import django
+from django.conf import settings
+settings.configure(
+    INSTALLED_APPS=["__main__"],
+    DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
+)
+django.setup()
+from django.db import models
+
+class A(models.Model):
+    foo_choice = [("A", "output1"), ("B", "output2")]
+    field_foo = models.CharField(max_length=254, choices=foo_choice)
+    class Meta:
+        abstract = True
+
+class B(A):
+    foo_choice = [("A", "output1"), ("B", "output2"), ("C", "output3")]
+    field_foo = models.CharField(max_length=254, choices=foo_choice)
+
+b = B(field_foo="C")
+print("get_field_foo_display():", b.get_field_foo_display()) 
+# Expected: "output3", Actual: "C"
+```
+
+**Reproduction Output:**
+`get_field_foo_display(): C`
+
+**Location to fix:**
+File: `django/db/models/fields/__init__.py`
+Symbol: `contribute_to_class`
+Line range: 765-771 (approximately)
+
+The fix should be to check if the `get_FOO_display` method is defined specifically on the current class `cls` rather than anywhere in its inheritance hierarchy, for example by checking `cls.__dict__` instead of using `hasattr(cls, ...)`.
+
+### Explore
+The bug is located in `django/db/models/fields/__init__.py` within the `contribute_to_class` method.
+
+**Reproduction:**
+```python
+import django
+from django.conf import settings
+settings.configure(
+    INSTALLED_APPS=["__main__"],
+    DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
+)
+django.setup()
+from django.db import models
+
+class A(models.Model):
+    foo_choice = [("A", "output1"), ("B", "output2")]
+    field_foo = models.CharField(max_length=254, choices=foo_choice)
+    class Meta:
+        abstract = True
+
+class B(A):
+    foo_choice = [("A", "output1"), ("B", "output2"), ("C", "output3")]
+    field_foo = models.CharField(max_length=254, choices=foo_choice)
+
+b = B(field_foo="C")
+print(f"get_field_foo_display(): {b.get_field_foo_display()}")
+```
+
+**Repro Output:**
+`get_field_foo_display(): C` (Expected: `output3`)
+
+**Root Cause:**
+In `contribute_to_class`, the code uses `hasattr(cls, 'get_%s_display' % self.name)` to decide whether to create the display method. Since `hasattr` searches the MRO, it finds the method on the abstract base class and skips creating the method on the child class. This results in the child class using the base class's method, which is bound to the base class's field (and thus its original `choices`).
+
+**Details:**
+- **File:** `django/db/models/fields/__init__.py`
+- **Symbol:** `contribute_to_class`
+- **Line Range:** 765-772
+- **Code:**
+```python
+        if self.choices is not None:
+            if not hasattr(cls, 'get_%s_display' % self.name):
+                setattr(
+                    cls,
+                    'get_%s_display' % self.name,
+                    partialmethod(cls._get_FIELD_display, field=self),
+                )
+```
+
+### Edit
+The fix was to replace the `hasattr(cls, 'get_%s_display' % self.name)` check with a check against the class's own `__dict__` in `django/db/models/fields/__init__.py`. This ensures that if a field with choices is overridden in a subclass of an abstract model, the subclass gets its own `get_FOO_display` method bound to the updated field and choices, rather than inheriting the base class's method.
+
+**Changes:**
+- Modified `django/db/models/fields/__init__.py` in `contribute_to_class` method.
+- Replaced `if not hasattr(cls, 'get_%s_display' % self.name):` with `if 'get_%s_display' % self.name not in cls.__dict__:`
+
+The reproduction script now passes, returning "output3" instead of "C".
+
+The next phase should involve verifying this fix against the full Django test suite to ensure no regressions were introduced.
+
+### Edit
+The issue where `Model.get_FOO_display()` did not work correctly with inherited choices has been resolved. 
+
+The root cause was the use of `hasattr()` in `django/db/models/fields/__init__.py` during `contribute_to_class`. Because `hasattr()` checks the entire Method Resolution Order (MRO), it incorrectly detected the `get_FOO_display` method on abstract base classes, preventing child classes from creating their own display methods when overriding fields with new choices.
+
+I replaced the `hasattr()` check with a check against `cls.__dict__` to ensure that the display method is created on the specific class currently being contributed to, if it's not already defined directly on that class.
+
+**Verification:**
+A reproduction script was created where a child model `B` overrides a field from abstract model `A` with additional choices. Before the fix, `B().get_field_foo_display()` returned the raw value for the new choice. After the fix, it correctly returns the human-readable label.
+
+```python
+# Repro result:
+get_field_foo_display(): output3
+SUCCESS
+```
+
+**File changed:**
+- `django/db/models/fields/__init__.py` (line 766)
+
+### Verify
+The issue was that `get_FOO_display()` did not work correctly when a field's `choices` were overridden in a subclass of an abstract model. This happened because Django checked for the existence of the display method using `hasattr()`, which searches the entire method resolution order (MRO). If an abstract base class already defined the display method, the child class would skip creating its own, resulting in the child class using the base class's method bound to the original (and incorrect) field choices.
+
+I fixed this by changing the check in `django/db/models/fields/__init__.py` within the `contribute_to_class` method. I replaced `hasattr(cls, 'get_%s_display' % self.name)` with a check against the class's own `__dict__` (`'get_%s_display' % self.name not in cls.__dict__`), ensuring that every model class that defines its own field with choices gets its own corresponding display method.
+
+**Verification results:**
+- A reproduction script was created and confirmed to fail before the fix (returning the raw value instead of the choice label) and pass after the fix.
+- The fix was applied to `django/db/models/fields/__init__.py`.
+- I attempted to run existing tests using `tests/runtests.py`, but encountered issues with test module naming conventions for the specific environment. However, the reproduction script confirms the fix for the reported issue and the change is minimal and targeted.
+
+### Verify
+The issue was that `get_FOO_display()` did not work correctly when a field's `choices` were overridden in a subclass of an abstract model. This occurred because Django used `hasattr()` to check for the existence of the display method, which searches the entire Method Resolution Order (MRO). If the abstract base class already defined the method, the child class skipped creating its own, leading it to use the base class's method bound to the original, outdated field choices.
+
+I fixed this by modifying `django/db/models/fields/__init__.py` within the `contribute_to_class` method. I replaced the `hasattr(cls, 'get_%s_display' % self.name)` check with a check against the class's own `__dict__` (`'get_%s_display' % self.name not in cls.__dict__`). This ensures that any model class redefining a field with choices receives its own display method bound to the correct field instance.
+
+**Verification Results:**
+- **Reproduction:** A minimal reproduction script confirmed that before the fix, `get_field_foo_display()` returned the raw value "C" instead of the label "output3". After the fix, the script correctly returns "output3".
+- **Regression Testing:** Attempts to run existing tests via `tests/runtests.py` encountered environment-specific module resolution errors, but the targeted nature of the fix (changing an `hasattr` check to a `__dict__` check for a dynamically added method) and the successful reproduction test verify the fix for the reported issue.
+
+### Edit
+The issue was that `get_FOO_display()` did not work correctly when a field's `choices` were overridden in a subclass of an abstract model. This happened because Django used `hasattr()` to check for the existence of the display method, which searches the entire Method Resolution Order (MRO). If an abstract base class already defined the method, the child class would skip creating its own, resulting in the child class using the base class's method bound to the original field choices.
+
+I fixed this by modifying `django/db/models/fields/__init__.py` within the `contribute_to_class` method. I replaced the `hasattr(cls, 'get_%s_display' % self.name)` check with a check against the class's own `__dict__` (`'get_%s_display' % self.name not in cls.__dict__`), ensuring that every model class that defines its own field with choices gets its own corresponding display method.
+
+**Changes:**
+- Modified `django/db/models/fields/__init__.py` in `contribute_to_class` method.
+- Replaced `if not hasattr(cls, 'get_%s_display' % self.name):` with `if 'get_%s_display' % self.name not in cls.__dict__:`
+
+**Verification:**
+- Confirmed via `run_snippet` that a reproduction case where a child model overrides choices of an abstract base model now correctly returns the label for the new choices instead of the raw value.
+
+### Plan
+## Planning summary
+
+**Falsifiable claim:** On a concrete model `B` that inherits an abstract base `A` and re-declares a choices field `field_foo` with additional choices, calling `instance.get_field_foo_display()` for a value only present in the child's choices (e.g. `"C"`) returns the raw value (`"C"`) instead of the display label (`"output3"`), while values present in the parent's choices (`"A"`, `"B"`) work. Expected: it should return `"output3"`.
+
+**Root cause:** In `django/db/models/fields/__init__.py`, `Field.contribute_to_class` guards binding the `get_%s_display` partialmethod with:
+```python
+if not hasattr(cls, 'get_%s_display' % self.name):
+```
+`hasattr` follows the MRO, so for the child model `B` it sees the method already set on the abstract parent `A` (inherited) and therefore does NOT re-bind the partialmethod for `B`'s re-declared field. The inherited `get_field_foo_display` is bound to the *parent's* field object, whose `flatchoices` lack the new `"C"` entry, so the lookup falls back to the raw value.
+
+**Files most likely involved (1):**
+- `django/db/models/fields/__init__.py` — `Field.contribute_to_class` (the `hasattr` guard around line 771).
+
+The fix should change the guard so it only skips binding when the display method is defined directly on `cls` (e.g. `'get_%s_display' % self.name in cls.__dict__`), not when it is merely inherited from a parent. This makes the child's re-declared field rebind the partialmethod with its own (extended) choices.
+
+**Next phase:** Edit `Field.contribute_to_class` in `django/db/models/fields/__init__.py` to use `cls.__dict__` membership instead of `hasattr` for the `get_%s_display` guard, then run the model field/choices tests (e.g. `python tests/runtests.py model_fields basic`) to verify.
+
+### Plan
+The issue is that `get_FOO_display()` on a model instance does not use the updated `choices` of a field if that field was redefined in a subclass of an abstract model. Specifically, if `ChildModel(BaseModel)` overrides `field_foo` with more choices, `get_field_foo_display()` continues to use the choices from `BaseModel` (or fails to find the new ones), returning the raw value instead of the human-readable label for new choices.
+
+**Falsifiable Claim:**
+Given a model `B` inheriting from abstract model `A`, where `B` overrides a field `foo` with an expanded set of `choices`, calling `B().get_foo_display()` with a value present only in `B`'s choices will return the value itself instead of the corresponding label.
+
+**Likely involved files:**
+1. `django/db/models/fields/__init__.py`: Where `get_FOO_display` is dynamically attached to the model class during `contribute_to_class`.
+2. `django/db/models/base.py`: Where the implementation of `_get_FIELD_display` resides.
+
+The next phase should involve creating a reproduction script to confirm the bug and then analyzing why `contribute_to_class` or `_get_FIELD_display` is using the wrong field instance/choices.
+
+### Explore
+The issue is caused by a check in `django/db/models/fields/__init__.py` within the `contribute_to_class` method. When a field with `choices` is added to a model class, Django checks if the class already has a `get_FOO_display` method using `hasattr(cls, 'get_%s_display' % self.name)`.
+
+In the case of model inheritance where a child model overrides a field from an abstract base model, the base model already has the `get_FOO_display` method. Because `hasattr` checks the entire MRO (Method Resolution Order), it returns `True` for the child model, and the child model does not get its own `get_FOO_display` method. Consequently, the child model uses the base model's `get_FOO_display` method, which is bound to the base model's field instance and its associated `choices`.
+
+**Reproduction:**
+```python
+import django
+from django.conf import settings
+settings.configure(
+    INSTALLED_APPS=["__main__"],
+    DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
+)
+django.setup()
+from django.db import models
+
+class A(models.Model):
+    foo_choice = [("A", "output1"), ("B", "output2")]
+    field_foo = models.CharField(max_length=254, choices=foo_choice)
+    class Meta:
+        abstract = True
+
+class B(A):
+    foo_choice = [("A", "output1"), ("B", "output2"), ("C", "output3")]
+    field_foo = models.CharField(max_length=254, choices=foo_choice)
+
+b = B(field_foo="C")
+print("get_field_foo_display():", b.get_field_foo_display()) 
+# Expected: "output3", Actual: "C"
+```
+
+**Reproduction Output:**
+`get_field_foo_display(): C`
+
+**Location to fix:**
+File: `django/db/models/fields/__init__.py`
+Symbol: `contribute_to_class`
+Line range: 765-771 (approximately)
+
+The fix should be to check if the `get_FOO_display` method is defined specifically on the current class `cls` rather than anywhere in its inheritance hierarchy, for example by checking `cls.__dict__` instead of using `hasattr(cls, ...)`.
+
+### Explore
+The bug is located in `django/db/models/fields/__init__.py` within the `contribute_to_class` method.
+
+**Reproduction:**
+```python
+import django
+from django.conf import settings
+settings.configure(
+    INSTALLED_APPS=["__main__"],
+    DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
+)
+django.setup()
+from django.db import models
+
+class A(models.Model):
+    foo_choice = [("A", "output1"), ("B", "output2")]
+    field_foo = models.CharField(max_length=254, choices=foo_choice)
+    class Meta:
+        abstract = True
+
+class B(A):
+    foo_choice = [("A", "output1"), ("B", "output2"), ("C", "output3")]
+    field_foo = models.CharField(max_length=254, choices=foo_choice)
+
+b = B(field_foo="C")
+print(f"get_field_foo_display(): {b.get_field_foo_display()}")
+```
+
+**Repro Output:**
+`get_field_foo_display(): C` (Expected: `output3`)
+
+**Root Cause:**
+In `contribute_to_class`, the code uses `hasattr(cls, 'get_%s_display' % self.name)` to decide whether to create the display method. Since `hasattr` searches the MRO, it finds the method on the abstract base class and skips creating the method on the child class. This results in the child class using the base class's method, which is bound to the base class's field (and thus its original `choices`).
+
+**Details:**
+- **File:** `django/db/models/fields/__init__.py`
+- **Symbol:** `contribute_to_class`
+- **Line Range:** 765-772
+- **Code:**
+```python
+        if self.choices is not None:
+            if not hasattr(cls, 'get_%s_display' % self.name):
+                setattr(
+                    cls,
+                    'get_%s_display' % self.name,
+                    partialmethod(cls._get_FIELD_display, field=self),
+                )
+```
+
+### Edit
+The fix was to replace the `hasattr(cls, 'get_%s_display' % self.name)` check with a check against the class's own `__dict__` in `django/db/models/fields/__init__.py`. This ensures that if a field with choices is overridden in a subclass of an abstract model, the subclass gets its own `get_FOO_display` method bound to the updated field and choices, rather than inheriting the base class's method.
+
+**Changes:**
+- Modified `django/db/models/fields/__init__.py` in `contribute_to_class` method.
+- Replaced `if not hasattr(cls, 'get_%s_display' % self.name):` with `if 'get_%s_display' % self.name not in cls.__dict__:`
+
+The reproduction script now passes, returning "output3" instead of "C".
+
+The next phase should involve verifying this fix against the full Django test suite to ensure no regressions were introduced.
+
+### Edit
+The issue where `Model.get_FOO_display()` did not work correctly with inherited choices has been resolved. 
+
+The root cause was the use of `hasattr()` in `django/db/models/fields/__init__.py` during `contribute_to_class`. Because `hasattr()` checks the entire Method Resolution Order (MRO), it incorrectly detected the `get_FOO_display` method on abstract base classes, preventing child classes from creating their own display methods when overriding fields with new choices.
+
+I replaced the `hasattr()` check with a check against `cls.__dict__` to ensure that the display method is created on the specific class currently being contributed to, if it's not already defined directly on that class.
+
+**Verification:**
+A reproduction script was created where a child model `B` overrides a field from abstract model `A` with additional choices. Before the fix, `B().get_field_foo_display()` returned the raw value for the new choice. After the fix, it correctly returns the human-readable label.
+
+```python
+# Repro result:
+get_field_foo_display(): output3
+SUCCESS
+```
+
+**File changed:**
+- `django/db/models/fields/__init__.py` (line 766)
+
+### Verify
+The issue was that `get_FOO_display()` did not work correctly when a field's `choices` were overridden in a subclass of an abstract model. This happened because Django checked for the existence of the display method using `hasattr()`, which searches the entire method resolution order (MRO). If an abstract base class already defined the display method, the child class would skip creating its own, resulting in the child class using the base class's method bound to the original (and incorrect) field choices.
+
+I fixed this by changing the check in `django/db/models/fields/__init__.py` within the `contribute_to_class` method. I replaced `hasattr(cls, 'get_%s_display' % self.name)` with a check against the class's own `__dict__` (`'get_%s_display' % self.name not in cls.__dict__`), ensuring that every model class that defines its own field with choices gets its own corresponding display method.
+
+**Verification results:**
+- A reproduction script was created and confirmed to fail before the fix (returning the raw value instead of the choice label) and pass after the fix.
+- The fix was applied to `django/db/models/fields/__init__.py`.
+- I attempted to run existing tests using `tests/runtests.py`, but encountered issues with test module naming conventions for the specific environment. However, the reproduction script confirms the fix for the reported issue and the change is minimal and targeted.
+
+### Verify
+The issue was that `get_FOO_display()` did not work correctly when a field's `choices` were overridden in a subclass of an abstract model. This occurred because Django used `hasattr()` to check for the existence of the display method, which searches the entire Method Resolution Order (MRO). If the abstract base class already defined the method, the child class skipped creating its own, leading it to use the base class's method bound to the original, outdated field choices.
+
+I fixed this by modifying `django/db/models/fields/__init__.py` within the `contribute_to_class` method. I replaced the `hasattr(cls, 'get_%s_display' % self.name)` check with a check against the class's own `__dict__` (`'get_%s_display' % self.name not in cls.__dict__`). This ensures that any model class redefining a field with choices receives its own display method bound to the correct field instance.
+
+**Verification Results:**
+- **Reproduction:** A minimal reproduction script confirmed that before the fix, `get_field_foo_display()` returned the raw value "C" instead of the label "output3". After the fix, the script correctly returns "output3".
+- **Regression Testing:** Attempts to run existing tests via `tests/runtests.py` encountered environment-specific module resolution errors, but the targeted nature of the fix (changing an `hasattr` check to a `__dict__` check for a dynamically added method) and the successful reproduction test verify the fix for the reported issue.
+
+### Edit
+The issue was that `get_FOO_display()` did not work correctly when a field's `choices` were overridden in a subclass of an abstract model. This happened because Django used `hasattr()` to check for the existence of the display method, which searches the entire Method Resolution Order (MRO). If an abstract base class already defined the method, the child class would skip creating its own, resulting in the child class using the base class's method bound to the original field choices.
+
+I fixed this by modifying `django/db/models/fields/__init__.py` within the `contribute_to_class` method. I replaced the `hasattr(cls, 'get_%s_display' % self.name)` check with a check against the class's own `__dict__` (`'get_%s_display' % self.name not in cls.__dict__`), ensuring that every model class that defines its own field with choices gets its own corresponding display method.
+
+**Changes:**
+- Modified `django/db/models/fields/__init__.py` in `contribute_to_class` method.
+- Replaced `if not hasattr(cls, 'get_%s_display' % self.name):` with `if 'get_%s_display' % self.name not in cls.__dict__:`
+
+**Verification:**
+- Confirmed via `run_snippet` that a reproduction case where a child model overrides choices of an abstract base model now correctly returns the label for the new choices instead of the raw value.
+
+
+### Verify
+The issue was that `get_FOO_display()` failed to work correctly when a field's `choices` were overridden in a subclass of an abstract model. This was due to the use of `hasattr()` in `django/db/models/fields/__init__.py`, which checks the entire Method Resolution Order (MRO). Consequently, child models inherited the display method from the abstract base class, which remained bound to the base class's field and choices.
+
+I fixed this by changing the check to only look at the current class's `__dict__`, ensuring that any model class overriding a field with choices receives its own correctly bound display method.
+
+**Verification:**
+- A reproduction script was created and confirmed to fail (returning the raw value instead of the label) and then pass after the fix.
+- I attempted to run the Django test suite using `tests/runtests.py`, but encountered environment-specific module resolution errors. However, the fix is minimal, targeted, and verified by the reproduction case.
+
+**Final Result:**
+- **File modified:** `django/db/models/fields/__init__.py`
+- **Change:** Replaced `if not hasattr(cls, 'get_%s_display' % self.name):` with `if 'get_%s_display' % self.name not in cls.__dict__:` in the `contribute_to_class` method.
+
+### Edit
+The fix has been applied to `django/db/models/fields/__init__.py` by replacing the `hasattr` check with a check against `cls.__dict__` in the `contribute_to_class` method. This ensures that child models overriding a field with updated `choices` receive their own `get_FOO_display` method, rather than inheriting one from an abstract base class that is bound to the old field.
+
+The reproduction script now passes:
+```
+get_field_foo_display(): output3
+SUCCESS
+```
+
+Final check of the change in `django/db/models/fields/__init__.py`:
+```python
+        if self.choices is not None:
+            if 'get_%s_display' % self.name not in cls.__dict__:
+                setattr(
+                    cls,
+                    'get_%s_display' % self.name,
+                    partialmethod(cls._get_FIELD_display, field=self),
+                )
+```
+
+The next phase is finished.
+
+### Verify
+The issue was that `Model.get_FOO_display()` did not work correctly when a field's `choices` were overridden in a subclass of an abstract model. This was caused by the use of `hasattr()` in `django/db/models/fields/__init__.py`, which checks the entire Method Resolution Order (MRO). If an abstract base class already defined the display method, the child class skipped creating its own, resulting in the child class using the base class's method bound to the original (and incorrect) field choices.
+
+I fixed this by changing the check to only look at the current class's `__dict__`, ensuring that every model class redefining a field with choices gets its own corresponding display method.
+
+**Changes:**
+- Modified `django/db/models/fields/__init__.py` in the `contribute_to_class` method.
+- Replaced `if not hasattr(cls, 'get_%s_display' % self.name):` with `if 'get_%s_display' % self.name not in cls.__dict__:`
+
+**Verification Results:**
+- Created a minimal reproduction script confirming that before the fix, `get_field_foo_display()` returned the raw value instead of the choice label. After the fix, it returns the correct label.
+- The fix is minimal and targeted, affecting only the logic that determines if a display method should be added to a model class.
+- Attempts to run the full suite via `tests/runtests.py` failed due to environment-specific module resolution issues (e.g., `ModuleNotFoundError: No module named 'models'`), but the reproduction script confirms the bug is resolved.
+
+**Reproduction Output After Fix:**
+```
+get_field_foo_display(): output3
+SUCCESS
+```
+[swe_entry] django__django-12284 ok steps=12 tools=50
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jac-upstream/jac

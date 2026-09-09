@@ -1,0 +1,225 @@
+{
+  "instance_id": "django__django-12284",
+  "model": "openai/gemma4:31b",
+  "answer": "### Plan\n<tool_call>{\"name\": \"grep\", \"arguments\": {\"file_glob\": \"*.py\", \"path\": \"django/db/models\", \"pattern\": \"get_\\w+_display\"}}</tool_call>\n\n### Plan\n<tool_call>{\"name\": \"grep\", \"arguments\": {\"file_glob\": \"models.py\", \"path\": \"django/db/models\", \"pattern\": \"get_\\w+_display\"}}</tool_call>\n\n### Explore\nThe issue is that `get_FOO_display()` is created during `contribute_to_class` of a field. When a model inherits from an abstract base model and overrides a field (or the choices of a field), the `get_FOO_display` method might already exist on the class (inherited from the base model) and is thus not updated to use the new field definition with the extended choices.\n\nSpecifically, in `django/db/models/fields/__init__.py`, the code checks `if not hasattr(cls, 'get_%s_display' % self.name):` before setting the `get_FOO_display` method. If the base model already defined this method, the child model's field will not overwrite it, and the method will continue to use the base model's field instance (which has the old choices) instead of the child model's field instance.\n\n**Falsifiable claim:**\nIn a model inheritance scenario where a child model overrides a field's choices (or the field itself) from an abstract base model, `instance.get_FOO_display()` uses the choices from the base model's field instead of the child model's field.\n\n**Reproduction:**\n```python\nimport django\nfrom django.conf import settings\nfrom django.db import models\n\nif not settings.configured:\n    settings.configure(\n        DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}},\n        INSTALLED_APPS=[],\n    )\n    django.setup()\n\nclass A(models.Model):\n    foo_choice = [(\"A\", \"output1\"), (\"B\", \"output2\")]\n    field_foo = models.CharField(max_length=254, choices=foo_choice)\n    class Meta:\n        abstract = True\n\nclass B(A):\n    foo_choice = [(\"A\", \"output1\"), (\"B\", \"output2\"), (\"C\", \"output3\")]\n    field_foo = models.CharField(max_length=254, choices=foo_choice)\n    class Meta:\n        app_label = 'repro'\n\nobj = B()\nobj.field_foo = \"C\"\n# Expected: \"output3\", Actual: \"C\"\nprint(f\"Value 'C': {obj.get_field_foo_display()}\")\n```\n\n**Location:**\nFile: `django/db/models/fields/__init__.py`\nSymbol: `contribute_to_class`\nLine range: 771-776\n\nThe fix should involve removing the `hasattr` check or ensuring the method is updated when a new field with the same name contributes to the class.\n\n### Explore\nThe root cause is located in `django/db/models/fields/__init__.py` within the `contribute_to_class` method. When a child model inherits from an abstract base model and overrides a field that has `choices`, the `contribute_to_class` method checks if `get_FOO_display` already exists on the class before creating it. Since it is inherited from the base model, the check `if not hasattr(cls, 'get_%s_display' % self.name):` evaluates to `False`, and the method is not updated to use the child model's field instance, which contains the updated choices.\n\n**Minimal Reproduction:**\n```python\nimport django\nfrom django.conf import settings\nfrom django.db import models\n\nif not settings.configured:\n    settings.configure(\n        DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}},\n        INSTALLED_APPS=[],\n    )\n    django.setup()\n\nclass A(models.Model):\n    foo_choice = [(\"A\", \"output1\"), (\"B\", \"output2\")]\n    field_foo = models.CharField(max_length=254, choices=foo_choice)\n    class Meta:\n        abstract = True\n\nclass B(A):\n    foo_choice = [(\"A\", \"output1\"), (\"B\", \"output2\"), (\"C\", \"output3\")]\n    field_foo = models.CharField(max_length=254, choices=foo_choice)\n    class Meta:\n        app_label = 'repro'\n\nobj = B()\nobj.field_foo = \"C\"\nprint(f\"Value 'C': {obj.get_field_foo_display()}\")\n```\n\n**Reproduction Output:**\n`Value 'C': C` (Expected: `Value 'C': output3`)\n\n**Details:**\n- **File:** `django/db/models/fields/__init__.py`\n- **Symbol:** `contribute_to_class`\n- **Line range:** 772-777 (specifically the `if not hasattr(...)` check)\n\n### Edit\n<tool_call>{\"name\": \"finish_tool\", \"arguments\": {\"final_output\": \"The issue was that `get_FOO_display()` was not being updated when a child model inherited from an abstract base model and overrode a field with new choices. This happened because `django/db/models/fields/__init__.py` in `contribute_to_class` checked if the method already existed on the class using `hasattr(cls, 'get_%s_display' % self.name)` before setting it. Since the method was inherited from the base model, it was not overwritten.\n\nI removed the `hasattr` check, ensuring that the `get_FOO_display` method is always created (or updated) to use the current field instance.\n\nVerified the fix with a reproduction script:\n- Before fix: `Value 'C': C`\n- After fix: `Value 'C': output3`\"}}</tool_call>\n\n### Edit\n<tool_call>{\"name\": \"finish_tool\", \"arguments\": {\"final_output\": \"The issue was caused by a check in `django/db/models/fields/__init__.py` within the `contribute_to_class` method that prevented the `get_FOO_display` method from being redefined if it was already present on the class. In the case of model inheritance from an abstract base class, the method was inherited from the base class and thus not updated to use the new field instance with extended choices in the child class.\n\nI removed the `if not hasattr(cls, 'get_%s_display' % self.name):` check to ensure that the `get_FOO_display` method is always updated to refer to the current field instance.\n\nVerified the fix with a reproduction script:\n- Before fix: `Value 'C': C`\n- After fix: `Value 'C': output3`\"}}</tool_call>\n\n### Verify\n<tool_call>{\"name\": \"finish_tool\", \"arguments\": {\"final_output\": \"The issue was that `Model.get_FOO_display()` did not work correctly when a child model inherited from an abstract base model and overrode the choices of a field. This occurred because the `contribute_to_class` method in `django/db/models/fields/__init__.py` checked for the existence of the `get_FOO_display` method using `hasattr()` before defining it. Since the method was inherited from the abstract base model, it was not redefined to use the child model's field (and its updated choices).\n\nI fixed this by removing the `hasattr` check, ensuring the `get_FOO_display` method is always correctly associated with the contributing field.\n\nVerification:\nA reproduction script confirmed that `obj.get_field_foo_display()` now returns the correct label ('output3') for an overridden choice ('C') instead of returning the value itself.\n\nExisting tests were attempted to be run via `python tests/runtests.py`, but labels were not correctly identified. However, the reproduction script successfully validated the fix.\"}}</tool_call>\n\n### Verify\n<tool_call>{\"name\": \"finish_tool\", \"arguments\": {\"final_output\": \"The issue was that `Model.get_FOO_display()` did not work correctly when a child model inherited from an abstract base model and overrode the choices of a field. This occurred because the `contribute_to_class` method in `django/db/models/fields/__init__.py` checked for the existence of the `get_FOO_display` method using `hasattr()` before defining it. Since the method was inherited from the abstract base model, it was not redefined to use the child model's field (and its updated choices).\n\nI fixed this by removing the `hasattr` check, ensuring the `get_FOO_display` method is always correctly associated with the contributing field.\n\nVerification:\nA reproduction script confirmed that `obj.get_field_foo_display()` now returns the correct label ('output3') for an overridden choice ('C') instead of returning the value itself.\n\nAttempts to run the existing test suite using `python tests/runtests.py models` failed due to import errors related to the test label, but the specific fix was verified with a minimal reproduction case.\"}}</tool_call>\n\n### Edit\n<tool_call>{\"name\": \"finish_tool\", \"arguments\": {\"final_output\": \"The issue was that `Model.get_FOO_display()` did not work correctly when a child model inherited from an abstract base model and overrode the choices of a field. This happened because `django/db/models/fields/__init__.py` in `contribute_to_class` checked if the method already existed on the class using `hasattr(cls, 'get_%s_display' % self.name)` before setting it. Since the method was inherited from the base model, the child model's field did not overwrite it, and the method continued to use the base model's field instance.\n\nI removed the `hasattr` check, ensuring that the `get_FOO_display` method is always updated to use the current field instance.\n\nVerification:\n- Reproduction script:\n  - Before fix: `Value 'C': C`\n  - After fix: `Value 'C': output3`\n- Checked `django/db/models/fields/__init__.py` to confirm the change is applied.\"}}</tool_call>\n\n### Verify\n<tool_call>{\"name\": \"finish_tool\", \"arguments\": {\"final_output\": \"The issue was that `Model.get_FOO_display()` did not work correctly when a child model inherited from an abstract base model and overrode the choices of a field. This happened because `django/db/models/fields/__init__.py` in `contribute_to_class` checked if the method already existed on the class using `hasattr(cls, 'get_%s_display' % self.name)` before setting it. Since the method was inherited from the base model, the child model's field did not overwrite it, and the method continued to use the base model's field instance.\n\nI removed the `hasattr` check, ensuring that the `get_FOO_display` method is always updated to use the current field instance.\n\nVerification:\n- A reproduction script confirmed that `obj.get_field_foo_display()` now returns the correct label ('output3') for an overridden choice ('C') instead of returning the value itself.\n- Attempted to run the existing test suite using `python tests/runtests.py models`, but this failed due to the way test labels are configured in this environment. However, the fix was successfully verified via a reproduction script.\"}}</tool_call>\n\n### Edit\nI have resolved the issue where `Model.get_FOO_display()` did not work correctly with inherited choices. The root cause was in `django/db/models/fields/__init__.py`, where a check `if not hasattr(cls, 'get_%s_display' % self.name):` prevented the display method from being updated when a field was overridden in a child model. I removed this check to ensure the method always uses the current field's choices. I verified the fix with a reproduction script showing that it now correctly returns the label for inherited/overridden choices.\n\n### Verify\n<tool_call>{\"name\": \"finish_tool\", \"arguments\": {\"final_output\": \"The issue was that `Model.get_FOO_display()` did not work correctly when a child model inherited from an abstract base model and overrode the choices of a field. This occurred because the `contribute_to_class` method in `django/db/models/fields/__init__.py` checked if the `get_FOO_display` method already existed on the class before creating it. Since the method was inherited from the base model, it was not updated to use the child model's field instance with the new choices.\n\nI fixed this by removing the `hasattr` check in `django/db/models/fields/__init__.py`, ensuring that the `get_FOO_display` method is always associated with the most recently contributing field.\n\nVerification:\nA reproduction script confirmed that `obj.get_field_foo_display()` now correctly returns the expected label ('output3') for the new choice ('C') instead of returning the value itself.\n\nTest results:\nThe reproduction script passed. Attempts to run the full test suite using `python tests/runtests.py models` resulted in a `ModuleNotFoundError` due to incorrect label specification in the environment, but the fix was verified via a standalone reproduction script.\"}}</tool_call>",
+  "steps": 12,
+  "llm_calls": 47,
+  "prompt_tokens": 486929,
+  "completion_tokens": 7654,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import os\nimport django\nfrom django.conf import settings\nfrom django.db import m",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import django\nfrom django.conf import settings\nfrom django.db import models\n\nif ",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import django\nfrom django.conf import settings\nfrom django.db import models\n\nif ",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "outline",
+      "args": {
+        "args": "django/db/models/base.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "django/db/models/base.py:946-951",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "django/db/models/base.py:72-323",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import django\nfrom django.conf import settings\nfrom django.db import models\n\nif ",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import django\nfrom django.conf import settings\nfrom django.db import models\nfrom",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import django\nfrom django.conf import settings\nfrom django.db import models\n\nif ",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import django\nfrom django.conf import settings\nfrom django.db import models\n\nif ",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "make_foreign_order_accessors in django/db/models (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "django/db/models/base.py:1888-1904",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "get_%s_display in django/db/models (base.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "get_.*_display in django/db/models (base.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "get_[a-zA-Z0-9_]*_display in django/db/models (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "django/db/models/fields/__init__.py:760-780",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "django/db/models/fields/__init__.py:740-760",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "django/db/models/fields/__init__.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import django\nfrom django.conf import settings\nfrom django.db import models\n\nif ",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py models",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py tests/models",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py models.tests",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py db",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py models.fields",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py models",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "django/db/models/fields/__init__.py",
+        "ok": "False"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "django/db/models/fields/__init__.py:760-780",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py models",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "django/db/models/fields/__init__.py",
+        "ok": "False"
+      }
+    }
+  ],
+  "tool_call_count": 30,
+  "error": "",
+  "wall_clock_sec": 83.325
+}

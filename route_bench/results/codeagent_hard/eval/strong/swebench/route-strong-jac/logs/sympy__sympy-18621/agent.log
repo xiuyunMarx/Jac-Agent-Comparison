@@ -1,0 +1,232 @@
+### Plan
+The root cause is clear. Let me verify by checking the `blocks` property of `BlockDiagMatrix` more closely — it builds `ImmutableDenseMatrix(data)` without `evaluate=False`, unlike `BlockMatrix.__new__` which uses `evaluate=False`. When there's a single dense `Matrix` element, `ImmutableDenseMatrix([[M]])` flattens the iterable `M` into a 2×2 matrix instead of keeping a 1×1 matrix containing `M`, so `self.blocks[0,0]` returns the integer `1` (a `One`), which is not subscriptable.
+
+Let me confirm the two-file involvement and apply the fix.
+
+### Plan
+Falsifiable claim: `Matrix(BlockDiagMatrix(Matrix([[1, 2], [3, 4]])))` raises `TypeError: 'One' object is not subscriptable`; it should return `Matrix([[1, 2], [3, 4]])`, like the two-element case.
+
+Root cause (located, not yet edited): In sympy/matrices/expressions/blockmatrix.py, `BlockDiagMatrix.blocks` (lines 298-306) builds `ImmutableDenseMatrix(data)` WITHOUT `evaluate=False`, while `BlockMatrix.__new__` (line 126) DOES pass `evaluate=False`. With a single dense Matrix element, `data=[[M]]` flattens M, so `self.blocks[0,0]` becomes scalar 1 (a `One`), which `BlockMatrix._entry` (lines 235-248) tries to subscript via `self.blocks[row_block, col_block][i, j]` -> TypeError.
+
+Files most likely involved (1-3):
+1. sympy/matrices/expressions/blockmatrix.py — `BlockDiagMatrix.blocks` (primary fix: add `evaluate=False`); `_entry` for safety.
+2. sympy/matrices/expressions/matexpr.py — `MatrixExpr.__getitem__`/`as_explicit` (call path; likely no edit).
+
+Next phase should: edit `BlockDiagMatrix.blocks` to construct ImmutableDenseMatrix with `evaluate=False` (mirroring `BlockMatrix.__new__`), then verify with `pytest sympy/matrices/expressions/tests/test_blockmatrix.py` plus the issue reproducer.
+
+### Explore
+
+
+### Explore
+Root cause located and fixed.
+
+Issue (falsifiable claim): `sympy.Matrix(sympy.BlockDiagMatrix(M))` raises `TypeError: 'One' object is not subscriptable` when `BlockDiagMatrix` is created with a single element; it should return the equivalent dense Matrix (e.g. `Matrix([[1,2],[3,4]])`), as it does with two or more elements.
+
+Files/symbol involved:
+- `sympy/matrices/expressions/blockmatrix.py`, `BlockDiagMatrix.blocks` property (lines 298-306). This is the 1-2 file most involved (the secondary file touched during the traceback, `sympy/matrices/expressions/matexpr.py` `as_explicit`/`_entry`, is just the consumer and does not need changes).
+
+Root cause: `BlockDiagMatrix.blocks` built `ImmutableDenseMatrix(data)` without `evaluate=False`. With a single dense `Matrix` arg, ImmutableDenseMatrix flattens the inner matrix into a 2x2 scalar matrix, so `blockshape` reports `(1,1)` but `self.blocks[0,0]` returns the scalar `1` (a `One`), which `_entry` then tries to subscript -> TypeError. `BlockMatrix.__new__` already uses `evaluate=False` (line 126) for the same reason; the diag property was inconsistent.
+
+Fix: changed line 305 from `return ImmutableDenseMatrix(data)` to `return ImmutableDenseMatrix(data, evaluate=False)`. This keeps a 1x1 matrix-of-blocks for the single-element case and is a no-op for the multi-element cases.
+
+Minimal reproduction before fix:
+  M = sympy.Matrix([[1,2],[3,4]])
+  D = sympy.BlockDiagMatrix(M)
+  sympy.Matrix(D)  -> TypeError: 'One' object is not subscriptable
+
+After fix:
+  single: Matrix([[1,2],[3,4]])
+  two:    Matrix([[1,2,0,0],[3,4,0,0],[0,0,1,2],[0,0,3,4]])
+
+Verification: `python bin/test sympy/matrices/expressions/tests/test_blockmatrix.py` -> 16 passed. Full `sympy/matrices/expressions/tests/` + `sympy/matrices/tests/test_matrices.py` -> 410 passed, 4 skipped, 14 expected failures (no regressions).
+
+Next phase: apply/confirm the single-line edit is the only change (already applied to `sympy/matrices/expressions/blockmatrix.py` line 305) and ensure no test files were modified.
+
+### Edit
+Summary for next phase:
+
+Root cause: In sympy/matrices/expressions/blockmatrix.py, the `BlockDiagMatrix.blocks` property (lines 298-306) built the block container as `ImmutableDenseMatrix(data)` *without* `evaluate=False`. When a single dense `Matrix` is the only element, `ImmutableDenseMatrix([[M]])` eagerly flattens the iterable `M` into a 2x2 matrix instead of a 1x1 matrix holding `M`. `blockshape` still reports (1, 1) (it uses `len(self.args)`), so `_entry` calls `self.blocks[0, 0]` which returns the scalar `1` (a `One`), and subscripting it raises `TypeError: 'One' object is not subscriptable`. With >=2 elements the inner matrices were already ImmutableMatrixExpr objects (not iterable-into-scalars), so flattening happened to be a no-op there.
+
+Fix applied (smallest change): Added `evaluate=False` to that constructor, matching what `BlockMatrix.__new__` already does:
+- File: sympy/matrices/expressions/blockmatrix.py
+- Symbol: BlockDiagMatrix.blocks
+- Line range: 298-306
+- Change: `return ImmutableDenseMatrix(data)` -> `return ImmutableDenseMatrix(data, evaluate=False)`
+
+Verification:
+- Reproduction now passes: `BlockDiagMatrix(M)` with one element converts to `Matrix([[1, 2], [3, 4]])`; two- and three-element cases still work.
+- Tests: `python bin/test sympy/matrices/expressions/tests/test_blockmatrix.py` -> 16 passed. Broader run of `sympy/matrices/expressions/tests/` plus `sympy/matrices/tests/test_matrices.py` -> 410 passed, 4 skipped, 14 expected failures (all pre-existing), 0 failures.
+
+Note: view_diff/git diff could not be displayed because the environment is not a git repository, but the change was confirmed present by re-reading the file.
+
+### Edit
+Fixed the issue in sympy/matrices/expressions/blockmatrix.py, BlockDiagMatrix.blocks property (lines 298-305).
+
+Root cause: BlockDiagMatrix.blocks built ImmutableDenseMatrix(data) without evaluate=False. For a single dense Matrix element, this flattened the inner Matrix into a 2x2 matrix instead of keeping a 1x1 matrix-of-blocks, so self.blocks[0,0] returned the scalar 1 (a One), which BlockMatrix._entry then tried to subscript, raising TypeError: 'One' object is not subscriptable. BlockMatrix.__new__ already uses evaluate=False for the same reason.
+
+Change: return ImmutableDenseMatrix(data, evaluate=False) instead of ImmutableDenseMatrix(data).
+
+Verification: sympy.Matrix(sympy.BlockDiagMatrix(sympy.Matrix([[1,2],[3,4]]))) now returns Matrix([[1,2],[3,4]]); two- and three-element BlockDiagMatrix still work; sympy/matrices/expressions/tests/test_blockmatrix.py passes 16/16, and the broader matrices/expressions test suite passed (410 passed, 4 skipped, 14 xfail). Note: view_diff/git diff tooling returned an environment access error, but the edit is confirmed present by reading the file.
+
+### Verify
+## Summary
+
+**Root cause:** `BlockDiagMatrix.blocks` (in `sympy/matrices/expressions/blockmatrix.py`, lines 298-305) built `ImmutableDenseMatrix(data)` *without* `evaluate=False`. With a single dense `Matrix` element, the 1×1 block container `[[M]]` got flattened/evaluated into the inner matrix itself, so `self.blocks` became a 2×2 matrix of scalars while `blockshape` still reported `(1, 1)` (computed from `len(self.args)`). Consequently `self.blocks[0, 0]` returned a scalar `One`, and `_entry` tried to subscript it → `TypeError: 'One' object is not subscriptable` when converting to a regular Matrix.
+
+**Fix (one line):** Pass `evaluate=False` to the `ImmutableDenseMatrix` constructor in `BlockDiagMatrix.blocks`, mirroring what `BlockMatrix.__new__` already does:
+```
+return ImmutableDenseMatrix(data, evaluate=False)
+```
+This keeps the blocks container as a true 1×1 (or n×n) matrix of block matrices regardless of the number of arguments.
+
+**Verification — reproduction now passes:**
+```
+single: Matrix([[1, 2], [3, 4]])
+two:   Matrix([[1, 2, 0, 0], [3, 4, 0, 0], [0, 0, 1, 2], [0, 0, 3, 4]])
+three: ... (6x6 block diag as expected)
+blocks single: Matrix([[Matrix([[1, 2], [3, 4]])]])
+blockshape single: (1, 1)
+```
+
+**Test results (repo runner `bin/test`):**
+- `sympy/matrices/expressions/tests/test_blockmatrix.py`: 16 passed, 0 failed — `[OK]`
+- `sympy/matrices/expressions/tests/test_matexpr.py`: 61 passed (2 expected to fail, pre-existing xfails), 0 failed — `[OK]`
+- `sympy/matrices/tests/test_matrices.py`: 204 passed, 4 skipped, 9 expected to fail, 0 failed — `[OK]`
+
+No new failures; the one-element BlockDiagMatrix now converts to a regular Matrix correctly.
+
+### Verify
+## Verification summary
+
+**Root cause:** In `sympy/matrices/expressions/blockmatrix.py`, the `BlockDiagMatrix.blocks` property (lines 298–306) built `ImmutableDenseMatrix(data)` *without* `evaluate=False`. With a single dense `Matrix` element, this caused the inner matrix to be flattened into a 2×2 scalar matrix, so `self.blocks[0, 0]` returned the scalar `1` (a `One`), which `_entry` then tried to subscript — raising `TypeError: 'One' object is not subscriptable`. `BlockMatrix.__new__` already used `evaluate=False` to avoid this.
+
+**Fix:** Changed line 304 from `return ImmutableDenseMatrix(data)` to `return ImmutableDenseMatrix(data, evaluate=False)`, matching the behavior of `BlockMatrix.__new__`. This keeps `blocks` as a proper 1×1 matrix of blocks for any number of diagonal matrices.
+
+**Reproduction (now passes):**
+- `Matrix(BlockDiagMatrix(Matrix([[1,2],[3,4]])))` → `Matrix([[1, 2], [3, 4]])`
+- Two- and three-element cases continue to work as expected.
+
+**Test output (repo runner `bin/test`):**
+- `sympy/matrices/expressions/tests/test_blockmatrix.py` → `16 passed`
+- `sympy/matrices/expressions/tests/test_matexpr.py` → `47 passed, 2 expected to fail`
+  - combined line: `tests finished: 61 passed, 2 expected to fail, in 0.81 seconds`
+- `sympy/matrices/tests/test_matrices.py` → `tests finished: 204 passed, 4 skipped, 9 expected to fail, in 17.89 seconds`
+
+No failures; only pre-existing expected-fails/skips remain.
+### Plan
+The root cause is clear. Let me verify by checking the `blocks` property of `BlockDiagMatrix` more closely — it builds `ImmutableDenseMatrix(data)` without `evaluate=False`, unlike `BlockMatrix.__new__` which uses `evaluate=False`. When there's a single dense `Matrix` element, `ImmutableDenseMatrix([[M]])` flattens the iterable `M` into a 2×2 matrix instead of keeping a 1×1 matrix containing `M`, so `self.blocks[0,0]` returns the integer `1` (a `One`), which is not subscriptable.
+
+Let me confirm the two-file involvement and apply the fix.
+
+### Plan
+Falsifiable claim: `Matrix(BlockDiagMatrix(Matrix([[1, 2], [3, 4]])))` raises `TypeError: 'One' object is not subscriptable`; it should return `Matrix([[1, 2], [3, 4]])`, like the two-element case.
+
+Root cause (located, not yet edited): In sympy/matrices/expressions/blockmatrix.py, `BlockDiagMatrix.blocks` (lines 298-306) builds `ImmutableDenseMatrix(data)` WITHOUT `evaluate=False`, while `BlockMatrix.__new__` (line 126) DOES pass `evaluate=False`. With a single dense Matrix element, `data=[[M]]` flattens M, so `self.blocks[0,0]` becomes scalar 1 (a `One`), which `BlockMatrix._entry` (lines 235-248) tries to subscript via `self.blocks[row_block, col_block][i, j]` -> TypeError.
+
+Files most likely involved (1-3):
+1. sympy/matrices/expressions/blockmatrix.py — `BlockDiagMatrix.blocks` (primary fix: add `evaluate=False`); `_entry` for safety.
+2. sympy/matrices/expressions/matexpr.py — `MatrixExpr.__getitem__`/`as_explicit` (call path; likely no edit).
+
+Next phase should: edit `BlockDiagMatrix.blocks` to construct ImmutableDenseMatrix with `evaluate=False` (mirroring `BlockMatrix.__new__`), then verify with `pytest sympy/matrices/expressions/tests/test_blockmatrix.py` plus the issue reproducer.
+
+### Explore
+
+
+### Explore
+Root cause located and fixed.
+
+Issue (falsifiable claim): `sympy.Matrix(sympy.BlockDiagMatrix(M))` raises `TypeError: 'One' object is not subscriptable` when `BlockDiagMatrix` is created with a single element; it should return the equivalent dense Matrix (e.g. `Matrix([[1,2],[3,4]])`), as it does with two or more elements.
+
+Files/symbol involved:
+- `sympy/matrices/expressions/blockmatrix.py`, `BlockDiagMatrix.blocks` property (lines 298-306). This is the 1-2 file most involved (the secondary file touched during the traceback, `sympy/matrices/expressions/matexpr.py` `as_explicit`/`_entry`, is just the consumer and does not need changes).
+
+Root cause: `BlockDiagMatrix.blocks` built `ImmutableDenseMatrix(data)` without `evaluate=False`. With a single dense `Matrix` arg, ImmutableDenseMatrix flattens the inner matrix into a 2x2 scalar matrix, so `blockshape` reports `(1,1)` but `self.blocks[0,0]` returns the scalar `1` (a `One`), which `_entry` then tries to subscript -> TypeError. `BlockMatrix.__new__` already uses `evaluate=False` (line 126) for the same reason; the diag property was inconsistent.
+
+Fix: changed line 305 from `return ImmutableDenseMatrix(data)` to `return ImmutableDenseMatrix(data, evaluate=False)`. This keeps a 1x1 matrix-of-blocks for the single-element case and is a no-op for the multi-element cases.
+
+Minimal reproduction before fix:
+  M = sympy.Matrix([[1,2],[3,4]])
+  D = sympy.BlockDiagMatrix(M)
+  sympy.Matrix(D)  -> TypeError: 'One' object is not subscriptable
+
+After fix:
+  single: Matrix([[1,2],[3,4]])
+  two:    Matrix([[1,2,0,0],[3,4,0,0],[0,0,1,2],[0,0,3,4]])
+
+Verification: `python bin/test sympy/matrices/expressions/tests/test_blockmatrix.py` -> 16 passed. Full `sympy/matrices/expressions/tests/` + `sympy/matrices/tests/test_matrices.py` -> 410 passed, 4 skipped, 14 expected failures (no regressions).
+
+Next phase: apply/confirm the single-line edit is the only change (already applied to `sympy/matrices/expressions/blockmatrix.py` line 305) and ensure no test files were modified.
+
+### Edit
+Summary for next phase:
+
+Root cause: In sympy/matrices/expressions/blockmatrix.py, the `BlockDiagMatrix.blocks` property (lines 298-306) built the block container as `ImmutableDenseMatrix(data)` *without* `evaluate=False`. When a single dense `Matrix` is the only element, `ImmutableDenseMatrix([[M]])` eagerly flattens the iterable `M` into a 2x2 matrix instead of a 1x1 matrix holding `M`. `blockshape` still reports (1, 1) (it uses `len(self.args)`), so `_entry` calls `self.blocks[0, 0]` which returns the scalar `1` (a `One`), and subscripting it raises `TypeError: 'One' object is not subscriptable`. With >=2 elements the inner matrices were already ImmutableMatrixExpr objects (not iterable-into-scalars), so flattening happened to be a no-op there.
+
+Fix applied (smallest change): Added `evaluate=False` to that constructor, matching what `BlockMatrix.__new__` already does:
+- File: sympy/matrices/expressions/blockmatrix.py
+- Symbol: BlockDiagMatrix.blocks
+- Line range: 298-306
+- Change: `return ImmutableDenseMatrix(data)` -> `return ImmutableDenseMatrix(data, evaluate=False)`
+
+Verification:
+- Reproduction now passes: `BlockDiagMatrix(M)` with one element converts to `Matrix([[1, 2], [3, 4]])`; two- and three-element cases still work.
+- Tests: `python bin/test sympy/matrices/expressions/tests/test_blockmatrix.py` -> 16 passed. Broader run of `sympy/matrices/expressions/tests/` plus `sympy/matrices/tests/test_matrices.py` -> 410 passed, 4 skipped, 14 expected failures (all pre-existing), 0 failures.
+
+Note: view_diff/git diff could not be displayed because the environment is not a git repository, but the change was confirmed present by re-reading the file.
+
+### Edit
+Fixed the issue in sympy/matrices/expressions/blockmatrix.py, BlockDiagMatrix.blocks property (lines 298-305).
+
+Root cause: BlockDiagMatrix.blocks built ImmutableDenseMatrix(data) without evaluate=False. For a single dense Matrix element, this flattened the inner Matrix into a 2x2 matrix instead of keeping a 1x1 matrix-of-blocks, so self.blocks[0,0] returned the scalar 1 (a One), which BlockMatrix._entry then tried to subscript, raising TypeError: 'One' object is not subscriptable. BlockMatrix.__new__ already uses evaluate=False for the same reason.
+
+Change: return ImmutableDenseMatrix(data, evaluate=False) instead of ImmutableDenseMatrix(data).
+
+Verification: sympy.Matrix(sympy.BlockDiagMatrix(sympy.Matrix([[1,2],[3,4]]))) now returns Matrix([[1,2],[3,4]]); two- and three-element BlockDiagMatrix still work; sympy/matrices/expressions/tests/test_blockmatrix.py passes 16/16, and the broader matrices/expressions test suite passed (410 passed, 4 skipped, 14 xfail). Note: view_diff/git diff tooling returned an environment access error, but the edit is confirmed present by reading the file.
+
+### Verify
+## Summary
+
+**Root cause:** `BlockDiagMatrix.blocks` (in `sympy/matrices/expressions/blockmatrix.py`, lines 298-305) built `ImmutableDenseMatrix(data)` *without* `evaluate=False`. With a single dense `Matrix` element, the 1×1 block container `[[M]]` got flattened/evaluated into the inner matrix itself, so `self.blocks` became a 2×2 matrix of scalars while `blockshape` still reported `(1, 1)` (computed from `len(self.args)`). Consequently `self.blocks[0, 0]` returned a scalar `One`, and `_entry` tried to subscript it → `TypeError: 'One' object is not subscriptable` when converting to a regular Matrix.
+
+**Fix (one line):** Pass `evaluate=False` to the `ImmutableDenseMatrix` constructor in `BlockDiagMatrix.blocks`, mirroring what `BlockMatrix.__new__` already does:
+```
+return ImmutableDenseMatrix(data, evaluate=False)
+```
+This keeps the blocks container as a true 1×1 (or n×n) matrix of block matrices regardless of the number of arguments.
+
+**Verification — reproduction now passes:**
+```
+single: Matrix([[1, 2], [3, 4]])
+two:   Matrix([[1, 2, 0, 0], [3, 4, 0, 0], [0, 0, 1, 2], [0, 0, 3, 4]])
+three: ... (6x6 block diag as expected)
+blocks single: Matrix([[Matrix([[1, 2], [3, 4]])]])
+blockshape single: (1, 1)
+```
+
+**Test results (repo runner `bin/test`):**
+- `sympy/matrices/expressions/tests/test_blockmatrix.py`: 16 passed, 0 failed — `[OK]`
+- `sympy/matrices/expressions/tests/test_matexpr.py`: 61 passed (2 expected to fail, pre-existing xfails), 0 failed — `[OK]`
+- `sympy/matrices/tests/test_matrices.py`: 204 passed, 4 skipped, 9 expected to fail, 0 failed — `[OK]`
+
+No new failures; the one-element BlockDiagMatrix now converts to a regular Matrix correctly.
+
+### Verify
+## Verification summary
+
+**Root cause:** In `sympy/matrices/expressions/blockmatrix.py`, the `BlockDiagMatrix.blocks` property (lines 298–306) built `ImmutableDenseMatrix(data)` *without* `evaluate=False`. With a single dense `Matrix` element, this caused the inner matrix to be flattened into a 2×2 scalar matrix, so `self.blocks[0, 0]` returned the scalar `1` (a `One`), which `_entry` then tried to subscript — raising `TypeError: 'One' object is not subscriptable`. `BlockMatrix.__new__` already used `evaluate=False` to avoid this.
+
+**Fix:** Changed line 304 from `return ImmutableDenseMatrix(data)` to `return ImmutableDenseMatrix(data, evaluate=False)`, matching the behavior of `BlockMatrix.__new__`. This keeps `blocks` as a proper 1×1 matrix of blocks for any number of diagonal matrices.
+
+**Reproduction (now passes):**
+- `Matrix(BlockDiagMatrix(Matrix([[1,2],[3,4]])))` → `Matrix([[1, 2], [3, 4]])`
+- Two- and three-element cases continue to work as expected.
+
+**Test output (repo runner `bin/test`):**
+- `sympy/matrices/expressions/tests/test_blockmatrix.py` → `16 passed`
+- `sympy/matrices/expressions/tests/test_matexpr.py` → `47 passed, 2 expected to fail`
+  - combined line: `tests finished: 61 passed, 2 expected to fail, in 0.81 seconds`
+- `sympy/matrices/tests/test_matrices.py` → `tests finished: 204 passed, 4 skipped, 9 expected to fail, in 17.89 seconds`
+
+No failures; only pre-existing expected-fails/skips remain.
+[swe_entry] sympy__sympy-18621 ok steps=8 tools=44
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jac-upstream/jac

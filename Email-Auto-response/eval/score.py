@@ -383,6 +383,21 @@ def record_judge_usage(meter, resp, model):
         pass
 
 
+def _parse_judge_json(text):
+    """The judge is asked for a JSON object; some models fence it or add prose."""
+    text = text.strip()
+    m = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
+    if m:
+        text = m.group(1).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        a, b = text.find("{"), text.rfind("}")
+        if a != -1 and b > a:
+            return json.loads(text[a:b + 1])
+        raise
+
+
 def judge_run(results, dataset, scores, model):
     try:
         from openai import OpenAI
@@ -427,7 +442,7 @@ def judge_run(results, dataset, scores, model):
                 ],
             )
             record_judge_usage(meter, resp, model)
-            verdict = json.loads(resp.choices[0].message.content)
+            verdict = _parse_judge_json(resp.choices[0].message.content or "")
         except Exception as exc:  # judge failures shouldn't kill the run
             judged.append({"threadId": tid, "error": str(exc)})
             continue

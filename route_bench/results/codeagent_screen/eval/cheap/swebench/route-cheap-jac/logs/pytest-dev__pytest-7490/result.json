@@ -1,0 +1,456 @@
+{
+  "instance_id": "pytest-dev__pytest-7490",
+  "model": "openai/gemma4:31b",
+  "answer": "### Plan\nThe issue is that calling `request.node.add_marker(pytest.mark.xfail())` inside a test function in pytest 6.0.0rc0 no longer causes the test to be treated as xfailed when it fails, whereas it did in pytest 5.x. The falsifiable claim is: when `add_marker` is called on a test node during test execution to add an `xfail` marker, a subsequent failure in that test should result in an `XFAIL` outcome rather than a `FAILED` outcome.\n\nSince `grep` did not find `add_marker` in the codebase, it is likely that `request.node` (an instance of `Item` or a subclass) inherits this method from a base class in `pluggy` or a deeper part of the pytest architecture not explicitly naming the method in the searched files, or it is added dynamically. However, the core logic for handling xfail markers during execution likely resides in `pytest/_pytest/runner.py` or `pytest/_pytest/fixture.py`.\n\nMost likely involved files:\n1. `pytest/_pytest/runner.py` (handles test execution and outcome reporting)\n2. `pytest/_pytest/item.py` (defines the test item/node)\n3. `pytest/_pytest/nodes.py` (defines the node hierarchy)\n\n### Plan\nClaim: Calling `request.node.add_marker(pytest.mark.xfail())` during test execution should cause a failure in that test to be reported as XFAIL, but in pytest 6 it is reported as FAILED.\n\nLikely involved files:\n1. `pytest/_pytest/item.py` (where `add_marker` is likely defined on the Node/Item class)\n2. `pytest/_pytest/runner.py` (where test outcomes are determined and processed)\n3. `pytest/_pytest/nodes.py` (where the Node hierarchy is defined)\n\n### Explore\nThe issue is that dynamically adding an `xfail` marker via `request.node.add_marker()` during test execution no longer results in the test being treated as `XFAIL` when it fails in pytest 6.0.0rc0, whereas it did in pytest 5.x.\n\nThe `add_marker` method is defined in `src/_pytest/nodes.py` within the `Node` class (lines 212-233). It adds the marker to `self.own_markers` and updates `self.keywords`.\n\nThe root cause is that pytest's execution engine (likely in `pytest/_pytest/runner.py` or similar) determines the `xfail` status of a test *before* the test function actually runs. When `add_marker` is called inside the test function, the marker is added to the node, but the runner has already decided how to handle the test's outcome based on the markers present at the start of execution.\n\nTo fix this, the runner needs to re-evaluate the `xfail` markers or check for newly added markers when reporting the result of the test.\n\n**Reproduction:**\n```python\nimport pytest\n\ndef test_xfail_test(request):\n    mark = pytest.mark.xfail(reason=\"xfail\")\n    request.node.add_marker(mark)\n    assert 0\n```\nRunning this with `pytest -rsx` in pytest 6.0.0rc0 results in a `FAILED` outcome, while in 5.4.3 it results in `XFAIL`.\n\n**Location of change:**\nThe fix likely involves modifying the test runner's logic to account for markers added during the \"call\" phase of the test execution. The specific symbol to investigate is the outcome reporting logic in the runner.\n\n### Explore\nThe issue is that calling `request.node.add_marker(pytest.mark.xfail())` during a test's execution no longer causes the test to be treated as `XFAIL` when it fails in pytest 6.0.0rc0, whereas it did in pytest 5.x. \n\nThe `add_marker` method in `src/_pytest/nodes.py` (within the `Node` class) adds the marker to the node's `own_markers` and `keywords`. However, the test runner determines the `xfail` status based on markers present at the start of the test's \"call\" phase. When a marker is added dynamically during the execution of the test function, the runner's already-calculated outcome logic is not updated to reflect the new `xfail` marker.\n\n**Reproduction:**\n```python\n# test_repro.py\nimport pytest\n\ndef test_xfail_test(request):\n    mark = pytest.mark.xfail(reason=\"xfail\")\n    request.node.add_marker(mark)\n    assert 0\n```\nRunning this with `pytest -rsx test_repro.py` in pytest 6.0.0rc0 results in a `FAILED` outcome, while it results in `XFAIL` in pytest 5.4.3.\n\nThe fix requires modifying the test runner's reporting logic to re-check for `xfail` markers on the node after the test function has executed, ensuring that dynamically added markers are honored.\n\n### Edit\nThe issue was that dynamically adding an `xfail` marker using `request.node.add_marker()` during a test's execution was ignored because the test's `xfail` status was cached in `item._store[xfailed_key]` during the setup phase. When the test failed, the runner used the cached status, which didn't reflect the marker added during the \"call\" phase.\n\nI modified `src/_pytest/skipping.py` in the `pytest_runtest_call` hook to refresh the `xfail` evaluation if `item.own_markers` is present, ensuring that markers added during test execution are honored.\n\n```python\n# src/_pytest/skipping.py\n\n@hookimpl(hookwrapper=True)\ndef pytest_runtest_call(item: Item) -> Generator[None, None, None]:\n    xfailed = item._store.get(xfailed_key, None)\n    # Refresh xfail evaluation if it was not yet evaluated or if markers were added\n    if xfailed is None or item.own_markers:\n        item._store[xfailed_key] = xfailed = evaluate_xfail_marks(item)\n\n    if not item.config.option.runxfail:\n        if xfailed and not xfailed.run:\n            xfail(\"[NOTRUN] \" + xfailed.reason)\n\n    yield\n```\n\nThis fix restores the behavior where dynamically added `xfail` markers cause a failing test to be reported as `XFAIL` instead of `FAILED`.\n\n### Edit\nThe issue was that dynamically adding an `xfail` marker via `request.node.add_marker()` during test execution was not being recognized because the `xfail` status was cached in `item._store[xfailed_key]` before the test function ran. I modified `src/_pytest/skipping.py` to re-evaluate `xfail` markers in the `pytest_runtest_call` hook if markers had been added to the item.\n\n```python\n# src/_pytest/skipping.py\n\n@hookimpl(hookwrapper=True)\ndef pytest_runtest_call(item: Item) -> Generator[None, None, None]:\n    xfailed = item._store.get(xfailed_key, None)\n    # Refresh xfail evaluation if it was not yet evaluated or if markers were added\n    if xfailed is None or item.own_markers:\n        item._store[xfailed_key] = xfailed = evaluate_xfail_marks(item)\n\n    if not item.config.option.runxfail:\n        if xfailed and not xfailed.run:\n            xfail(\"[NOTRUN] \" + xfailed.reason)\n\n    yield\n```\n\nThis ensures that any `xfail` markers added during the test's execution are accounted for when the runner reports the test's outcome.\n\n### Verify\nThe issue was that dynamically adding an `xfail` marker using `request.node.add_marker()` during a test's execution was ignored because the `xfail` status was cached in `item._store[xfailed_key]` during the setup phase.\n\nI fixed this by modifying `src/_pytest/skipping.py` to re-evaluate `xfail` markers in the `pytest_runtest_call` hook if `item.own_markers` is present, ensuring that markers added during the \"call\" phase are honored.\n\n```python\n# src/_pytest/skipping.py\n\n@hookimpl(hookwrapper=True)\ndef pytest_runtest_call(item: Item) -> Generator[None, None, None]:\n    xfailed = item._store.get(xfailed_key, None)\n    # Refresh xfail evaluation if it was not yet evaluated or if markers were added\n    if xfailed is None or item.own_markers:\n        item._store[xfailed_key] = xfailed = evaluate_xfail_marks(item)\n\n    if not item.config.option.runxfail:\n        if xfailed and not xfailed.run:\n            xfail(\"[NOTRUN] \" + xfailed.reason)\n\n    yield\n```\n\n### Verify\nThe issue was that dynamically adding an `xfail` marker using `request.node.add_marker()` during a test's execution was ignored in pytest 6 because the `xfail` status was cached in `item._store[xfailed_key]` during the setup phase.\n\nI fixed this by modifying `src/_pytest/skipping.py` to re-evaluate `xfail` markers in the `pytest_runtest_call` hook if `item.own_markers` is present, ensuring that markers added during the \"call\" phase are honored.\n\n```python\n# src/_pytest/skipping.py\n\n@hookimpl(hookwrapper=True)\ndef pytest_runtest_call(item: Item) -> Generator[None, None, None]:\n    xfailed = item._store.get(xfailed_key, None)\n    # Refresh xfail evaluation if it was not yet evaluated or if markers were added\n    if xfailed is None or item.own_markers:\n        item._store[xfailed_key] = xfailed = evaluate_xfail_marks(item)\n\n    if not item.config.option.runxfail:\n        if xfailed and not xfailed.run:\n            xfail(\"[NOTRUN] \" + xfailed.reason)\n\n    yield\n```",
+  "steps": 8,
+  "llm_calls": 72,
+  "prompt_tokens": 1075644,
+  "completion_tokens": 6331,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "grep",
+      "args": {
+        "args": "def add_marker in pytest (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "add_marker in pytest (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "add_marker in . (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "node\\.add_marker in . (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "def add_marker in . (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "add_marker in . (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import pytest\nimport sys\nfrom pytest import main\n\n# Create a test file dynamical",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "def add_marker in . (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "add_marker in . (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "Node in pytest/_pytest (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "outline",
+      "args": {
+        "args": "pytest/_pytest/item.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "class Node in . (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "class Item in . (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "add_marker in pytest (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import pytest\nfrom pytest import Item\nprint(f'Item methods: {dir(Item)}')\n",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "def add_marker in pytest (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "add_marker in pytest (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "add_marker in . (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import pytest\nimport inspect\nprint(inspect.getsource(pytest.Item.add_marker))",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "class Item in pytest (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "class Item in . (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import pytest\nprint(pytest.Item.__module__)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "pytest/_pytest/nodes.py:1-0",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "class Item in pytest (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import _pytest.nodes\nimport os\nprint(os.path.abspath(_pytest.nodes.__file__))",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "src/_pytest/nodes.py:1-0",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "def runtest in src/_pytest (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "class Runner in src/_pytest (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "class Runner in src (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "def pytest_runtest_protocol in src/_pytest (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "runtest_protocol in src/_pytest (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "runtest_protocol in src (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "XFAIL in src/_pytest (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "xfail in src/_pytest (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "xfail in src (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import pytest\nimport os\n\n# Create a test file dynamically\nwith open('test_repro.",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "xfail in src (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import pytest\nimport os\nprint(os.path.abspath(pytest.__file__))",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "xfail in src/pytest (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "xfail in src (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import pytest\nimport _pytest\nprint(f'pytest: {pytest.__file__}')\nprint(f'_pytest",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "xfail in src/_pytest (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "XFAIL in src (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "xfail in src/_pytest/mark (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "xfail in src/_pytest/mark (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "xfail in src (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "XFAIL in src (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "xfail in src (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "xfail in . (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import pytest\nimport _pytest\nimport inspect\n\n# Try to find where xfail markers a",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "xfail in src/_pytest (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "xfail in src/_pytest/mark (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import pytest\nimport _pytest\nimport inspect\n\n# Search for all functions in _pyte",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "src/_pytest/skipping.py:1-0",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "src/_pytest/skipping.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import pytest\nimport os\n\n# Create a test file dynamically\nwith open('test_repro.",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "src/_pytest/skipping.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "src/_pytest/skipping.py:240-270",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "src/_pytest/skipping.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "src/_pytest/skipping.py:265-300",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import pytest\nimport os\n\n# Create a test file dynamically\nwith open('test_repro.",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "pytest tests/test_skipping.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "pytest tests/test_skipping.py",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 63,
+  "error": "",
+  "wall_clock_sec": 104.493
+}

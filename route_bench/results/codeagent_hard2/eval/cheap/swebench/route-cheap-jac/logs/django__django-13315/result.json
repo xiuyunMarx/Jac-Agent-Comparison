@@ -1,0 +1,134 @@
+{
+  "instance_id": "django__django-13315",
+  "model": "openai/gemma4:31b",
+  "answer": "### Plan\n<tool_call>{\"name\": \"finish_tool\", \"arguments\": {\"final_output\": \"Claim: When `Field.get_choices()` is called on a ForeignKey field where `limit_choices_to` involves a join (e.g., using a Q object referencing a related model), the resulting queryset `qs` may contain duplicate entries of the same model instance, leading to duplicate options in the generated form field. It should return unique model instances.\n\nMost likely involved files:\n1. `django/db/models/fields/__init__.py`: Specifically the `get_choices` method which performs the filtering and iterates over the queryset.\n2. `django/db/models/fields/related.py`: Where `get_limit_choices_to` is defined and where related field logic resides.\"}}</tool_call>\n\n### Plan\n<tool_call>{\"name\": \"finish_tool\", \"arguments\": {\"final_output\": \"Claim: When `Field.get_choices()` is called on a ForeignKey field where `limit_choices_to` involves a join (e.g., using a Q object referencing a related model), the resulting queryset `qs` may contain duplicate entries of the same model instance, leading to duplicate options in the generated form field. It should return unique model instances.\n\nMost likely involved files:\n1. `django/db/models/fields/__init__.py`: Specifically the `get_choices` method which performs the filtering and iterates over the queryset.\n2. `django/db/models/fields/related.py`: Where `get_limit_choices_to` is defined and where related field logic resides.\"}}</tool_call>\n\n### Explore\n<tool_call>{\"name\": \"finish_tool\", \"arguments\": {\"final_output\": \"The issue is reproduced. When `ForeignKey.get_choices()` is called, it uses `complex_filter(limit_choices_to)` to get a queryset. If `limit_choices_to` involves a join (e.g., via a `Q` object referencing a related model), the resulting SQL query may return multiple rows for the same primary object, leading to duplicate entries in the choices list.\n\nFile: `django/db/models/fields/__init__.py`\nSymbol: `Field.get_choices`\nLine range: 883-889\n\nRepro output:\n```\nChoices: [('', '---------'), (1, 'John Doe'), (1, 'John Doe')]\nAuthor 'John Doe' appears 2 times\nREPRODUCED: Duplicate options found\n```\"}}</tool_call>\n\n### Explore\n<tool_call>{\"name\": \"finish_tool\", \"arguments\": {\"final_output\": \"The issue is reproduced. When `ForeignKey.get_choices()` is called, it uses `complex_filter(limit_choices_to)` to get a queryset. If `limit_choices_to` involves a join (e.g., via a `Q` object referencing a related model), the resulting SQL query may return multiple rows for the same primary object, leading to duplicate entries in the choices list.\n\nFile: `django/db/models/fields/__init__.py`\nSymbol: `Field.get_choices`\nLine range: 883-889\n\nRepro output:\n```\nChoices: [('', '---------'), (1, 'John Doe'), (1, 'John Doe')]\nAuthor 'John Doe' appears 2 times\nREPRODUCED: Duplicate options found\n```\"}}</tool_call>\n\n### Edit\n<tool_call>{\"name\": \"finish_tool\", \"arguments\": {\"final_output\": \"I have fixed the issue where `limit_choices_to` on a ForeignKey field could render duplicate options when involving joins. I added `.distinct()` to the queryset in `Field.get_choices()` in `django/db/models/fields/__init__.py` to ensure that only unique model instances are returned.\n\nVerification:\nThe reproduction script, which previously showed duplicate options for an author with multiple books in a category, now shows only a single unique entry for the author.\n\nDiff:\n```python\n--- django/db/models/fields/__init__.py\n+++ django/db/models/fields/__init__.py\n@@ -883,1 +883,1 @@\n-        qs = rel_model._default_manager.complex_filter(limit_choices_to)\n+        qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()\n```\"}}</tool_call>\n\n### Edit\n<tool_call>{\"name\": \"finish_tool\", \"arguments\": {\"final_output\": \"I have fixed the issue where `limit_choices_to` on a ForeignKey field could render duplicate options when involving joins. I added `.distinct()` to the queryset in `Field.get_choices()` in `django/db/models/fields/__init__.py` to ensure that only unique model instances are returned.\n\nVerification:\nThe reproduction script, which previously showed duplicate options for an author with multiple books in a category, now shows only a single unique entry for the author.\n\nDiff:\n```python\n--- django/db/models/fields/__init__.py\n+++ django/db/models/fields/__init__.py\n@@ -883,1 +883,1 @@\n-        qs = rel_model._default_manager.complex_filter(limit_choices_to)\n+        qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()\n```\"}}</tool_call>\n\n### Verify\n<tool_call>{\"name\": \"finish_tool\", \"arguments\": {\"final_output\": \"The issue was that `ForeignKey.get_choices()` could produce duplicate options when `limit_choices_to` involved joins (e.g., via a `Q` object). I fixed this by adding `.distinct()` to the queryset in `django/db/models/fields/__init__.py`.\n\nVerification:\nA reproduction script was created where an Author had multiple books in a single category, and `limit_choices_to` was used to filter authors by category. Before the fix, the author appeared multiple times in the choices list. After adding `.distinct()`, the author appeared only once.\n\nThe change is:\n```python\n--- django/db/models/fields/__init__.py\n+++ django/db/models/fields/__init__.py\n@@ -883,1 +883,1 @@\n-        qs = rel_model._default_manager.complex_filter(limit_choices_to)\n+        qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()\n```\n\nAttempts to run the full Django `models` test suite via `tests/runtests.py` failed due to incorrect label passing (the runner expects specific labels that were not correctly identified), but the focused reproduction script confirmed the fix.\"}}</tool_call>\n\n### Verify\n<tool_call>{\"name\": \"finish_tool\", \"arguments\": {\"final_output\": \"I have fixed the issue where `limit_choices_to` on a ForeignKey field can render duplicate options when involving a join. I added `.distinct()` to the queryset in `Field.get_choices()` within `django/db/models/fields/__init__.py`.\n\nVerification:\nI created a reproduction script with a many-to-many relationship (Category -> Book -> Author). When filtering authors by category name using `limit_choices_to`, the original code returned duplicate authors if they had multiple books in the same category. After applying the fix, the duplicates were removed.\n\nThe change is:\n```python\n--- django/db/models/fields/__init__.py\n+++ django/db/models/fields/__init__.py\n@@ -883,1 +883,1 @@\n-        qs = rel_model._default_manager.complex_filter(limit_choices_to)\n+        qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()\n```\n\nReproduction result:\n- Before: `Choices: [('', '---------'), (1, 'John Doe'), (1, 'John Doe')]`\n- After: `Choices: [('', '---------'), (1, 'John Doe')]`\"}}</tool_call>",
+  "steps": 8,
+  "llm_calls": 29,
+  "prompt_tokens": 281571,
+  "completion_tokens": 5239,
+  "cached_tokens": 229952,
+  "tool_calls": [
+    {
+      "name": "grep",
+      "args": {
+        "args": "limit_choices_to in django/db/models/fields (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "outline",
+      "args": {
+        "args": "django/db/models/fields/__init__.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "django/db/models/fields/__init__.py:864-890",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import os\nimport django\nfrom django.conf import settings\nfrom django.db import m",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import django\nfrom django.conf import settings\nfrom django.db import models\nfrom",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import django\nfrom django.conf import settings\nfrom django.db import models\nfrom",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "django/db/models/fields/__init__.py:880-888",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "django/db/models/fields/__init__.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import django\nfrom django.conf import settings\nfrom django.db import models\nfrom",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py models",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py tests.models",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py models.tests",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py tests/models",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py models",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py models",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py models",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 17,
+  "error": "",
+  "wall_clock_sec": 46.263
+}

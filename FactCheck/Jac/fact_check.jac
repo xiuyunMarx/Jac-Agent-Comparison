@@ -5,7 +5,7 @@ import time;
 import requests;
 import from jaclang.byllm.llm { Model }
 
-glob MODEL_NAME: str = "openai/glm-5.2";
+glob MODEL_NAME: str = os.environ.get("FC_MODEL", "openai/glm-5.2");
 glob MODEL_BASE: str = "https://ollama.com/v1";
 # byLLM 0.31.1 drops config["base_url"] on the litellm path, so the endpoint
 # reaches litellm through OPENAI_API_BASE instead.

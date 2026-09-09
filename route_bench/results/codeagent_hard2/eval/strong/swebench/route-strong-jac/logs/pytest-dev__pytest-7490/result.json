@@ -1,0 +1,344 @@
+{
+  "instance_id": "pytest-dev__pytest-7490",
+  "model": "openai/glm-5.2",
+  "answer": "### Plan\nPlan: In pytest 6, dynamically adding an `xfail` marker during a test's own body via `request.node.add_marker(...)` results in a real FAILED instead of XFAIL (pytest 5.x reported XFAIL).\n\nRoot cause is in src/_pytest/skipping.py: the xfail evaluation is cached in item._store[xfailed_key]. pytest_runtest_setup (line ~242) evaluates xfail marks at setup time and stores the result \u2014 None when no marker exists yet. pytest_runtest_call (lines ~249-251) only re-evaluates if the cache is None, and that re-evaluation runs before `yield`, i.e. before the test body adds the marker, so it is still None. pytest_runtest_makereport (line ~264) reads the cached None and, since `xfailed` is None, skips the `elif not rep.skipped and xfailed:` branch (line ~272), so the failure is never converted to an xfail. pytest 5.x re-evaluated marks at report time, honoring markers added during the call.\n\nFix (minimal): in pytest_runtest_makereport in src/_pytest/skipping.py, when the cached xfailed is None, re-run evaluate_xfail_marks(item) before deciding the report outcome, so a dynamically-added xfail marker is honored. Then verify with the issue reproducer (expect XFAIL) and run the existing skipping tests (pytest src/_pytest/skipping.py and the marking/skipping test modules).\n\nFiles involved: src/_pytest/skipping.py (primary; only change). No test files should be edited.\n\n### Plan\nPLANNING SUMMARY\n\nFalsifiable claim: When a test adds an `xfail` marker to its own node during the call phase (e.g. `request.node.add_marker(pytest.mark.xfail(...))`), a failing assertion should be reported as `xfailed`/skipped \u2014 as it was in pytest 5.x. In pytest 6.x it is instead reported as a hard failure.\n\nRoot cause (in src/_pytest/skipping.py):\n- `pytest_runtest_setup` caches the xfail evaluation in `item._store[xfailed_key] = evaluate_xfail_marks(item)`. At setup time no xfail marker exists yet, so it stores `None`.\n- `pytest_runtest_call` reads that cached value; since it is `None` it re-evaluates \u2014 but it does so *before* `yield`, i.e. before the test body runs and adds the marker, so it still sees no marker and caches `None`.\n- `pytest_runtest_makereport` reads `item._store.get(xfailed_key, None)` and, because it is `None`, the `elif not rep.skipped and xfailed:` branch is skipped, so the failure is reported as a normal failure. The marker added during the call is never re-evaluated.\n\nThe `None` value is overloaded: it means both \"evaluated, no xfail\" and \"not yet evaluated / re-evaluate\". The comment on `xfailed_key` says it \"Can be refreshed during call if None\", but makereport never refreshes it.\n\nFiles most likely involved (1-3):\n1. src/_pytest/skipping.py \u2014 primary; the caching/re-evaluation logic in `pytest_runtest_setup`, `pytest_runtest_call`, and especially `pytest_runtest_makereport`.\n\nProposed minimal fix: In `pytest_runtest_makereport`, when the cached `xfailed` is `None`, re-run `evaluate_xfail_marks(item)` so a marker added during the call phase (or call setup) is honored. (Equivalently, only cache a non-None result and treat absence/None as \"needs re-evaluation\", keeping the makereport re-evaluation.) This restores 5.x behavior where dynamically added xfail markers are respected, without breaking static markers.\n\nNext phase should: edit src/_pytest/skipping.py to re-evaluate xfail marks in makereport when the cache is None, then run the skipping/xfail tests (e.g. `pytest testing/test_skipping.py`) to verify.\n\n### Explore\n## Root cause & location\n\n**File:** `src/_pytest/skipping.py`\n\n**Bug:** When an xfail marker is added dynamically during the test's own execution (e.g. `request.node.add_marker(pytest.mark.xfail(...))` inside the test body, then the test fails), pytest 6 reports a hard failure instead of treating it as xfail.\n\n**Why:** The xfail mark evaluation is cached in `item._store[xfailed_key]` at *setup* time (`pytest_runtest_setup`, lines 233-245) and refreshed at the *start* of the call phase (`pytest_runtest_call`, lines 248-257) \u2014 but both run **before** the test function body executes and adds the marker. By the time the test fails and `pytest_runtest_makereport` (line 261, reading cached `xfailed` at line 264) runs, the cached value is still `None`, so the `elif not rep.skipped and xfailed:` branch (line 275) is skipped and the failure is reported normally.\n\n**Falsifiable claim:** A test that calls `request.node.add_marker(pytest.mark.xfail(reason=\"...\"))` and then fails should produce an `xfailed` outcome; currently it produces `failed`.\n\n**Fix location:** `pytest_runtest_makereport` (lines 261-296). When `xfailed` is `None` (no cached evaluation, i.e. the mark was added dynamically during the call), it should re-evaluate `evaluate_xfail_marks(item)` so a dynamically-added xfail is honored.\n\n**Repro output (currently failing):**\n```\ntest_foo.py F   [100%]\nFAILED test_foo.py::test_xfail_test - assert 0\n1 failed\n```\n\nExpected after fix:\n```\ntest_foo.py x   [100%]\nXFAIL test_foo.py::test_xfail_test\n1 xfailed\n```\n\n### Explore\n## Summary for next phase\n\n**Falsifiable claim:** When a test dynamically adds an `xfail` marker during its own execution (e.g. `request.node.add_marker(pytest.mark.xfail(reason=\"xfail\"))` then fails), pytest 6 reports the test as `failed` instead of `xfailed`. It should report it as `xfailed` (as pytest 5.4.3 did).\n\n**Reproduction confirmed (RC=1, \"1 failed\"):**\n```\n$ python -m pytest -rsx test_foo.py\ntest_foo.py F\n=================================== FAILURES ===================================\n_______________________________ test_xfail_test ________________________________\n    def test_xfail_test(request):\n        mark = pytest.mark.xfail(reason=\"xfail\")\n        request.node.add_marker(mark)\n>       assert 0\nE       assert 0\n============================== 1 failed in 0.01s ===============================\n```\n\n**Root cause / location:**\n- File: `src/_pytest/skipping.py`\n- `pytest_runtest_call` (lines 248\u2013257): re-evaluates xfail marks *before* `yield` (i.e. before the test body runs and can add a marker). So a dynamically added marker is never seen during call.\n- `pytest_runtest_makereport` (lines 261\u2013305, specifically line 264): reads the cached `xfailed = item._store.get(xfailed_key, None)`. Since setup/call cached `None`, the report logic's `elif not rep.skipped and xfailed:` branch never triggers, so the failure is not converted to xfail.\n\n**Fix direction:** In `pytest_runtest_makereport`, when `xfailed` is `None` at report time, re-evaluate the xfail marks (`evaluate_xfail_marks(item)`) so markers added dynamically during the call phase are honored. This is the minimal change consistent with the existing \"Can be refreshed during call if None\" comment on `xfailed_key` (line 227).\n\nNo test edits should be made.\n\n### Edit\nThe single failure (`test_chained_exceptions_no_reprcrash`) is a pre-existing, unrelated `pkg_resources` DeprecationWarning failure, not caused by my change. Let me view the final diff.\n\n### Edit\n## Summary for next phase\n\n**Fix applied.** In `src/_pytest/skipping.py`, `pytest_runtest_call` re-evaluated xfail marks *before* the test body ran, so a marker added dynamically during the call (e.g. `request.node.add_marker(pytest.mark.xfail(...))`) was never seen, and the cached `xfailed_key` stayed `None`. `pytest_runtest_makereport` then read that stale `None` and reported the failure as a real failure instead of `xfailed`.\n\n**Change:** Added a re-evaluation of xfail marks *after* `yield` in `pytest_runtest_call` (after the test body has executed), storing the refreshed result in `item._store[xfailed_key]` so `pytest_runtest_makereport` picks it up:\n\n```python\n    yield\n\n    # Re-evaluate xfail marks after the test has run, in case they were\n    # added dynamically during the call phase (e.g. via\n    # request.node.add_marker). The result is stored so that\n    # pytest_runtest_makereport can pick it up.\n    item._store[xfailed_key] = evaluate_xfail_marks(item)\n```\n\nThis is minimal and reuses the existing \"Can be refreshed during call if None\" mechanism (the `xfailed_key` store entry). An earlier attempt to re-evaluate inside `pytest_runtest_makereport` regressed `test_errors_in_xfail_skip_expressions` (condition-eval errors raised as INTERNALERROR during the setup report), so the call-phase-after-yield location was chosen instead.\n\n**Files changed:**\n- `src/_pytest/skipping.py` (the fix)\n- `changelog/7494.bugfix.rst` (new changelog entry)\n\n**Verification:**\n- Reproduction from the issue now passes: `1 xfailed` (XFAIL test_xfail_test / \"xfail\"), RC 0 (previously `1 failed`).\n- `testing/test_skipping.py` + `testing/test_mark.py`: 170 passed, 1 xfailed (expected). No regressions.\n- `testing/test_runner.py` also clean (225 passed, 2 xfailed across the combined run).\n- One unrelated pre-existing failure (`testing/test_reports.py::test_chained_exceptions_no_reprcrash`, a `pkg_resources` DeprecationWarning) is not caused by this change.\n\nNote: `git diff`/`view_diff` could not be displayed due to a \"dubious ownership\" git config error in the environment, but the edits were confirmed present by re-reading the file and by the passing reproduction/tests.\n\n### Verify\nVerification phase complete.\n\n## Fix applied\nFile: `src/_pytest/skipping.py`, function `pytest_runtest_call`. Added re-evaluation of xfail marks after the test body runs (`yield`) so that markers added dynamically during the call phase (e.g. via `request.node.add_marker(pytest.mark.xfail(...))`) are stored in `item._store[xfailed_key]` and picked up by `pytest_runtest_makereport`:\n\n```python\n    yield\n\n    # Re-evaluate xfail marks after the test has run, in case they were\n    # added dynamically during the call phase (e.g. via\n    # request.node.add_marker). The result is stored so that\n    # pytest_runtest_makereport can pick it up.\n    item._store[xfailed_key] = evaluate_xfail_marks(item)\n```\n\nA changelog entry was added at `changelog/7494.bugfix.rst`.\n\n(An earlier attempt re-evaluated inside `pytest_runtest_makereport` unconditionally, which caused `test_errors_in_xfail_skip_expressions` to INTERNALERROR during the setup report phase; the final fix re-evaluates only after the call phase, avoiding that.)\n\n## Reproduction (from the issue)\nBefore: `1 failed`. After the fix:\n```\ncollected 1 item\ntest_foo.py x [100%]\nXFAIL test_foo.py::test_xfail_test\n  xfail\n============================== 1 xfailed in 0.01s ==============================\n```\nReturn code 0 (xfailed), as pytest 5.4.3 behaved.\n\n## Existing test results (nearest the changed code)\n- `testing/test_skipping.py testing/test_mark.py -q`:\n  `170 passed, 1 xfailed in 3.05s` (the xfail is a pre-existing expected xfail, `test_keyword_extra_dash`).\n- `testing/test_skipping.py testing/test_mark.py -v -k xfail`:\n  `42 passed, 128 deselected, 1 xfailed in 0.93s` \u2014 including the dynamic-xfail tests `test_dynamic_xfail_no_run` and `test_dynamic_xfail_set_during_funcarg_setup`, and `test_errors_in_xfail_skip_expressions`, all PASSED.\n- Broader run `testing/test_skipping.py testing/test_mark.py testing/test_runner.py`:\n  `225 passed, 2 xfailed in 4.19s`.\n\nA separate run of `testing/test_reports.py` showed one failure (`test_chained_exceptions_no_reprcrash`), but that is a pre-existing, unrelated `pkg_resources` DeprecationWarning failure independent of this change.\n\n### Verify\nVerification phase results:\n\nRan the existing tests nearest the changed code (src/_pytest/skipping.py):\n`python -m pytest testing/test_skipping.py testing/test_mark.py -q`\n\nOutput:\n```\n........................................................................ [ 42%]\n........................................................................ [ 84%]\n...........x...............                                              [100%]\n170 passed, 1 xfailed in 3.08s\n```\n\nResult: 170 passed, 1 xfailed (the xfail is a pre-existing expected-failure test, `test_keyword_extra_dash`), 0 failed.\n\nThe targeted xfail-related subset (`-k xfail`) also all passed: 42 passed, 128 deselected, 1 xfailed in 0.93s \u2014 including the dynamic-marker tests `test_dynamic_xfail_no_run` and `test_dynamic_xfail_set_during_funcarg_setup`.\n\nThe earlier regression I caused by re-evaluating marks during the report phase (`test_errors_in_xfail_skip_expressions`) is resolved by the chosen fix (re-evaluation after `yield` in `pytest_runtest_call`), and that test now passes.\n\nNo failure lines were produced. The fix (re-evaluating xfail marks after the test body runs so dynamically added markers are honored) passes the relevant existing test suites without regressions.",
+  "steps": 8,
+  "llm_calls": 57,
+  "prompt_tokens": 1398026,
+  "completion_tokens": 16483,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "grep",
+      "args": {
+        "args": "xfail in src/_pytest/skipping.py (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "outline",
+      "args": {
+        "args": "src/_pytest/skipping.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "src/_pytest/skipping.py:191-310",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "src/_pytest/skipping.py:1-1",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "xfailed_key in src/_pytest (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "xfail in changelog (*.rst)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess, textwrap, os, tempfile\n\ncode = textwrap.dedent(\"\"\"\nimport pyt",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "src/_pytest/skipping.py:233-258",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "add_marker|dynamic in testing/test_skipping.py (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "add_marker.*xfail|xfail.*add_marker in testing (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "src/_pytest/skipping.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "src/_pytest/skipping.py:261-305",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "src/_pytest/skipping.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "src/_pytest/skipping.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "src/_pytest/skipping.py:261-305",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "src/_pytest/skipping.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "src/_pytest/skipping.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess, textwrap, os, tempfile\n\ncode = textwrap.dedent(\"\"\"\nimport pyt",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"python\", \"-m\", \"pytest\", \"testing/test_sk",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "src/_pytest/skipping.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "src/_pytest/skipping.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "src/_pytest/skipping.py:261-305",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "src/_pytest/skipping.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "src/_pytest/skipping.py:248-258",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "src/_pytest/skipping.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess, textwrap, os, tempfile\n\ncode = textwrap.dedent(\"\"\"\nimport pyt",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"python\", \"-m\", \"pytest\", \"testing/test_sk",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"python\", \"-m\", \"pytest\", \"testing/test_ru",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"python\", \"-m\", \"pytest\", \"testing/test_ru",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"git\", \"diff\", \"--\", \"src/_pytest/skipping",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"git\", \"status\", \"--\", \"src/_pytest/skippi",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "src/_pytest/skipping.py:248-258",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess, os, textwrap, tempfile\n\n# Show diff from repo root\nr = subpro",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess, os\nprint(\"PWD:\", os.getcwd())\nr = subprocess.run([\"git\", \"rev",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nfor cmd in ([\"git\", \"status\"], [\"git\", \"diff\", \"--stat\"], [\"gi",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess\nr = subprocess.run([\"python\", \"-m\", \"pytest\", \"testing/test_sk",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "changelog/7494.bugfix.rst",
+        "ok": "False"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "changelog/7494.bugfix.rst",
+        "ok": "False"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "changelog/7392.bugfix.rst:1-3",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "open(\"/testbed/changelog/7494.bugfix.rst\", \"w\").write(\n    \"Fix a regression whe",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import subprocess, os, textwrap, tempfile\n\n# Final verification: reproduction + ",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest testing/test_skipping.py testing/test_mark.py -q",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest testing/test_skipping.py testing/test_mark.py -v -k xfail 2>&1 | tail -40",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest testing/test_skipping.py testing/test_mark.py -v -k xfail",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python -m pytest testing/test_skipping.py testing/test_mark.py -q",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 47,
+  "error": "",
+  "wall_clock_sec": 274.959
+}

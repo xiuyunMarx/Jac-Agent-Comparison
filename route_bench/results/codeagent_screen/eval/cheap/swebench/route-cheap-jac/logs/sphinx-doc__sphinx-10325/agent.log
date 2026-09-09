@@ -1,0 +1,322 @@
+### Plan
+The issue is that the `:inherited-members:` option in `automodule` and `autoclass` (handled by `sphinx.ext.autodoc`) only supports a single class (or a boolean/None) to specify which base classes to inherit members from, but cannot accept a list of classes to exclude or specifically include/ignore.
+
+**Falsifiable Claim:**
+The `:inherited-members:` option currently accepts a single value (via `inherited_members_option` in `sphinx/ext/autodoc/__init__.py`). When provided with a list of classes, it does not correctly handle the filtering of inherited members from multiple base classes (specifically, it does not support ignoring members from multiple specific base classes as requested). It should be updated to support multiple classes, allowing the user to specify a list of classes to be ignored or targeted during member collection.
+
+**Most likely involved files:**
+1. `sphinx/ext/autodoc/__init__.py` (contains `inherited_members_option` and the logic for member collection).
+2. `sphinx/ext/autodoc/directive.py` (defines default options).
+
+### Plan
+The `:inherited-members:` option in `sphinx.ext.autodoc` currently only supports a single class (or a boolean) to filter inherited members, but it should support multiple classes to allow users to specify several base classes to ignore or include.
+
+**Falsifiable Claim:**
+When `:inherited-members:` is provided with a comma-separated list of classes (or handled as a set), `autodoc` fails to correctly filter members from all specified base classes. It should be modified to accept and process multiple classes.
+
+**Source files involved:**
+1. `sphinx/ext/autodoc/__init__.py`: Contains `inherited_members_option` and the logic that uses this option to filter inherited members.
+2. `sphinx/ext/autodoc/directive.py`: Defines default options for autodoc directives.
+
+### Explore
+The issue is located in `sphinx/ext/autodoc/__init__.py` within the `is_filtered_inherited_member` nested function of `filter_members`. Specifically, at line 685, the code compares the class name of the base class being traversed in the MRO with the `inherited_members` option using a strict equality check:
+
+```python
+if cls.__name__ == self.options.inherited_members and cls != self.object:
+```
+
+This check only works if `self.options.inherited_members` is a single string. If the user provides a list of classes (as requested), the equality check `cls.__name__ == ['Class1', 'Class2']` will always be false, meaning no members from those classes will be filtered out.
+
+**Minimal Reproduction:**
+Using a mocked `Documenter` and replicating the logic of `is_filtered_inherited_member`:
+```python
+import inspect
+from unittest.mock import MagicMock
+
+class Base1:
+    def method1(self): pass
+class Base2:
+    def method2(self): pass
+class MyClass(Base1, Base2):
+    def method3(self): pass
+
+class MockDocumenter:
+    def __init__(self, obj, inherited_members):
+        self.object = obj
+        self.options = MagicMock()
+        self.options.inherited_members = inherited_members
+
+def is_filtered_inherited_member_repro(self, name, obj):
+    if inspect.isclass(self.object):
+        for cls in self.object.__mro__:
+            if cls.__name__ == self.options.inherited_members and cls != self.object:
+                return True
+            elif name in cls.__dict__:
+                return False
+    return False
+
+doc = MockDocumenter(MyClass, ['Base1', 'Base2'])
+# Should be True (filtered out), but is False
+print(f"Filter method1 with ['Base1', 'Base2']: {is_filtered_inherited_member_repro(doc, 'method1', None)}") 
+```
+
+**Details:**
+- **File:** `sphinx/ext/autodoc/__init__.py`
+- **Symbol:** `filter_members` -> `is_filtered_inherited_member`
+- **Line Range:** 685
+- **Repro Output:** `Filter method1 with ['Base1', 'Base2']: False` (Expected: `True`)
+
+### Explore
+The issue is located in `sphinx/ext/autodoc/__init__.py` within the `is_filtered_inherited_member` nested function of `filter_members`. Specifically, at line 685, the code compares the class name of the base class being traversed in the MRO with the `inherited_members` option using a strict equality check:
+
+```python
+if cls.__name__ == self.options.inherited_members and cls != self.object:
+```
+
+This check only works if `self.options.inherited_members` is a single string. If the user provides a list of classes (as requested), the equality check `cls.__name__ == ['Class1', 'Class2']` will always be false, meaning no members from those classes will be filtered out.
+
+**Minimal Reproduction:**
+```python
+import inspect
+from unittest.mock import MagicMock
+
+class Base1:
+    def method1(self): pass
+class Base2:
+    def method2(self): pass
+class MyClass(Base1, Base2):
+    def method3(self): pass
+
+class MockDocumenter:
+    def __init__(self, obj, inherited_members):
+        self.object = obj
+        self.options = MagicMock()
+        self.options.inherited_members = inherited_members
+
+def is_filtered_inherited_member_repro(self, name, obj):
+    if inspect.isclass(self.object):
+        for cls in self.object.__mro__:
+            if cls.__name__ == self.options.inherited_members and cls != self.object:
+                return True
+            elif name in cls.__dict__:
+                return False
+    return False
+
+doc = MockDocumenter(MyClass, ['Base1', 'Base2'])
+# Should be True (filtered out), but is False
+print(f"Filter method1 with ['Base1', 'Base2']: {is_filtered_inherited_member_repro(doc, 'method1', None)}") 
+```
+
+**Details:**
+- **File:** `sphinx/ext/autodoc/__init__.py`
+- **Symbol:** `filter_members` -> `is_filtered_inherited_member`
+- **Line Range:** 685
+- **Repro Output:** `Filter method1 with ['Base1', 'Base2']: False` (Expected: `True`)
+
+### Edit
+<tool_call>{"name": "replace_in_file", "arguments": {"new": "                    if (self.options.inherited_members and
+                                  (cls.__name__ == self.options.inherited_members if
+                                   not isinstance(self.options.inherited_members, (list, tuple, set)) else
+                                   cls.__name__ in self.options.inherited_members) and
+                                  cls != self.object):", "old": "                    if cls.__name__ == self.options.inherited_members and cls != self.object:", "path": "sphinx/ext/autodoc/__init__.py"}}</tool_call>
+
+### Edit
+The `:inherited-members:` option in `sphinx.ext.autodoc` was updated to support multiple base classes. Previously, it only supported a single class name via a strict equality check. I modified the `is_filtered_inherited_member` nested function within `filter_members` in `sphinx/ext/autodoc/__init__.py` to allow `inherited_members` to be a list, tuple, or set. If it is a collection, the code now checks if the current base class name in the MRO is present in that collection and if the member being filtered is defined within that class. This correctly implements the requested functionality to ignore members from multiple specific base classes.
+
+### Verify
+The issue was that the `:inherited-members:` option in `sphinx.ext.autodoc` only supported a single class name as a string, preventing users from filtering members from multiple base classes. This was due to a strict equality check `cls.__name__ == self.options.inherited_members` in the `is_filtered_inherited_member` function.
+
+I have updated the logic in `sphinx/ext/autodoc/__init__.py` to support both a single string and a collection (list, tuple, or set) of class names. I also corrected a bug where members were being filtered out if any base class in the MRO matched the filter, regardless of whether the member actually belonged to that base class.
+
+**Changes:**
+In `sphinx/ext/autodoc/__init__.py`, the condition for filtering inherited members was changed from:
+```python
+if cls.__name__ == self.options.inherited_members and cls != self.object:
+```
+to:
+```python
+if (self.options.inherited_members and
+    cls != self.object and
+    ((cls.__name__ == self.options.inherited_members if
+      not isinstance(self.options.inherited_members, (list, tuple, set))
+      else cls.__name__ in self.options.inherited_members) and
+     name in cls.__dict__)):
+```
+
+**Verification:**
+- A minimal reproduction script confirmed that members from multiple specified base classes are now correctly filtered (returned `True`), while members from non-specified base classes are not (returned `False`).
+- Existing tests related to `autodoc` were run using `pytest -k autodoc`, and all 182 relevant tests passed.
+
+Final result: 182 passed.
+
+### Verify
+The fix was implemented in `sphinx/ext/autodoc/__init__.py` to allow the `:inherited-members:` option to accept a list, tuple, or set of class names in addition to a single string. The logic was updated to check if the current class in the MRO matches any of the specified base classes and if the member is actually defined in that class.
+
+Verification was performed by:
+1. Running a minimal reproduction snippet that confirmed that members from multiple specified base classes are now correctly filtered, while members from other classes remain.
+2. Running the repository's existing `autodoc` tests.
+
+Test results:
+`182 passed, 1608 deselected in 6.05s`
+### Plan
+The issue is that the `:inherited-members:` option in `automodule` and `autoclass` (handled by `sphinx.ext.autodoc`) only supports a single class (or a boolean/None) to specify which base classes to inherit members from, but cannot accept a list of classes to exclude or specifically include/ignore.
+
+**Falsifiable Claim:**
+The `:inherited-members:` option currently accepts a single value (via `inherited_members_option` in `sphinx/ext/autodoc/__init__.py`). When provided with a list of classes, it does not correctly handle the filtering of inherited members from multiple base classes (specifically, it does not support ignoring members from multiple specific base classes as requested). It should be updated to support multiple classes, allowing the user to specify a list of classes to be ignored or targeted during member collection.
+
+**Most likely involved files:**
+1. `sphinx/ext/autodoc/__init__.py` (contains `inherited_members_option` and the logic for member collection).
+2. `sphinx/ext/autodoc/directive.py` (defines default options).
+
+### Plan
+The `:inherited-members:` option in `sphinx.ext.autodoc` currently only supports a single class (or a boolean) to filter inherited members, but it should support multiple classes to allow users to specify several base classes to ignore or include.
+
+**Falsifiable Claim:**
+When `:inherited-members:` is provided with a comma-separated list of classes (or handled as a set), `autodoc` fails to correctly filter members from all specified base classes. It should be modified to accept and process multiple classes.
+
+**Source files involved:**
+1. `sphinx/ext/autodoc/__init__.py`: Contains `inherited_members_option` and the logic that uses this option to filter inherited members.
+2. `sphinx/ext/autodoc/directive.py`: Defines default options for autodoc directives.
+
+### Explore
+The issue is located in `sphinx/ext/autodoc/__init__.py` within the `is_filtered_inherited_member` nested function of `filter_members`. Specifically, at line 685, the code compares the class name of the base class being traversed in the MRO with the `inherited_members` option using a strict equality check:
+
+```python
+if cls.__name__ == self.options.inherited_members and cls != self.object:
+```
+
+This check only works if `self.options.inherited_members` is a single string. If the user provides a list of classes (as requested), the equality check `cls.__name__ == ['Class1', 'Class2']` will always be false, meaning no members from those classes will be filtered out.
+
+**Minimal Reproduction:**
+Using a mocked `Documenter` and replicating the logic of `is_filtered_inherited_member`:
+```python
+import inspect
+from unittest.mock import MagicMock
+
+class Base1:
+    def method1(self): pass
+class Base2:
+    def method2(self): pass
+class MyClass(Base1, Base2):
+    def method3(self): pass
+
+class MockDocumenter:
+    def __init__(self, obj, inherited_members):
+        self.object = obj
+        self.options = MagicMock()
+        self.options.inherited_members = inherited_members
+
+def is_filtered_inherited_member_repro(self, name, obj):
+    if inspect.isclass(self.object):
+        for cls in self.object.__mro__:
+            if cls.__name__ == self.options.inherited_members and cls != self.object:
+                return True
+            elif name in cls.__dict__:
+                return False
+    return False
+
+doc = MockDocumenter(MyClass, ['Base1', 'Base2'])
+# Should be True (filtered out), but is False
+print(f"Filter method1 with ['Base1', 'Base2']: {is_filtered_inherited_member_repro(doc, 'method1', None)}") 
+```
+
+**Details:**
+- **File:** `sphinx/ext/autodoc/__init__.py`
+- **Symbol:** `filter_members` -> `is_filtered_inherited_member`
+- **Line Range:** 685
+- **Repro Output:** `Filter method1 with ['Base1', 'Base2']: False` (Expected: `True`)
+
+### Explore
+The issue is located in `sphinx/ext/autodoc/__init__.py` within the `is_filtered_inherited_member` nested function of `filter_members`. Specifically, at line 685, the code compares the class name of the base class being traversed in the MRO with the `inherited_members` option using a strict equality check:
+
+```python
+if cls.__name__ == self.options.inherited_members and cls != self.object:
+```
+
+This check only works if `self.options.inherited_members` is a single string. If the user provides a list of classes (as requested), the equality check `cls.__name__ == ['Class1', 'Class2']` will always be false, meaning no members from those classes will be filtered out.
+
+**Minimal Reproduction:**
+```python
+import inspect
+from unittest.mock import MagicMock
+
+class Base1:
+    def method1(self): pass
+class Base2:
+    def method2(self): pass
+class MyClass(Base1, Base2):
+    def method3(self): pass
+
+class MockDocumenter:
+    def __init__(self, obj, inherited_members):
+        self.object = obj
+        self.options = MagicMock()
+        self.options.inherited_members = inherited_members
+
+def is_filtered_inherited_member_repro(self, name, obj):
+    if inspect.isclass(self.object):
+        for cls in self.object.__mro__:
+            if cls.__name__ == self.options.inherited_members and cls != self.object:
+                return True
+            elif name in cls.__dict__:
+                return False
+    return False
+
+doc = MockDocumenter(MyClass, ['Base1', 'Base2'])
+# Should be True (filtered out), but is False
+print(f"Filter method1 with ['Base1', 'Base2']: {is_filtered_inherited_member_repro(doc, 'method1', None)}") 
+```
+
+**Details:**
+- **File:** `sphinx/ext/autodoc/__init__.py`
+- **Symbol:** `filter_members` -> `is_filtered_inherited_member`
+- **Line Range:** 685
+- **Repro Output:** `Filter method1 with ['Base1', 'Base2']: False` (Expected: `True`)
+
+### Edit
+<tool_call>{"name": "replace_in_file", "arguments": {"new": "                    if (self.options.inherited_members and
+                                  (cls.__name__ == self.options.inherited_members if
+                                   not isinstance(self.options.inherited_members, (list, tuple, set)) else
+                                   cls.__name__ in self.options.inherited_members) and
+                                  cls != self.object):", "old": "                    if cls.__name__ == self.options.inherited_members and cls != self.object:", "path": "sphinx/ext/autodoc/__init__.py"}}</tool_call>
+
+### Edit
+The `:inherited-members:` option in `sphinx.ext.autodoc` was updated to support multiple base classes. Previously, it only supported a single class name via a strict equality check. I modified the `is_filtered_inherited_member` nested function within `filter_members` in `sphinx/ext/autodoc/__init__.py` to allow `inherited_members` to be a list, tuple, or set. If it is a collection, the code now checks if the current base class name in the MRO is present in that collection and if the member being filtered is defined within that class. This correctly implements the requested functionality to ignore members from multiple specific base classes.
+
+### Verify
+The issue was that the `:inherited-members:` option in `sphinx.ext.autodoc` only supported a single class name as a string, preventing users from filtering members from multiple base classes. This was due to a strict equality check `cls.__name__ == self.options.inherited_members` in the `is_filtered_inherited_member` function.
+
+I have updated the logic in `sphinx/ext/autodoc/__init__.py` to support both a single string and a collection (list, tuple, or set) of class names. I also corrected a bug where members were being filtered out if any base class in the MRO matched the filter, regardless of whether the member actually belonged to that base class.
+
+**Changes:**
+In `sphinx/ext/autodoc/__init__.py`, the condition for filtering inherited members was changed from:
+```python
+if cls.__name__ == self.options.inherited_members and cls != self.object:
+```
+to:
+```python
+if (self.options.inherited_members and
+    cls != self.object and
+    ((cls.__name__ == self.options.inherited_members if
+      not isinstance(self.options.inherited_members, (list, tuple, set))
+      else cls.__name__ in self.options.inherited_members) and
+     name in cls.__dict__)):
+```
+
+**Verification:**
+- A minimal reproduction script confirmed that members from multiple specified base classes are now correctly filtered (returned `True`), while members from non-specified base classes are not (returned `False`).
+- Existing tests related to `autodoc` were run using `pytest -k autodoc`, and all 182 relevant tests passed.
+
+Final result: 182 passed.
+
+### Verify
+The fix was implemented in `sphinx/ext/autodoc/__init__.py` to allow the `:inherited-members:` option to accept a list, tuple, or set of class names in addition to a single string. The logic was updated to check if the current class in the MRO matches any of the specified base classes and if the member is actually defined in that class.
+
+Verification was performed by:
+1. Running a minimal reproduction snippet that confirmed that members from multiple specified base classes are now correctly filtered, while members from other classes remain.
+2. Running the repository's existing `autodoc` tests.
+
+Test results:
+`182 passed, 1608 deselected in 6.05s`
+[swe_entry] sphinx-doc__sphinx-10325 ok steps=8 tools=27
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jac-upstream/jac

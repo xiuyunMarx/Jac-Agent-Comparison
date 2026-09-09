@@ -1,0 +1,230 @@
+### Plan
+Falsifiable claim: `so.Plot([1, 2, 3, None, 4], [1, 2, 3, 4, 5]).add(so.Line(), so.PolyFit())` raises `LinAlgError` instead of ignoring the missing (`None`/NaN) data and fitting the polynomial on the remaining valid points.
+
+Root cause: `PolyFit._fit_predict` in `seaborn/_stats/regression.py` passes `x` and `y` (which contain NaN) directly to `np.polyfit`/`np.linspace`/`np.polyval` without dropping missing values. NaNs break the SVD in `np.polyfit`.
+
+Most likely involved source files:
+1. `seaborn/_stats/regression.py` — the `PolyFit._fit_predict` method (the fix belongs here: drop NaN rows before fitting).
+2. `seaborn/_core/groupby.py` — `GroupBy.apply` dispatch (context only; no change expected).
+
+Next phase: in `seaborn/_stats/regression.py`, modify `_fit_predict` to drop rows where `x` or `y` is missing (e.g. `data = data.dropna(subset=["x", "y"])` or `valid = x.notna() & y.notna()`) before the `x.nunique()` check and `np.polyfit` call, so the polynomial is fit only on valid points. Keep the existing empty-result behavior when too few unique points remain.
+
+### Plan
+Falsifiable claim: `so.Plot([1,2,3,None,4], [1,2,3,4,5]).add(so.Line(), so.PolyFit())` raises `LinAlgError: SVD did not converge` because `PolyFit._fit_predict` in `seaborn/_stats/regression.py` passes `x`/`y` columns containing NaN into `np.polyfit`; it should instead ignore missing values and fit/predict only on the non-missing data (returning empty `xx`/`yy` when all values are missing).
+
+Files most likely involved (1-3):
+1. `seaborn/_stats/regression.py` — `PolyFit._fit_predict` (root cause; NaN not dropped before `np.polyfit`/`np.polyval` and the guard `x.nunique() <= self.order` does not account for NaN).
+2. `seaborn/_core/groupby.py` — `GroupBy.apply` (just the call path, likely no edit needed).
+
+Next phase: fix `PolyFit._fit_predict` to drop rows with missing `x` or `y` before fitting (e.g. `data = data.dropna(subset=["x", "y"])`), then re-run the regression-stat tests (`pytest seaborn/_stats/tests/`) and confirm the issue example runs without error.
+
+### Explore
+Reproduction confirmed. The failure occurs in `seaborn/_stats/regression.py`, `PolyFit._fit_predict`, lines 26-30 (specifically `np.polyfit(x, y, self.order)` at line 30). The root cause: when `data["x"]` (or `data["y"]`) contains NaN values, `np.polyfit` chokes / produces an `LinAlgError`. Also, `x.nunique()` counts NaN as a unique value, so the `x.nunique() <= self.order` guard does not filter NaN-containing data out.
+
+**File:** `seaborn/_stats/regression.py`
+**Symbol:** `PolyFit._fit_predict`
+**Lines:** 26-33 (the `_fit_predict` method body)
+
+Next phase should drop rows with missing `x`/`y` before fitting (e.g. `data = data.dropna(subset=["x", "y"])` at the start of `_fit_predict`), so `PolyFit` is robust to missing data while keeping the change minimal.
+
+### Explore
+The repro is confirmed in the previous turn. To summarize for the next phase:
+
+**File:** `seaborn/_stats/regression.py`
+**Symbol:** `PolyFit._fit_predict`
+**Lines:** 26-35
+
+```python
+    def _fit_predict(self, data):
+
+        x = data["x"]
+        y = data["y"]
+        if x.nunique() <= self.order:
+            # TODO warn?
+            xx = yy = []
+        else:
+            p = np.polyfit(x, y, self.order)
+            xx = np.linspace(x.min(), x.max(), self.gridsize)
+            yy = np.polyval(p, xx)
+
+        return pd.DataFrame(dict(x=xx, y=yy))
+```
+
+**Repro output:**
+```
+FAILED: LinAlgError: SVD did not converge in Linear Least Squares
+ ** On entry to DLASCL parameter number  4 had an illegal value
+```
+
+**Root cause:** When `data["x"]`/`data["y"]` contain NaN, `np.polyfit` receives NaN inputs and raises `LinAlgError`. Additionally, `x.nunique()` counts NaN as a unique value, so the `x.nunique() <= self.order` guard does not filter out NaN-containing data.
+
+**Fix:** Drop rows with missing `x`/`y` at the start of `_fit_predict` before computing `x`/`y` and the `nunique` guard, so the stat is robust to missing data while remaining minimal.
+
+### Edit
+Fix applied to `seaborn/_stats/regression.py` in `PolyFit._fit_predict` (lines 28-31). Added `data = data.dropna(subset=["x", "y"])` at the start of the method, before extracting `x`/`y` and the `nunique` guard, so NaN-containing rows are removed before being passed to `np.polyfit`.
+
+Verification:
+- Direct repro via `PolyFit._fit_predict` with data containing a NaN now returns a valid 100-row DataFrame instead of raising `LinAlgError`.
+- The full `so.Plot(...).add(so.Line(), so.PolyFit()).plot()` path no longer hits the `LinAlgError`; a separate pre-existing `OptionError: "No such keys(s): 'mode.use_inf_as_null'"` (pandas-version incompatibility in `seaborn/_core/plot.py`) is unrelated to this stat fix and exists independently of missing data.
+- `pytest tests/_stats/` → 35 passed.
+
+Change summary for next phase: one-line addition (`data = data.dropna(subset=["x", "y"])`) at the top of `PolyFit._fit_predict` in `seaborn/_stats/regression.py` to make PolyFit robust to missing data.
+
+### Edit
+The edit is applied and verified.
+
+**Summary for the next phase:**
+
+- **Fix applied** in `seaborn/_stats/regression.py`, `PolyFit._fit_predict` (line 28): added `data = data.dropna(subset=["x", "y"])` at the start of the method, before reading `x`/`y` and the `nunique` guard. This drops rows with missing `x` or `y` so `np.polyfit` no longer receives NaN inputs.
+
+- **Reproduction result:** The original `LinAlgError: SVD did not converge` is resolved. Calling `PolyFit()._fit_predict` directly on `{"x": [1,2,3,None,4], "y": [1,2,3,4,5]}` now returns a valid 100-row predicted DataFrame instead of raising.
+
+- **Note:** The full `so.Plot(...).plot()` path still fails with `OptionError: "No such keys(s): 'mode.use_inf_as_null'"` — but this is a pre-existing pandas-version incompatibility in `seaborn/_core/plot.py` (lines 1368, 1494) and `seaborn/_oldcore.py` / `seaborn/categorical.py`, completely unrelated to this issue's code path. The issue's failing stat call itself now works.
+
+- **Tests:** `python -m pytest tests/_stats/ -q` → 35 passed.
+
+### Verify
+Verification phase complete.
+
+Ran `python -m pytest tests/_stats/ -v` (the tests nearest the changed code in `seaborn/_stats/regression.py`).
+
+Output: 35 passed in 0.72s — no failures, no errors.
+
+Relevant regression tests both pass:
+- tests/_stats/test_regression.py::TestPolyFit::test_no_grouper PASSED
+- tests/_stats/test_regression.py::TestPolyFit::test_one_grouper PASSED
+
+The fix (dropping NaN rows in `PolyFit._fit_predict` via `data = data.dropna(subset=["x", "y"])`) resolves the original `LinAlgError` on missing data without breaking any existing tests.
+
+### Verify
+Verification phase complete.
+
+Tests run (nearest the changed code in seaborn/_stats/regression.py, plus the GroupBy.apply path it uses):
+
+1. `python -m pytest tests/_stats/ -v`
+   Output: 35 passed in 0.72s — no failures.
+   Notably: tests/_stats/test_regression.py::TestPolyFit::test_no_grouper PASSED, test_one_grouper PASSED.
+
+2. `python -m pytest tests/_stats/test_regression.py tests/_core/test_groupby.py -v`
+   Output: 13 passed in 0.30s — no failures.
+   Covers PolyFit and the GroupBy.apply mechanics used by the fix.
+
+No failure lines were produced. The fix (dropping rows with missing x/y at the start of PolyFit._fit_predict before calling np.polyfit) resolves the original LinAlgError on missing data and does not regress any existing tests.
+
+Note: the full so.Plot(...).plot() pipeline still surfaces a pre-existing, unrelated `OptionError: "No such keys(s): 'mode.use_inf_as_null'"` from seaborn/_core/plot.py (a pandas-version incompatibility), but that is outside this issue's code path and not caused by the change.
+### Plan
+Falsifiable claim: `so.Plot([1, 2, 3, None, 4], [1, 2, 3, 4, 5]).add(so.Line(), so.PolyFit())` raises `LinAlgError` instead of ignoring the missing (`None`/NaN) data and fitting the polynomial on the remaining valid points.
+
+Root cause: `PolyFit._fit_predict` in `seaborn/_stats/regression.py` passes `x` and `y` (which contain NaN) directly to `np.polyfit`/`np.linspace`/`np.polyval` without dropping missing values. NaNs break the SVD in `np.polyfit`.
+
+Most likely involved source files:
+1. `seaborn/_stats/regression.py` — the `PolyFit._fit_predict` method (the fix belongs here: drop NaN rows before fitting).
+2. `seaborn/_core/groupby.py` — `GroupBy.apply` dispatch (context only; no change expected).
+
+Next phase: in `seaborn/_stats/regression.py`, modify `_fit_predict` to drop rows where `x` or `y` is missing (e.g. `data = data.dropna(subset=["x", "y"])` or `valid = x.notna() & y.notna()`) before the `x.nunique()` check and `np.polyfit` call, so the polynomial is fit only on valid points. Keep the existing empty-result behavior when too few unique points remain.
+
+### Plan
+Falsifiable claim: `so.Plot([1,2,3,None,4], [1,2,3,4,5]).add(so.Line(), so.PolyFit())` raises `LinAlgError: SVD did not converge` because `PolyFit._fit_predict` in `seaborn/_stats/regression.py` passes `x`/`y` columns containing NaN into `np.polyfit`; it should instead ignore missing values and fit/predict only on the non-missing data (returning empty `xx`/`yy` when all values are missing).
+
+Files most likely involved (1-3):
+1. `seaborn/_stats/regression.py` — `PolyFit._fit_predict` (root cause; NaN not dropped before `np.polyfit`/`np.polyval` and the guard `x.nunique() <= self.order` does not account for NaN).
+2. `seaborn/_core/groupby.py` — `GroupBy.apply` (just the call path, likely no edit needed).
+
+Next phase: fix `PolyFit._fit_predict` to drop rows with missing `x` or `y` before fitting (e.g. `data = data.dropna(subset=["x", "y"])`), then re-run the regression-stat tests (`pytest seaborn/_stats/tests/`) and confirm the issue example runs without error.
+
+### Explore
+Reproduction confirmed. The failure occurs in `seaborn/_stats/regression.py`, `PolyFit._fit_predict`, lines 26-30 (specifically `np.polyfit(x, y, self.order)` at line 30). The root cause: when `data["x"]` (or `data["y"]`) contains NaN values, `np.polyfit` chokes / produces an `LinAlgError`. Also, `x.nunique()` counts NaN as a unique value, so the `x.nunique() <= self.order` guard does not filter NaN-containing data out.
+
+**File:** `seaborn/_stats/regression.py`
+**Symbol:** `PolyFit._fit_predict`
+**Lines:** 26-33 (the `_fit_predict` method body)
+
+Next phase should drop rows with missing `x`/`y` before fitting (e.g. `data = data.dropna(subset=["x", "y"])` at the start of `_fit_predict`), so `PolyFit` is robust to missing data while keeping the change minimal.
+
+### Explore
+The repro is confirmed in the previous turn. To summarize for the next phase:
+
+**File:** `seaborn/_stats/regression.py`
+**Symbol:** `PolyFit._fit_predict`
+**Lines:** 26-35
+
+```python
+    def _fit_predict(self, data):
+
+        x = data["x"]
+        y = data["y"]
+        if x.nunique() <= self.order:
+            # TODO warn?
+            xx = yy = []
+        else:
+            p = np.polyfit(x, y, self.order)
+            xx = np.linspace(x.min(), x.max(), self.gridsize)
+            yy = np.polyval(p, xx)
+
+        return pd.DataFrame(dict(x=xx, y=yy))
+```
+
+**Repro output:**
+```
+FAILED: LinAlgError: SVD did not converge in Linear Least Squares
+ ** On entry to DLASCL parameter number  4 had an illegal value
+```
+
+**Root cause:** When `data["x"]`/`data["y"]` contain NaN, `np.polyfit` receives NaN inputs and raises `LinAlgError`. Additionally, `x.nunique()` counts NaN as a unique value, so the `x.nunique() <= self.order` guard does not filter out NaN-containing data.
+
+**Fix:** Drop rows with missing `x`/`y` at the start of `_fit_predict` before computing `x`/`y` and the `nunique` guard, so the stat is robust to missing data while remaining minimal.
+
+### Edit
+Fix applied to `seaborn/_stats/regression.py` in `PolyFit._fit_predict` (lines 28-31). Added `data = data.dropna(subset=["x", "y"])` at the start of the method, before extracting `x`/`y` and the `nunique` guard, so NaN-containing rows are removed before being passed to `np.polyfit`.
+
+Verification:
+- Direct repro via `PolyFit._fit_predict` with data containing a NaN now returns a valid 100-row DataFrame instead of raising `LinAlgError`.
+- The full `so.Plot(...).add(so.Line(), so.PolyFit()).plot()` path no longer hits the `LinAlgError`; a separate pre-existing `OptionError: "No such keys(s): 'mode.use_inf_as_null'"` (pandas-version incompatibility in `seaborn/_core/plot.py`) is unrelated to this stat fix and exists independently of missing data.
+- `pytest tests/_stats/` → 35 passed.
+
+Change summary for next phase: one-line addition (`data = data.dropna(subset=["x", "y"])`) at the top of `PolyFit._fit_predict` in `seaborn/_stats/regression.py` to make PolyFit robust to missing data.
+
+### Edit
+The edit is applied and verified.
+
+**Summary for the next phase:**
+
+- **Fix applied** in `seaborn/_stats/regression.py`, `PolyFit._fit_predict` (line 28): added `data = data.dropna(subset=["x", "y"])` at the start of the method, before reading `x`/`y` and the `nunique` guard. This drops rows with missing `x` or `y` so `np.polyfit` no longer receives NaN inputs.
+
+- **Reproduction result:** The original `LinAlgError: SVD did not converge` is resolved. Calling `PolyFit()._fit_predict` directly on `{"x": [1,2,3,None,4], "y": [1,2,3,4,5]}` now returns a valid 100-row predicted DataFrame instead of raising.
+
+- **Note:** The full `so.Plot(...).plot()` path still fails with `OptionError: "No such keys(s): 'mode.use_inf_as_null'"` — but this is a pre-existing pandas-version incompatibility in `seaborn/_core/plot.py` (lines 1368, 1494) and `seaborn/_oldcore.py` / `seaborn/categorical.py`, completely unrelated to this issue's code path. The issue's failing stat call itself now works.
+
+- **Tests:** `python -m pytest tests/_stats/ -q` → 35 passed.
+
+### Verify
+Verification phase complete.
+
+Ran `python -m pytest tests/_stats/ -v` (the tests nearest the changed code in `seaborn/_stats/regression.py`).
+
+Output: 35 passed in 0.72s — no failures, no errors.
+
+Relevant regression tests both pass:
+- tests/_stats/test_regression.py::TestPolyFit::test_no_grouper PASSED
+- tests/_stats/test_regression.py::TestPolyFit::test_one_grouper PASSED
+
+The fix (dropping NaN rows in `PolyFit._fit_predict` via `data = data.dropna(subset=["x", "y"])`) resolves the original `LinAlgError` on missing data without breaking any existing tests.
+
+### Verify
+Verification phase complete.
+
+Tests run (nearest the changed code in seaborn/_stats/regression.py, plus the GroupBy.apply path it uses):
+
+1. `python -m pytest tests/_stats/ -v`
+   Output: 35 passed in 0.72s — no failures.
+   Notably: tests/_stats/test_regression.py::TestPolyFit::test_no_grouper PASSED, test_one_grouper PASSED.
+
+2. `python -m pytest tests/_stats/test_regression.py tests/_core/test_groupby.py -v`
+   Output: 13 passed in 0.30s — no failures.
+   Covers PolyFit and the GroupBy.apply mechanics used by the fix.
+
+No failure lines were produced. The fix (dropping rows with missing x/y at the start of PolyFit._fit_predict before calling np.polyfit) resolves the original LinAlgError on missing data and does not regress any existing tests.
+
+Note: the full so.Plot(...).plot() pipeline still surfaces a pre-existing, unrelated `OptionError: "No such keys(s): 'mode.use_inf_as_null'"` from seaborn/_core/plot.py (a pandas-version incompatibility), but that is outside this issue's code path and not caused by the change.
+[swe_entry] mwaskom__seaborn-3010 ok steps=8 tools=18
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jac-upstream/jac

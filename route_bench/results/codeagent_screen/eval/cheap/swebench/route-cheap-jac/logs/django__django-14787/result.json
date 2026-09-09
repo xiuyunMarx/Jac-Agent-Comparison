@@ -1,0 +1,239 @@
+{
+  "instance_id": "django__django-14787",
+  "model": "openai/gemma4:31b",
+  "answer": "### Plan\nI have attempted to locate the `method_decorator` function using `grep` across the repository, but it appears I cannot find it. I will start by searching for where it is defined in the project.\n\n**Falsifiable Claim:**\nWhen a function decorated with `method_decorator` is passed to another decorator that expects standard function attributes (like `__name__` via `functools.wraps`), it fails with an `AttributeError` because `method_decorator` returns a `functools.partial` object instead of a function with preserved attributes. It should return a wrapper that preserves the original function's attributes.\n\n**Likely involved files:**\nI suspect the function is located in `django.utils.decorators`, but since my initial search failed, I will perform a broader search in the next phase to pinpoint the exact file.\n\n### Plan\n**Falsifiable Claim:**\nUsing `@method_decorator(logger)` on a class method, where `logger` is a decorator that uses `functools.wraps(func)`, causes an `AttributeError: 'functools.partial' object has no attribute '__name__'` because `method_decorator` returns a `functools.partial` object (via `functools.partial(decorator, obj)`) that lacks the metadata attributes of the original function. It should return a wrapper that preserves these attributes.\n\n**Likely involved files:**\n- `django/utils/decorators.py` (specifically the `method_decorator` function)\n\n### Explore\nThe issue is located in `django/utils/decorators.py` within the `_multi_decorate` function (which is called by `method_decorator`).\n\nSpecifically, in `_multi_decorate` (lines 34-46), the `bound_method` is created as a `functools.partial` object:\n```python\nbound_method = partial(method.__get__(self, type(self)))\n```\nWhen this `bound_method` is passed to a decorator (e.g., `bound_method = dec(bound_method)`), and that decorator uses `functools.wraps(func)`, `wraps` attempts to access `func.__name__`. Since `bound_method` is a `partial` object, it lacks the `__name__` attribute, leading to the `AttributeError: 'functools.partial' object has no attribute '__name__'`.\n\n**Reproduction Output:**\n```\nCalling hello_world...\nCaught expected AttributeError: 'functools.partial' object has no attribute '__name__'\n```\n\n**File:** `django/utils/decorators.py`\n**Symbol:** `_multi_decorate`\n**Line Range:** 34-46 (specifically line 41)\n\n### Explore\nI have located the root cause and confirmed it with a reproduction script.\n\n**Root Cause:**\nIn `django/utils/decorators.py`, the `_multi_decorate` function creates a `bound_method` using `functools.partial(method.__get__(self, type(self)))`. Because `functools.partial` objects do not have attributes like `__name__` or `__module__`, any decorator applied to this `bound_method` that uses `functools.wraps` (which expects these attributes) will raise an `AttributeError`.\n\n**Reproduction Output:**\n```\nCalling hello_world...\nCaught expected AttributeError: 'functools.partial' object has no attribute '__name__'\n```\n\n**Location:**\n- **File:** `django/utils/decorators.py`\n- **Symbol:** `_multi_decorate`\n- **Line Range:** 34-46 (specifically line 41 where `bound_method` is defined as a `partial` object)\n\n**Reproduction Script:**\n```python\nfrom functools import wraps, partial\nfrom django.utils.decorators import method_decorator\nimport logging\n\nlogging.basicConfig(level=logging.DEBUG)\nlogger = logging.getLogger('test_logger')\n\ndef logger_decorator(func):\n    @wraps(func)\n    def inner(*args, **kwargs):\n        try:\n            result = func(*args, **kwargs)\n        except Exception as e:\n            result = str(e)\n        finally:\n            logger.debug(f\"{func.__name__} called with args: {args} and kwargs: {kwargs} resulting: {result}\")\n        return result\n    return inner\n\nclass Test:\n    @method_decorator(logger_decorator)\n    def hello_world(self):\n        return \"hello\"\n\ntry:\n    Test().hello_world()\nexcept AttributeError as e:\n    print(f\"Caught expected AttributeError: {e}\")\n```\n\n### Edit\nI have fixed the issue where `method_decorator()` did not preserve wrapper assignments, causing an `AttributeError` when using decorators that rely on `functools.wraps`. \n\nThe root cause was that `_multi_decorate` created a `functools.partial` object as the `bound_method`, and `partial` objects lack attributes like `__name__`. I replaced the use of `partial` with a nested function `_bound_method` and used `update_wrapper` to copy the metadata from the original method to this wrapper before applying any decorators.\n\nVerification:\nI created a reproduction script that mimics the issue described in the report. The script originally failed with `AttributeError: 'functools.partial' object has no attribute '__name__'`. After the fix, the reproduction script passed successfully, and the log output confirmed that the original method's name was correctly preserved and accessed by the decorator.\n\nChanges made in `django/utils/decorators.py`:\n- Modified `_multi_decorate` to use a wrapper function instead of `functools.partial` for the bound method.\n- Applied `update_wrapper` to the wrapper function to ensure it has the correct metadata (e.g., `__name__`) before being passed to the decorators.\n\n### Edit\nThe issue was caused by `_multi_decorate` in `django/utils/decorators.py` using `functools.partial` to create a bound method. Since `partial` objects lack attributes like `__name__`, decorators using `functools.wraps` on the decorated method would raise an `AttributeError`. I fixed this by replacing the `partial` call with a local wrapper function `_bound_method` and using `update_wrapper` to preserve the original method's attributes before applying the decorators. The reproduction script now succeeds.\n\n### Verify\nThe issue was that `method_decorator`'s internal `_multi_decorate` function was using `functools.partial` to create a bound method. Since `partial` objects do not possess attributes like `__name__`, any decorator applied to the method that used `functools.wraps` (which expects these attributes) would raise an `AttributeError`. \n\nI fixed this by replacing the `partial` call with a local wrapper function `_bound_method` and using `functools.update_wrapper` to ensure it inherits the attributes of the original method before being passed to the decorators. \n\nVerification results:\n- Reproduction script: Passed. The `AttributeError` is resolved and the decorated method now returns the expected result while preserving metadata.\n- Existing tests: Attempted to run `tests/runtests.py` for the affected area, but encountered issues with test labeling in the environment. However, the reproduction script confirms the fix for the specific reported failure.\n\n### Verify\nThe issue was that `method_decorator` (via `_multi_decorate`) created a `functools.partial` object to wrap the bound method, which lacks attributes like `__name__` required by `functools.wraps` used in many decorators. \n\nI fixed this in `django/utils/decorators.py` by replacing the `partial` object with a locally defined wrapper function `_bound_method` and using `update_wrapper` to preserve the original method's attributes.\n\nReproduction script results:\nBefore fix: `Caught expected AttributeError: 'functools.partial' object has no attribute '__name__'`\nAfter fix: `Success!`\n\nExisting tests were attempted via `python tests/runtests.py`, but the labels provided did not resolve to tests. However, the reproduction script confirms the fix works for the reported case.",
+  "steps": 8,
+  "llm_calls": 43,
+  "prompt_tokens": 397398,
+  "completion_tokens": 5930,
+  "cached_tokens": 0,
+  "tool_calls": [
+    {
+      "name": "grep",
+      "args": {
+        "args": "def method_decorator in django/utils/decorators.py (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "def method_decorator in . (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "method_decorator in . (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "method_decorator in . (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "method_decorator in django (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "def method_decorator in . (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "method_decorator in django (**/*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "grep",
+      "args": {
+        "args": "method_decorator in django/utils (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "outline",
+      "args": {
+        "args": "django/utils/decorators.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "django/utils/decorators.py:53-87",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "from functools import wraps, partial\nfrom django.utils.decorators import method_",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "django/utils/decorators.py",
+        "ok": "False"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "django/utils/decorators.py:34-46",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "django/utils/decorators.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "from functools import wraps, partial\nfrom django.utils.decorators import method_",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "from functools import partial\nimport logging\n\n# Setup a logger for the example\nl",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "django/utils/decorators.py:30-50",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "django/utils/decorators.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "from functools import wraps, partial\nfrom django.utils.decorators import method_",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "django/utils/decorators.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "django/utils/decorators.py:34-46",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "django/utils/decorators.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "django/utils/decorators.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "from functools import wraps, partial\nfrom django.utils.decorators import method_",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py utils.decorators",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py django.utils.decorators",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "pytest",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py utils",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py tests/tests/utils/test_decorators.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py utils.decorators",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "python tests/runtests.py utils",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 32,
+  "error": "",
+  "wall_clock_sec": 59.32
+}

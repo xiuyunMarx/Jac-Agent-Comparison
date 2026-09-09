@@ -1,0 +1,360 @@
+### Plan
+Plan: In pytest 6, dynamically adding an `xfail` marker during a test's own body via `request.node.add_marker(...)` results in a real FAILED instead of XFAIL (pytest 5.x reported XFAIL).
+
+Root cause is in src/_pytest/skipping.py: the xfail evaluation is cached in item._store[xfailed_key]. pytest_runtest_setup (line ~242) evaluates xfail marks at setup time and stores the result — None when no marker exists yet. pytest_runtest_call (lines ~249-251) only re-evaluates if the cache is None, and that re-evaluation runs before `yield`, i.e. before the test body adds the marker, so it is still None. pytest_runtest_makereport (line ~264) reads the cached None and, since `xfailed` is None, skips the `elif not rep.skipped and xfailed:` branch (line ~272), so the failure is never converted to an xfail. pytest 5.x re-evaluated marks at report time, honoring markers added during the call.
+
+Fix (minimal): in pytest_runtest_makereport in src/_pytest/skipping.py, when the cached xfailed is None, re-run evaluate_xfail_marks(item) before deciding the report outcome, so a dynamically-added xfail marker is honored. Then verify with the issue reproducer (expect XFAIL) and run the existing skipping tests (pytest src/_pytest/skipping.py and the marking/skipping test modules).
+
+Files involved: src/_pytest/skipping.py (primary; only change). No test files should be edited.
+
+### Plan
+PLANNING SUMMARY
+
+Falsifiable claim: When a test adds an `xfail` marker to its own node during the call phase (e.g. `request.node.add_marker(pytest.mark.xfail(...))`), a failing assertion should be reported as `xfailed`/skipped — as it was in pytest 5.x. In pytest 6.x it is instead reported as a hard failure.
+
+Root cause (in src/_pytest/skipping.py):
+- `pytest_runtest_setup` caches the xfail evaluation in `item._store[xfailed_key] = evaluate_xfail_marks(item)`. At setup time no xfail marker exists yet, so it stores `None`.
+- `pytest_runtest_call` reads that cached value; since it is `None` it re-evaluates — but it does so *before* `yield`, i.e. before the test body runs and adds the marker, so it still sees no marker and caches `None`.
+- `pytest_runtest_makereport` reads `item._store.get(xfailed_key, None)` and, because it is `None`, the `elif not rep.skipped and xfailed:` branch is skipped, so the failure is reported as a normal failure. The marker added during the call is never re-evaluated.
+
+The `None` value is overloaded: it means both "evaluated, no xfail" and "not yet evaluated / re-evaluate". The comment on `xfailed_key` says it "Can be refreshed during call if None", but makereport never refreshes it.
+
+Files most likely involved (1-3):
+1. src/_pytest/skipping.py — primary; the caching/re-evaluation logic in `pytest_runtest_setup`, `pytest_runtest_call`, and especially `pytest_runtest_makereport`.
+
+Proposed minimal fix: In `pytest_runtest_makereport`, when the cached `xfailed` is `None`, re-run `evaluate_xfail_marks(item)` so a marker added during the call phase (or call setup) is honored. (Equivalently, only cache a non-None result and treat absence/None as "needs re-evaluation", keeping the makereport re-evaluation.) This restores 5.x behavior where dynamically added xfail markers are respected, without breaking static markers.
+
+Next phase should: edit src/_pytest/skipping.py to re-evaluate xfail marks in makereport when the cache is None, then run the skipping/xfail tests (e.g. `pytest testing/test_skipping.py`) to verify.
+
+### Explore
+## Root cause & location
+
+**File:** `src/_pytest/skipping.py`
+
+**Bug:** When an xfail marker is added dynamically during the test's own execution (e.g. `request.node.add_marker(pytest.mark.xfail(...))` inside the test body, then the test fails), pytest 6 reports a hard failure instead of treating it as xfail.
+
+**Why:** The xfail mark evaluation is cached in `item._store[xfailed_key]` at *setup* time (`pytest_runtest_setup`, lines 233-245) and refreshed at the *start* of the call phase (`pytest_runtest_call`, lines 248-257) — but both run **before** the test function body executes and adds the marker. By the time the test fails and `pytest_runtest_makereport` (line 261, reading cached `xfailed` at line 264) runs, the cached value is still `None`, so the `elif not rep.skipped and xfailed:` branch (line 275) is skipped and the failure is reported normally.
+
+**Falsifiable claim:** A test that calls `request.node.add_marker(pytest.mark.xfail(reason="..."))` and then fails should produce an `xfailed` outcome; currently it produces `failed`.
+
+**Fix location:** `pytest_runtest_makereport` (lines 261-296). When `xfailed` is `None` (no cached evaluation, i.e. the mark was added dynamically during the call), it should re-evaluate `evaluate_xfail_marks(item)` so a dynamically-added xfail is honored.
+
+**Repro output (currently failing):**
+```
+test_foo.py F   [100%]
+FAILED test_foo.py::test_xfail_test - assert 0
+1 failed
+```
+
+Expected after fix:
+```
+test_foo.py x   [100%]
+XFAIL test_foo.py::test_xfail_test
+1 xfailed
+```
+
+### Explore
+## Summary for next phase
+
+**Falsifiable claim:** When a test dynamically adds an `xfail` marker during its own execution (e.g. `request.node.add_marker(pytest.mark.xfail(reason="xfail"))` then fails), pytest 6 reports the test as `failed` instead of `xfailed`. It should report it as `xfailed` (as pytest 5.4.3 did).
+
+**Reproduction confirmed (RC=1, "1 failed"):**
+```
+$ python -m pytest -rsx test_foo.py
+test_foo.py F
+=================================== FAILURES ===================================
+_______________________________ test_xfail_test ________________________________
+    def test_xfail_test(request):
+        mark = pytest.mark.xfail(reason="xfail")
+        request.node.add_marker(mark)
+>       assert 0
+E       assert 0
+============================== 1 failed in 0.01s ===============================
+```
+
+**Root cause / location:**
+- File: `src/_pytest/skipping.py`
+- `pytest_runtest_call` (lines 248–257): re-evaluates xfail marks *before* `yield` (i.e. before the test body runs and can add a marker). So a dynamically added marker is never seen during call.
+- `pytest_runtest_makereport` (lines 261–305, specifically line 264): reads the cached `xfailed = item._store.get(xfailed_key, None)`. Since setup/call cached `None`, the report logic's `elif not rep.skipped and xfailed:` branch never triggers, so the failure is not converted to xfail.
+
+**Fix direction:** In `pytest_runtest_makereport`, when `xfailed` is `None` at report time, re-evaluate the xfail marks (`evaluate_xfail_marks(item)`) so markers added dynamically during the call phase are honored. This is the minimal change consistent with the existing "Can be refreshed during call if None" comment on `xfailed_key` (line 227).
+
+No test edits should be made.
+
+### Edit
+The single failure (`test_chained_exceptions_no_reprcrash`) is a pre-existing, unrelated `pkg_resources` DeprecationWarning failure, not caused by my change. Let me view the final diff.
+
+### Edit
+## Summary for next phase
+
+**Fix applied.** In `src/_pytest/skipping.py`, `pytest_runtest_call` re-evaluated xfail marks *before* the test body ran, so a marker added dynamically during the call (e.g. `request.node.add_marker(pytest.mark.xfail(...))`) was never seen, and the cached `xfailed_key` stayed `None`. `pytest_runtest_makereport` then read that stale `None` and reported the failure as a real failure instead of `xfailed`.
+
+**Change:** Added a re-evaluation of xfail marks *after* `yield` in `pytest_runtest_call` (after the test body has executed), storing the refreshed result in `item._store[xfailed_key]` so `pytest_runtest_makereport` picks it up:
+
+```python
+    yield
+
+    # Re-evaluate xfail marks after the test has run, in case they were
+    # added dynamically during the call phase (e.g. via
+    # request.node.add_marker). The result is stored so that
+    # pytest_runtest_makereport can pick it up.
+    item._store[xfailed_key] = evaluate_xfail_marks(item)
+```
+
+This is minimal and reuses the existing "Can be refreshed during call if None" mechanism (the `xfailed_key` store entry). An earlier attempt to re-evaluate inside `pytest_runtest_makereport` regressed `test_errors_in_xfail_skip_expressions` (condition-eval errors raised as INTERNALERROR during the setup report), so the call-phase-after-yield location was chosen instead.
+
+**Files changed:**
+- `src/_pytest/skipping.py` (the fix)
+- `changelog/7494.bugfix.rst` (new changelog entry)
+
+**Verification:**
+- Reproduction from the issue now passes: `1 xfailed` (XFAIL test_xfail_test / "xfail"), RC 0 (previously `1 failed`).
+- `testing/test_skipping.py` + `testing/test_mark.py`: 170 passed, 1 xfailed (expected). No regressions.
+- `testing/test_runner.py` also clean (225 passed, 2 xfailed across the combined run).
+- One unrelated pre-existing failure (`testing/test_reports.py::test_chained_exceptions_no_reprcrash`, a `pkg_resources` DeprecationWarning) is not caused by this change.
+
+Note: `git diff`/`view_diff` could not be displayed due to a "dubious ownership" git config error in the environment, but the edits were confirmed present by re-reading the file and by the passing reproduction/tests.
+
+### Verify
+Verification phase complete.
+
+## Fix applied
+File: `src/_pytest/skipping.py`, function `pytest_runtest_call`. Added re-evaluation of xfail marks after the test body runs (`yield`) so that markers added dynamically during the call phase (e.g. via `request.node.add_marker(pytest.mark.xfail(...))`) are stored in `item._store[xfailed_key]` and picked up by `pytest_runtest_makereport`:
+
+```python
+    yield
+
+    # Re-evaluate xfail marks after the test has run, in case they were
+    # added dynamically during the call phase (e.g. via
+    # request.node.add_marker). The result is stored so that
+    # pytest_runtest_makereport can pick it up.
+    item._store[xfailed_key] = evaluate_xfail_marks(item)
+```
+
+A changelog entry was added at `changelog/7494.bugfix.rst`.
+
+(An earlier attempt re-evaluated inside `pytest_runtest_makereport` unconditionally, which caused `test_errors_in_xfail_skip_expressions` to INTERNALERROR during the setup report phase; the final fix re-evaluates only after the call phase, avoiding that.)
+
+## Reproduction (from the issue)
+Before: `1 failed`. After the fix:
+```
+collected 1 item
+test_foo.py x [100%]
+XFAIL test_foo.py::test_xfail_test
+  xfail
+============================== 1 xfailed in 0.01s ==============================
+```
+Return code 0 (xfailed), as pytest 5.4.3 behaved.
+
+## Existing test results (nearest the changed code)
+- `testing/test_skipping.py testing/test_mark.py -q`:
+  `170 passed, 1 xfailed in 3.05s` (the xfail is a pre-existing expected xfail, `test_keyword_extra_dash`).
+- `testing/test_skipping.py testing/test_mark.py -v -k xfail`:
+  `42 passed, 128 deselected, 1 xfailed in 0.93s` — including the dynamic-xfail tests `test_dynamic_xfail_no_run` and `test_dynamic_xfail_set_during_funcarg_setup`, and `test_errors_in_xfail_skip_expressions`, all PASSED.
+- Broader run `testing/test_skipping.py testing/test_mark.py testing/test_runner.py`:
+  `225 passed, 2 xfailed in 4.19s`.
+
+A separate run of `testing/test_reports.py` showed one failure (`test_chained_exceptions_no_reprcrash`), but that is a pre-existing, unrelated `pkg_resources` DeprecationWarning failure independent of this change.
+
+### Verify
+Verification phase results:
+
+Ran the existing tests nearest the changed code (src/_pytest/skipping.py):
+`python -m pytest testing/test_skipping.py testing/test_mark.py -q`
+
+Output:
+```
+........................................................................ [ 42%]
+........................................................................ [ 84%]
+...........x...............                                              [100%]
+170 passed, 1 xfailed in 3.08s
+```
+
+Result: 170 passed, 1 xfailed (the xfail is a pre-existing expected-failure test, `test_keyword_extra_dash`), 0 failed.
+
+The targeted xfail-related subset (`-k xfail`) also all passed: 42 passed, 128 deselected, 1 xfailed in 0.93s — including the dynamic-marker tests `test_dynamic_xfail_no_run` and `test_dynamic_xfail_set_during_funcarg_setup`.
+
+The earlier regression I caused by re-evaluating marks during the report phase (`test_errors_in_xfail_skip_expressions`) is resolved by the chosen fix (re-evaluation after `yield` in `pytest_runtest_call`), and that test now passes.
+
+No failure lines were produced. The fix (re-evaluating xfail marks after the test body runs so dynamically added markers are honored) passes the relevant existing test suites without regressions.
+### Plan
+Plan: In pytest 6, dynamically adding an `xfail` marker during a test's own body via `request.node.add_marker(...)` results in a real FAILED instead of XFAIL (pytest 5.x reported XFAIL).
+
+Root cause is in src/_pytest/skipping.py: the xfail evaluation is cached in item._store[xfailed_key]. pytest_runtest_setup (line ~242) evaluates xfail marks at setup time and stores the result — None when no marker exists yet. pytest_runtest_call (lines ~249-251) only re-evaluates if the cache is None, and that re-evaluation runs before `yield`, i.e. before the test body adds the marker, so it is still None. pytest_runtest_makereport (line ~264) reads the cached None and, since `xfailed` is None, skips the `elif not rep.skipped and xfailed:` branch (line ~272), so the failure is never converted to an xfail. pytest 5.x re-evaluated marks at report time, honoring markers added during the call.
+
+Fix (minimal): in pytest_runtest_makereport in src/_pytest/skipping.py, when the cached xfailed is None, re-run evaluate_xfail_marks(item) before deciding the report outcome, so a dynamically-added xfail marker is honored. Then verify with the issue reproducer (expect XFAIL) and run the existing skipping tests (pytest src/_pytest/skipping.py and the marking/skipping test modules).
+
+Files involved: src/_pytest/skipping.py (primary; only change). No test files should be edited.
+
+### Plan
+PLANNING SUMMARY
+
+Falsifiable claim: When a test adds an `xfail` marker to its own node during the call phase (e.g. `request.node.add_marker(pytest.mark.xfail(...))`), a failing assertion should be reported as `xfailed`/skipped — as it was in pytest 5.x. In pytest 6.x it is instead reported as a hard failure.
+
+Root cause (in src/_pytest/skipping.py):
+- `pytest_runtest_setup` caches the xfail evaluation in `item._store[xfailed_key] = evaluate_xfail_marks(item)`. At setup time no xfail marker exists yet, so it stores `None`.
+- `pytest_runtest_call` reads that cached value; since it is `None` it re-evaluates — but it does so *before* `yield`, i.e. before the test body runs and adds the marker, so it still sees no marker and caches `None`.
+- `pytest_runtest_makereport` reads `item._store.get(xfailed_key, None)` and, because it is `None`, the `elif not rep.skipped and xfailed:` branch is skipped, so the failure is reported as a normal failure. The marker added during the call is never re-evaluated.
+
+The `None` value is overloaded: it means both "evaluated, no xfail" and "not yet evaluated / re-evaluate". The comment on `xfailed_key` says it "Can be refreshed during call if None", but makereport never refreshes it.
+
+Files most likely involved (1-3):
+1. src/_pytest/skipping.py — primary; the caching/re-evaluation logic in `pytest_runtest_setup`, `pytest_runtest_call`, and especially `pytest_runtest_makereport`.
+
+Proposed minimal fix: In `pytest_runtest_makereport`, when the cached `xfailed` is `None`, re-run `evaluate_xfail_marks(item)` so a marker added during the call phase (or call setup) is honored. (Equivalently, only cache a non-None result and treat absence/None as "needs re-evaluation", keeping the makereport re-evaluation.) This restores 5.x behavior where dynamically added xfail markers are respected, without breaking static markers.
+
+Next phase should: edit src/_pytest/skipping.py to re-evaluate xfail marks in makereport when the cache is None, then run the skipping/xfail tests (e.g. `pytest testing/test_skipping.py`) to verify.
+
+### Explore
+## Root cause & location
+
+**File:** `src/_pytest/skipping.py`
+
+**Bug:** When an xfail marker is added dynamically during the test's own execution (e.g. `request.node.add_marker(pytest.mark.xfail(...))` inside the test body, then the test fails), pytest 6 reports a hard failure instead of treating it as xfail.
+
+**Why:** The xfail mark evaluation is cached in `item._store[xfailed_key]` at *setup* time (`pytest_runtest_setup`, lines 233-245) and refreshed at the *start* of the call phase (`pytest_runtest_call`, lines 248-257) — but both run **before** the test function body executes and adds the marker. By the time the test fails and `pytest_runtest_makereport` (line 261, reading cached `xfailed` at line 264) runs, the cached value is still `None`, so the `elif not rep.skipped and xfailed:` branch (line 275) is skipped and the failure is reported normally.
+
+**Falsifiable claim:** A test that calls `request.node.add_marker(pytest.mark.xfail(reason="..."))` and then fails should produce an `xfailed` outcome; currently it produces `failed`.
+
+**Fix location:** `pytest_runtest_makereport` (lines 261-296). When `xfailed` is `None` (no cached evaluation, i.e. the mark was added dynamically during the call), it should re-evaluate `evaluate_xfail_marks(item)` so a dynamically-added xfail is honored.
+
+**Repro output (currently failing):**
+```
+test_foo.py F   [100%]
+FAILED test_foo.py::test_xfail_test - assert 0
+1 failed
+```
+
+Expected after fix:
+```
+test_foo.py x   [100%]
+XFAIL test_foo.py::test_xfail_test
+1 xfailed
+```
+
+### Explore
+## Summary for next phase
+
+**Falsifiable claim:** When a test dynamically adds an `xfail` marker during its own execution (e.g. `request.node.add_marker(pytest.mark.xfail(reason="xfail"))` then fails), pytest 6 reports the test as `failed` instead of `xfailed`. It should report it as `xfailed` (as pytest 5.4.3 did).
+
+**Reproduction confirmed (RC=1, "1 failed"):**
+```
+$ python -m pytest -rsx test_foo.py
+test_foo.py F
+=================================== FAILURES ===================================
+_______________________________ test_xfail_test ________________________________
+    def test_xfail_test(request):
+        mark = pytest.mark.xfail(reason="xfail")
+        request.node.add_marker(mark)
+>       assert 0
+E       assert 0
+============================== 1 failed in 0.01s ===============================
+```
+
+**Root cause / location:**
+- File: `src/_pytest/skipping.py`
+- `pytest_runtest_call` (lines 248–257): re-evaluates xfail marks *before* `yield` (i.e. before the test body runs and can add a marker). So a dynamically added marker is never seen during call.
+- `pytest_runtest_makereport` (lines 261–305, specifically line 264): reads the cached `xfailed = item._store.get(xfailed_key, None)`. Since setup/call cached `None`, the report logic's `elif not rep.skipped and xfailed:` branch never triggers, so the failure is not converted to xfail.
+
+**Fix direction:** In `pytest_runtest_makereport`, when `xfailed` is `None` at report time, re-evaluate the xfail marks (`evaluate_xfail_marks(item)`) so markers added dynamically during the call phase are honored. This is the minimal change consistent with the existing "Can be refreshed during call if None" comment on `xfailed_key` (line 227).
+
+No test edits should be made.
+
+### Edit
+The single failure (`test_chained_exceptions_no_reprcrash`) is a pre-existing, unrelated `pkg_resources` DeprecationWarning failure, not caused by my change. Let me view the final diff.
+
+### Edit
+## Summary for next phase
+
+**Fix applied.** In `src/_pytest/skipping.py`, `pytest_runtest_call` re-evaluated xfail marks *before* the test body ran, so a marker added dynamically during the call (e.g. `request.node.add_marker(pytest.mark.xfail(...))`) was never seen, and the cached `xfailed_key` stayed `None`. `pytest_runtest_makereport` then read that stale `None` and reported the failure as a real failure instead of `xfailed`.
+
+**Change:** Added a re-evaluation of xfail marks *after* `yield` in `pytest_runtest_call` (after the test body has executed), storing the refreshed result in `item._store[xfailed_key]` so `pytest_runtest_makereport` picks it up:
+
+```python
+    yield
+
+    # Re-evaluate xfail marks after the test has run, in case they were
+    # added dynamically during the call phase (e.g. via
+    # request.node.add_marker). The result is stored so that
+    # pytest_runtest_makereport can pick it up.
+    item._store[xfailed_key] = evaluate_xfail_marks(item)
+```
+
+This is minimal and reuses the existing "Can be refreshed during call if None" mechanism (the `xfailed_key` store entry). An earlier attempt to re-evaluate inside `pytest_runtest_makereport` regressed `test_errors_in_xfail_skip_expressions` (condition-eval errors raised as INTERNALERROR during the setup report), so the call-phase-after-yield location was chosen instead.
+
+**Files changed:**
+- `src/_pytest/skipping.py` (the fix)
+- `changelog/7494.bugfix.rst` (new changelog entry)
+
+**Verification:**
+- Reproduction from the issue now passes: `1 xfailed` (XFAIL test_xfail_test / "xfail"), RC 0 (previously `1 failed`).
+- `testing/test_skipping.py` + `testing/test_mark.py`: 170 passed, 1 xfailed (expected). No regressions.
+- `testing/test_runner.py` also clean (225 passed, 2 xfailed across the combined run).
+- One unrelated pre-existing failure (`testing/test_reports.py::test_chained_exceptions_no_reprcrash`, a `pkg_resources` DeprecationWarning) is not caused by this change.
+
+Note: `git diff`/`view_diff` could not be displayed due to a "dubious ownership" git config error in the environment, but the edits were confirmed present by re-reading the file and by the passing reproduction/tests.
+
+### Verify
+Verification phase complete.
+
+## Fix applied
+File: `src/_pytest/skipping.py`, function `pytest_runtest_call`. Added re-evaluation of xfail marks after the test body runs (`yield`) so that markers added dynamically during the call phase (e.g. via `request.node.add_marker(pytest.mark.xfail(...))`) are stored in `item._store[xfailed_key]` and picked up by `pytest_runtest_makereport`:
+
+```python
+    yield
+
+    # Re-evaluate xfail marks after the test has run, in case they were
+    # added dynamically during the call phase (e.g. via
+    # request.node.add_marker). The result is stored so that
+    # pytest_runtest_makereport can pick it up.
+    item._store[xfailed_key] = evaluate_xfail_marks(item)
+```
+
+A changelog entry was added at `changelog/7494.bugfix.rst`.
+
+(An earlier attempt re-evaluated inside `pytest_runtest_makereport` unconditionally, which caused `test_errors_in_xfail_skip_expressions` to INTERNALERROR during the setup report phase; the final fix re-evaluates only after the call phase, avoiding that.)
+
+## Reproduction (from the issue)
+Before: `1 failed`. After the fix:
+```
+collected 1 item
+test_foo.py x [100%]
+XFAIL test_foo.py::test_xfail_test
+  xfail
+============================== 1 xfailed in 0.01s ==============================
+```
+Return code 0 (xfailed), as pytest 5.4.3 behaved.
+
+## Existing test results (nearest the changed code)
+- `testing/test_skipping.py testing/test_mark.py -q`:
+  `170 passed, 1 xfailed in 3.05s` (the xfail is a pre-existing expected xfail, `test_keyword_extra_dash`).
+- `testing/test_skipping.py testing/test_mark.py -v -k xfail`:
+  `42 passed, 128 deselected, 1 xfailed in 0.93s` — including the dynamic-xfail tests `test_dynamic_xfail_no_run` and `test_dynamic_xfail_set_during_funcarg_setup`, and `test_errors_in_xfail_skip_expressions`, all PASSED.
+- Broader run `testing/test_skipping.py testing/test_mark.py testing/test_runner.py`:
+  `225 passed, 2 xfailed in 4.19s`.
+
+A separate run of `testing/test_reports.py` showed one failure (`test_chained_exceptions_no_reprcrash`), but that is a pre-existing, unrelated `pkg_resources` DeprecationWarning failure independent of this change.
+
+### Verify
+Verification phase results:
+
+Ran the existing tests nearest the changed code (src/_pytest/skipping.py):
+`python -m pytest testing/test_skipping.py testing/test_mark.py -q`
+
+Output:
+```
+........................................................................ [ 42%]
+........................................................................ [ 84%]
+...........x...............                                              [100%]
+170 passed, 1 xfailed in 3.08s
+```
+
+Result: 170 passed, 1 xfailed (the xfail is a pre-existing expected-failure test, `test_keyword_extra_dash`), 0 failed.
+
+The targeted xfail-related subset (`-k xfail`) also all passed: 42 passed, 128 deselected, 1 xfailed in 0.93s — including the dynamic-marker tests `test_dynamic_xfail_no_run` and `test_dynamic_xfail_set_during_funcarg_setup`.
+
+The earlier regression I caused by re-evaluating marks during the report phase (`test_errors_in_xfail_skip_expressions`) is resolved by the chosen fix (re-evaluation after `yield` in `pytest_runtest_call`), and that test now passes.
+
+No failure lines were produced. The fix (re-evaluating xfail marks after the test body runs so dynamically added markers are honored) passes the relevant existing test suites without regressions.
+[swe_entry] pytest-dev__pytest-7490 ok steps=8 tools=47
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jac-upstream/jac

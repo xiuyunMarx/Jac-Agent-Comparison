@@ -1,0 +1,238 @@
+### Plan
+I have attempted to locate the `method_decorator` function using `grep` across the repository, but it appears I cannot find it. I will start by searching for where it is defined in the project.
+
+**Falsifiable Claim:**
+When a function decorated with `method_decorator` is passed to another decorator that expects standard function attributes (like `__name__` via `functools.wraps`), it fails with an `AttributeError` because `method_decorator` returns a `functools.partial` object instead of a function with preserved attributes. It should return a wrapper that preserves the original function's attributes.
+
+**Likely involved files:**
+I suspect the function is located in `django.utils.decorators`, but since my initial search failed, I will perform a broader search in the next phase to pinpoint the exact file.
+
+### Plan
+**Falsifiable Claim:**
+Using `@method_decorator(logger)` on a class method, where `logger` is a decorator that uses `functools.wraps(func)`, causes an `AttributeError: 'functools.partial' object has no attribute '__name__'` because `method_decorator` returns a `functools.partial` object (via `functools.partial(decorator, obj)`) that lacks the metadata attributes of the original function. It should return a wrapper that preserves these attributes.
+
+**Likely involved files:**
+- `django/utils/decorators.py` (specifically the `method_decorator` function)
+
+### Explore
+The issue is located in `django/utils/decorators.py` within the `_multi_decorate` function (which is called by `method_decorator`).
+
+Specifically, in `_multi_decorate` (lines 34-46), the `bound_method` is created as a `functools.partial` object:
+```python
+bound_method = partial(method.__get__(self, type(self)))
+```
+When this `bound_method` is passed to a decorator (e.g., `bound_method = dec(bound_method)`), and that decorator uses `functools.wraps(func)`, `wraps` attempts to access `func.__name__`. Since `bound_method` is a `partial` object, it lacks the `__name__` attribute, leading to the `AttributeError: 'functools.partial' object has no attribute '__name__'`.
+
+**Reproduction Output:**
+```
+Calling hello_world...
+Caught expected AttributeError: 'functools.partial' object has no attribute '__name__'
+```
+
+**File:** `django/utils/decorators.py`
+**Symbol:** `_multi_decorate`
+**Line Range:** 34-46 (specifically line 41)
+
+### Explore
+I have located the root cause and confirmed it with a reproduction script.
+
+**Root Cause:**
+In `django/utils/decorators.py`, the `_multi_decorate` function creates a `bound_method` using `functools.partial(method.__get__(self, type(self)))`. Because `functools.partial` objects do not have attributes like `__name__` or `__module__`, any decorator applied to this `bound_method` that uses `functools.wraps` (which expects these attributes) will raise an `AttributeError`.
+
+**Reproduction Output:**
+```
+Calling hello_world...
+Caught expected AttributeError: 'functools.partial' object has no attribute '__name__'
+```
+
+**Location:**
+- **File:** `django/utils/decorators.py`
+- **Symbol:** `_multi_decorate`
+- **Line Range:** 34-46 (specifically line 41 where `bound_method` is defined as a `partial` object)
+
+**Reproduction Script:**
+```python
+from functools import wraps, partial
+from django.utils.decorators import method_decorator
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger('test_logger')
+
+def logger_decorator(func):
+    @wraps(func)
+    def inner(*args, **kwargs):
+        try:
+            result = func(*args, **kwargs)
+        except Exception as e:
+            result = str(e)
+        finally:
+            logger.debug(f"{func.__name__} called with args: {args} and kwargs: {kwargs} resulting: {result}")
+        return result
+    return inner
+
+class Test:
+    @method_decorator(logger_decorator)
+    def hello_world(self):
+        return "hello"
+
+try:
+    Test().hello_world()
+except AttributeError as e:
+    print(f"Caught expected AttributeError: {e}")
+```
+
+### Edit
+I have fixed the issue where `method_decorator()` did not preserve wrapper assignments, causing an `AttributeError` when using decorators that rely on `functools.wraps`. 
+
+The root cause was that `_multi_decorate` created a `functools.partial` object as the `bound_method`, and `partial` objects lack attributes like `__name__`. I replaced the use of `partial` with a nested function `_bound_method` and used `update_wrapper` to copy the metadata from the original method to this wrapper before applying any decorators.
+
+Verification:
+I created a reproduction script that mimics the issue described in the report. The script originally failed with `AttributeError: 'functools.partial' object has no attribute '__name__'`. After the fix, the reproduction script passed successfully, and the log output confirmed that the original method's name was correctly preserved and accessed by the decorator.
+
+Changes made in `django/utils/decorators.py`:
+- Modified `_multi_decorate` to use a wrapper function instead of `functools.partial` for the bound method.
+- Applied `update_wrapper` to the wrapper function to ensure it has the correct metadata (e.g., `__name__`) before being passed to the decorators.
+
+### Edit
+The issue was caused by `_multi_decorate` in `django/utils/decorators.py` using `functools.partial` to create a bound method. Since `partial` objects lack attributes like `__name__`, decorators using `functools.wraps` on the decorated method would raise an `AttributeError`. I fixed this by replacing the `partial` call with a local wrapper function `_bound_method` and using `update_wrapper` to preserve the original method's attributes before applying the decorators. The reproduction script now succeeds.
+
+### Verify
+The issue was that `method_decorator`'s internal `_multi_decorate` function was using `functools.partial` to create a bound method. Since `partial` objects do not possess attributes like `__name__`, any decorator applied to the method that used `functools.wraps` (which expects these attributes) would raise an `AttributeError`. 
+
+I fixed this by replacing the `partial` call with a local wrapper function `_bound_method` and using `functools.update_wrapper` to ensure it inherits the attributes of the original method before being passed to the decorators. 
+
+Verification results:
+- Reproduction script: Passed. The `AttributeError` is resolved and the decorated method now returns the expected result while preserving metadata.
+- Existing tests: Attempted to run `tests/runtests.py` for the affected area, but encountered issues with test labeling in the environment. However, the reproduction script confirms the fix for the specific reported failure.
+
+### Verify
+The issue was that `method_decorator` (via `_multi_decorate`) created a `functools.partial` object to wrap the bound method, which lacks attributes like `__name__` required by `functools.wraps` used in many decorators. 
+
+I fixed this in `django/utils/decorators.py` by replacing the `partial` object with a locally defined wrapper function `_bound_method` and using `update_wrapper` to preserve the original method's attributes.
+
+Reproduction script results:
+Before fix: `Caught expected AttributeError: 'functools.partial' object has no attribute '__name__'`
+After fix: `Success!`
+
+Existing tests were attempted via `python tests/runtests.py`, but the labels provided did not resolve to tests. However, the reproduction script confirms the fix works for the reported case.
+### Plan
+I have attempted to locate the `method_decorator` function using `grep` across the repository, but it appears I cannot find it. I will start by searching for where it is defined in the project.
+
+**Falsifiable Claim:**
+When a function decorated with `method_decorator` is passed to another decorator that expects standard function attributes (like `__name__` via `functools.wraps`), it fails with an `AttributeError` because `method_decorator` returns a `functools.partial` object instead of a function with preserved attributes. It should return a wrapper that preserves the original function's attributes.
+
+**Likely involved files:**
+I suspect the function is located in `django.utils.decorators`, but since my initial search failed, I will perform a broader search in the next phase to pinpoint the exact file.
+
+### Plan
+**Falsifiable Claim:**
+Using `@method_decorator(logger)` on a class method, where `logger` is a decorator that uses `functools.wraps(func)`, causes an `AttributeError: 'functools.partial' object has no attribute '__name__'` because `method_decorator` returns a `functools.partial` object (via `functools.partial(decorator, obj)`) that lacks the metadata attributes of the original function. It should return a wrapper that preserves these attributes.
+
+**Likely involved files:**
+- `django/utils/decorators.py` (specifically the `method_decorator` function)
+
+### Explore
+The issue is located in `django/utils/decorators.py` within the `_multi_decorate` function (which is called by `method_decorator`).
+
+Specifically, in `_multi_decorate` (lines 34-46), the `bound_method` is created as a `functools.partial` object:
+```python
+bound_method = partial(method.__get__(self, type(self)))
+```
+When this `bound_method` is passed to a decorator (e.g., `bound_method = dec(bound_method)`), and that decorator uses `functools.wraps(func)`, `wraps` attempts to access `func.__name__`. Since `bound_method` is a `partial` object, it lacks the `__name__` attribute, leading to the `AttributeError: 'functools.partial' object has no attribute '__name__'`.
+
+**Reproduction Output:**
+```
+Calling hello_world...
+Caught expected AttributeError: 'functools.partial' object has no attribute '__name__'
+```
+
+**File:** `django/utils/decorators.py`
+**Symbol:** `_multi_decorate`
+**Line Range:** 34-46 (specifically line 41)
+
+### Explore
+I have located the root cause and confirmed it with a reproduction script.
+
+**Root Cause:**
+In `django/utils/decorators.py`, the `_multi_decorate` function creates a `bound_method` using `functools.partial(method.__get__(self, type(self)))`. Because `functools.partial` objects do not have attributes like `__name__` or `__module__`, any decorator applied to this `bound_method` that uses `functools.wraps` (which expects these attributes) will raise an `AttributeError`.
+
+**Reproduction Output:**
+```
+Calling hello_world...
+Caught expected AttributeError: 'functools.partial' object has no attribute '__name__'
+```
+
+**Location:**
+- **File:** `django/utils/decorators.py`
+- **Symbol:** `_multi_decorate`
+- **Line Range:** 34-46 (specifically line 41 where `bound_method` is defined as a `partial` object)
+
+**Reproduction Script:**
+```python
+from functools import wraps, partial
+from django.utils.decorators import method_decorator
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger('test_logger')
+
+def logger_decorator(func):
+    @wraps(func)
+    def inner(*args, **kwargs):
+        try:
+            result = func(*args, **kwargs)
+        except Exception as e:
+            result = str(e)
+        finally:
+            logger.debug(f"{func.__name__} called with args: {args} and kwargs: {kwargs} resulting: {result}")
+        return result
+    return inner
+
+class Test:
+    @method_decorator(logger_decorator)
+    def hello_world(self):
+        return "hello"
+
+try:
+    Test().hello_world()
+except AttributeError as e:
+    print(f"Caught expected AttributeError: {e}")
+```
+
+### Edit
+I have fixed the issue where `method_decorator()` did not preserve wrapper assignments, causing an `AttributeError` when using decorators that rely on `functools.wraps`. 
+
+The root cause was that `_multi_decorate` created a `functools.partial` object as the `bound_method`, and `partial` objects lack attributes like `__name__`. I replaced the use of `partial` with a nested function `_bound_method` and used `update_wrapper` to copy the metadata from the original method to this wrapper before applying any decorators.
+
+Verification:
+I created a reproduction script that mimics the issue described in the report. The script originally failed with `AttributeError: 'functools.partial' object has no attribute '__name__'`. After the fix, the reproduction script passed successfully, and the log output confirmed that the original method's name was correctly preserved and accessed by the decorator.
+
+Changes made in `django/utils/decorators.py`:
+- Modified `_multi_decorate` to use a wrapper function instead of `functools.partial` for the bound method.
+- Applied `update_wrapper` to the wrapper function to ensure it has the correct metadata (e.g., `__name__`) before being passed to the decorators.
+
+### Edit
+The issue was caused by `_multi_decorate` in `django/utils/decorators.py` using `functools.partial` to create a bound method. Since `partial` objects lack attributes like `__name__`, decorators using `functools.wraps` on the decorated method would raise an `AttributeError`. I fixed this by replacing the `partial` call with a local wrapper function `_bound_method` and using `update_wrapper` to preserve the original method's attributes before applying the decorators. The reproduction script now succeeds.
+
+### Verify
+The issue was that `method_decorator`'s internal `_multi_decorate` function was using `functools.partial` to create a bound method. Since `partial` objects do not possess attributes like `__name__`, any decorator applied to the method that used `functools.wraps` (which expects these attributes) would raise an `AttributeError`. 
+
+I fixed this by replacing the `partial` call with a local wrapper function `_bound_method` and using `functools.update_wrapper` to ensure it inherits the attributes of the original method before being passed to the decorators. 
+
+Verification results:
+- Reproduction script: Passed. The `AttributeError` is resolved and the decorated method now returns the expected result while preserving metadata.
+- Existing tests: Attempted to run `tests/runtests.py` for the affected area, but encountered issues with test labeling in the environment. However, the reproduction script confirms the fix for the specific reported failure.
+
+### Verify
+The issue was that `method_decorator` (via `_multi_decorate`) created a `functools.partial` object to wrap the bound method, which lacks attributes like `__name__` required by `functools.wraps` used in many decorators. 
+
+I fixed this in `django/utils/decorators.py` by replacing the `partial` object with a locally defined wrapper function `_bound_method` and using `update_wrapper` to preserve the original method's attributes.
+
+Reproduction script results:
+Before fix: `Caught expected AttributeError: 'functools.partial' object has no attribute '__name__'`
+After fix: `Success!`
+
+Existing tests were attempted via `python tests/runtests.py`, but the labels provided did not resolve to tests. However, the reproduction script confirms the fix works for the reported case.
+[swe_entry] django__django-14787 ok steps=8 tools=32
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jac-upstream/jac

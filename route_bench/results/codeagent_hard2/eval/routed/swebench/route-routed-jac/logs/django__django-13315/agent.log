@@ -1,0 +1,328 @@
+### Plan
+The issue is that when `limit_choices_to` on a `ForeignKey` involves a join (e.g., using a `Q` object with a related field lookup), the resulting queryset may contain duplicate entries, leading to duplicate options in the form field.
+
+**Falsifiable Claim:**
+Calling `ForeignKey.get_choices()` (or creating a `ModelChoiceField` from a `ForeignKey` with `limit_choices_to` containing a join) returns duplicate choices if the underlying SQL join produces multiple rows for the same related object. It should return distinct choices.
+
+**Likely involved source files:**
+1. `django/db/models/fields/__init__.py`: Specifically the `get_choices` method of the field class (which `ForeignKey` inherits or uses).
+2. `django/forms/models.py`: Where `apply_limit_choices_to_to_formfield` and `ModelChoiceField` handle the queryset filtering.
+
+**Next Phase:**
+The next phase should involve creating a reproduction case to confirm the duplication, then identifying where `.distinct()` needs to be applied to the queryset in `get_choices` or the form field application logic.
+
+### Plan
+The issue is that when `limit_choices_to` on a `ForeignKey` uses a join (e.g., via a `Q` object filtering on a related model), the resulting queryset can contain duplicate objects, causing duplicate options to appear in the associated form field.
+
+**Falsifiable Claim:**
+Calling `ForeignKey.get_choices()` (or using a `ModelChoiceField` derived from a `ForeignKey` with a join in `limit_choices_to`) returns duplicate choices when the underlying SQL join produces multiple rows per target object. It should return a distinct set of choices.
+
+**Most likely involved source files:**
+1. `django/db/models/fields/__init__.py` (specifically `get_choices`)
+2. `django/forms/models.py` (specifically `apply_limit_choices_to_to_formfield`)
+
+### Explore
+The issue is located in `django/db/models/fields/__init__.py` within the `get_choices` method. When `limit_choices_to` involves a join (such as a `ManyToManyField` or a reverse `ForeignKey` relation), the resulting queryset contains duplicate entries for the same object if it matches the criteria multiple times.
+
+**Reproduction:**
+A `ForeignKey` field with `limit_choices_to=Q(tags__name__icontains='Django')` where the related model has a `ManyToManyField` to `Tag`. When a `Book` has multiple tags matching 'Django', it appears multiple times in the choices list.
+
+**Reproduction Output:**
+```
+Choices count: 2
+(1, 'Book object (1)')
+(1, 'Book object (1)')
+REPRODUCED: Duplicate choices found!
+```
+
+**Exact Location:**
+- **File:** `django/db/models/fields/__init__.py`
+- **Symbol:** `get_choices`
+- **Line Range:** 880-885 (specifically line 883 where the queryset is created)
+
+```python
+# django/db/models/fields/__init__.py lines 880-885
+        choice_func = operator.attrgetter(
+            self.remote_field.get_related_field().attname
+            if hasattr(self.remote_field, 'get_related_field')
+            else 'pk'
+        )
+        qs = rel_model._default_manager.complex_filter(limit_choices_to)
+        if ordering:
+            qs = qs.order_by(*ordering)
+```
+
+The fix will involve calling `.distinct()` on the queryset `qs` to ensure each object is only listed once in the choices.
+
+### Explore
+The issue is located in `django/db/models/fields/__init__.py` within the `get_choices` method. When `limit_choices_to` involves a join (such as filtering on a `ManyToManyField` or a reverse `ForeignKey` relation), the resulting queryset contains duplicate entries for the same object if it matches the criteria multiple times.
+
+**Reproduction:**
+I created a scenario where a `Book` model has a `ManyToManyField` to `Tag`, and a `LibraryItem` model has a `ForeignKey` to `Book` with `limit_choices_to=Q(tags__name__icontains='Django')`. When a book is associated with multiple tags matching 'Django', it appears multiple times in the choices list.
+
+**Reproduction Output:**
+```
+Choices count: 2
+(1, 'Book object (1)')
+(1, 'Book object (1)')
+REPRODUCED: Duplicate choices found!
+```
+
+**Exact Location to Change:**
+- **File:** `django/db/models/fields/__init__.py`
+- **Symbol:** `get_choices`
+- **Line Range:** ~883 (specifically where `qs` is initialized)
+
+```python
+# django/db/models/fields/__init__.py
+882:         )
+883:         qs = rel_model._default_manager.complex_filter(limit_choices_to)
+884:         if ordering:
+885:             qs = qs.order_by(*ordering)
+```
+
+The queryset `qs` should be made distinct to prevent duplicate options in the form field.
+
+### Edit
+The issue was that `ForeignKey.get_choices()` did not call `.distinct()` on the queryset generated from `limit_choices_to`. When `limit_choices_to` involved a join (e.g., filtering on a `ManyToManyField` or reverse relation), this resulted in duplicate entries in the choices list if an object matched the criteria multiple times.
+
+I have fixed this by adding `.distinct()` to the queryset in `django/db/models/fields/__init__.py`.
+
+```python
+# django/db/models/fields/__init__.py
+-        qs = rel_model._default_manager.complex_filter(limit_choices_to)
++        qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()
+```
+
+The fix was verified with a reproduction script that creates a `ForeignKey` with a `limit_choices_to` filter on a `ManyToManyField`. The script confirmed that duplicates are no longer produced.
+
+### Edit
+The issue was that `ForeignKey.get_choices()` did not call `.distinct()` on the queryset filtered by `limit_choices_to`, which led to duplicate options in form fields when the filter involved a join (e.g., via a `ManyToManyField`). I have fixed this by adding `.distinct()` to the queryset creation in `django/db/models/fields/__init__.py`.
+
+**Changes:**
+- Modified `django/db/models/fields/__init__.py` in `get_choices` method to use `.distinct()` on the queryset returned by `complex_filter(limit_choices_to)`.
+
+**Verification:**
+- Ran a reproduction snippet where a `Book` model had a `ManyToManyField` to `Tag`, and a `LibraryItem` had a `ForeignKey` to `Book` with a `limit_choices_to` filter on tags.
+- Before the fix, the reproduction showed duplicate choices for the same book.
+- After the fix, the reproduction shows only one choice for the book, confirming the issue is resolved.
+
+### Verify
+The issue was that `ForeignKey.get_choices()` produced duplicate options when `limit_choices_to` involved a join (e.g., filtering on a `ManyToManyField`), because the underlying queryset could contain multiple rows for the same object.
+
+I fixed this by adding `.distinct()` to the queryset in `django/db/models/fields/__init__.py` within the `get_choices` method.
+
+**Fix:**
+In `django/db/models/fields/__init__.py`, changed:
+```python
+qs = rel_model._default_manager.complex_filter(limit_choices_to)
+```
+to:
+```python
+qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()
+```
+
+**Verification:**
+I verified the fix with a minimal reproduction script.
+- **Before fix:** The script returned 2 choices for a single book matching the criteria multiple times (duplicate options).
+- **After fix:** The script returned 1 choice (distinct options), confirming the fix.
+
+### Verify
+The issue was that `ForeignKey.get_choices()` produced duplicate options when `limit_choices_to` involved a join (e.g., filtering on a `ManyToManyField` or reverse `ForeignKey`), as the resulting queryset contained multiple rows for the same object.
+
+I fixed this by applying `.distinct()` to the queryset generated in `get_choices` within `django/db/models/fields/__init__.py`.
+
+**Change:**
+In `django/db/models/fields/__init__.py`, line 883:
+- **Old:** `qs = rel_model._default_manager.complex_filter(limit_choices_to)`
+- **New:** `qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()`
+
+**Verification:**
+- A reproduction script confirmed that before the fix, a `Book` matching multiple `Tag` criteria appeared twice in the choices list. After the fix, it appears only once.
+- No regressions were found in the targeted areas of the test suite.
+
+### Edit
+The issue was that `ForeignKey.get_choices()` could return duplicate options when `limit_choices_to` involved a join (such as filtering on a `ManyToManyField` or a reverse `ForeignKey` relation), because the underlying SQL join could produce multiple rows for the same object.
+
+I have fixed this by adding `.distinct()` to the queryset in `django/db/models/fields/__init__.py`.
+
+**Changes:**
+- In `django/db/models/fields/__init__.py`, the `get_choices` method now calls `.distinct()` on the queryset returned by `complex_filter(limit_choices_to)`.
+
+**Verification:**
+- A minimal reproduction script was created where a `Book` model with a `ManyToManyField` to `Tag` was filtered using `limit_choices_to=Q(tags__name__icontains='Django')`. 
+- Before the fix, a book with multiple matching tags appeared multiple times in the choices list.
+- After the fix, the reproduction script confirms that only distinct choices are returned.
+- The fix is minimal and targets the root cause in the model field's choice generation logic.
+### Plan
+The issue is that when `limit_choices_to` on a `ForeignKey` involves a join (e.g., using a `Q` object with a related field lookup), the resulting queryset may contain duplicate entries, leading to duplicate options in the form field.
+
+**Falsifiable Claim:**
+Calling `ForeignKey.get_choices()` (or creating a `ModelChoiceField` from a `ForeignKey` with `limit_choices_to` containing a join) returns duplicate choices if the underlying SQL join produces multiple rows for the same related object. It should return distinct choices.
+
+**Likely involved source files:**
+1. `django/db/models/fields/__init__.py`: Specifically the `get_choices` method of the field class (which `ForeignKey` inherits or uses).
+2. `django/forms/models.py`: Where `apply_limit_choices_to_to_formfield` and `ModelChoiceField` handle the queryset filtering.
+
+**Next Phase:**
+The next phase should involve creating a reproduction case to confirm the duplication, then identifying where `.distinct()` needs to be applied to the queryset in `get_choices` or the form field application logic.
+
+### Plan
+The issue is that when `limit_choices_to` on a `ForeignKey` uses a join (e.g., via a `Q` object filtering on a related model), the resulting queryset can contain duplicate objects, causing duplicate options to appear in the associated form field.
+
+**Falsifiable Claim:**
+Calling `ForeignKey.get_choices()` (or using a `ModelChoiceField` derived from a `ForeignKey` with a join in `limit_choices_to`) returns duplicate choices when the underlying SQL join produces multiple rows per target object. It should return a distinct set of choices.
+
+**Most likely involved source files:**
+1. `django/db/models/fields/__init__.py` (specifically `get_choices`)
+2. `django/forms/models.py` (specifically `apply_limit_choices_to_to_formfield`)
+
+### Explore
+The issue is located in `django/db/models/fields/__init__.py` within the `get_choices` method. When `limit_choices_to` involves a join (such as a `ManyToManyField` or a reverse `ForeignKey` relation), the resulting queryset contains duplicate entries for the same object if it matches the criteria multiple times.
+
+**Reproduction:**
+A `ForeignKey` field with `limit_choices_to=Q(tags__name__icontains='Django')` where the related model has a `ManyToManyField` to `Tag`. When a `Book` has multiple tags matching 'Django', it appears multiple times in the choices list.
+
+**Reproduction Output:**
+```
+Choices count: 2
+(1, 'Book object (1)')
+(1, 'Book object (1)')
+REPRODUCED: Duplicate choices found!
+```
+
+**Exact Location:**
+- **File:** `django/db/models/fields/__init__.py`
+- **Symbol:** `get_choices`
+- **Line Range:** 880-885 (specifically line 883 where the queryset is created)
+
+```python
+# django/db/models/fields/__init__.py lines 880-885
+        choice_func = operator.attrgetter(
+            self.remote_field.get_related_field().attname
+            if hasattr(self.remote_field, 'get_related_field')
+            else 'pk'
+        )
+        qs = rel_model._default_manager.complex_filter(limit_choices_to)
+        if ordering:
+            qs = qs.order_by(*ordering)
+```
+
+The fix will involve calling `.distinct()` on the queryset `qs` to ensure each object is only listed once in the choices.
+
+### Explore
+The issue is located in `django/db/models/fields/__init__.py` within the `get_choices` method. When `limit_choices_to` involves a join (such as filtering on a `ManyToManyField` or a reverse `ForeignKey` relation), the resulting queryset contains duplicate entries for the same object if it matches the criteria multiple times.
+
+**Reproduction:**
+I created a scenario where a `Book` model has a `ManyToManyField` to `Tag`, and a `LibraryItem` model has a `ForeignKey` to `Book` with `limit_choices_to=Q(tags__name__icontains='Django')`. When a book is associated with multiple tags matching 'Django', it appears multiple times in the choices list.
+
+**Reproduction Output:**
+```
+Choices count: 2
+(1, 'Book object (1)')
+(1, 'Book object (1)')
+REPRODUCED: Duplicate choices found!
+```
+
+**Exact Location to Change:**
+- **File:** `django/db/models/fields/__init__.py`
+- **Symbol:** `get_choices`
+- **Line Range:** ~883 (specifically where `qs` is initialized)
+
+```python
+# django/db/models/fields/__init__.py
+882:         )
+883:         qs = rel_model._default_manager.complex_filter(limit_choices_to)
+884:         if ordering:
+885:             qs = qs.order_by(*ordering)
+```
+
+The queryset `qs` should be made distinct to prevent duplicate options in the form field.
+
+### Edit
+The issue was that `ForeignKey.get_choices()` did not call `.distinct()` on the queryset generated from `limit_choices_to`. When `limit_choices_to` involved a join (e.g., filtering on a `ManyToManyField` or reverse relation), this resulted in duplicate entries in the choices list if an object matched the criteria multiple times.
+
+I have fixed this by adding `.distinct()` to the queryset in `django/db/models/fields/__init__.py`.
+
+```python
+# django/db/models/fields/__init__.py
+-        qs = rel_model._default_manager.complex_filter(limit_choices_to)
++        qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()
+```
+
+The fix was verified with a reproduction script that creates a `ForeignKey` with a `limit_choices_to` filter on a `ManyToManyField`. The script confirmed that duplicates are no longer produced.
+
+### Edit
+The issue was that `ForeignKey.get_choices()` did not call `.distinct()` on the queryset filtered by `limit_choices_to`, which led to duplicate options in form fields when the filter involved a join (e.g., via a `ManyToManyField`). I have fixed this by adding `.distinct()` to the queryset creation in `django/db/models/fields/__init__.py`.
+
+**Changes:**
+- Modified `django/db/models/fields/__init__.py` in `get_choices` method to use `.distinct()` on the queryset returned by `complex_filter(limit_choices_to)`.
+
+**Verification:**
+- Ran a reproduction snippet where a `Book` model had a `ManyToManyField` to `Tag`, and a `LibraryItem` had a `ForeignKey` to `Book` with a `limit_choices_to` filter on tags.
+- Before the fix, the reproduction showed duplicate choices for the same book.
+- After the fix, the reproduction shows only one choice for the book, confirming the issue is resolved.
+
+### Verify
+The issue was that `ForeignKey.get_choices()` produced duplicate options when `limit_choices_to` involved a join (e.g., filtering on a `ManyToManyField`), because the underlying queryset could contain multiple rows for the same object.
+
+I fixed this by adding `.distinct()` to the queryset in `django/db/models/fields/__init__.py` within the `get_choices` method.
+
+**Fix:**
+In `django/db/models/fields/__init__.py`, changed:
+```python
+qs = rel_model._default_manager.complex_filter(limit_choices_to)
+```
+to:
+```python
+qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()
+```
+
+**Verification:**
+I verified the fix with a minimal reproduction script.
+- **Before fix:** The script returned 2 choices for a single book matching the criteria multiple times (duplicate options).
+- **After fix:** The script returned 1 choice (distinct options), confirming the fix.
+
+### Verify
+The issue was that `ForeignKey.get_choices()` produced duplicate options when `limit_choices_to` involved a join (e.g., filtering on a `ManyToManyField` or reverse `ForeignKey`), as the resulting queryset contained multiple rows for the same object.
+
+I fixed this by applying `.distinct()` to the queryset generated in `get_choices` within `django/db/models/fields/__init__.py`.
+
+**Change:**
+In `django/db/models/fields/__init__.py`, line 883:
+- **Old:** `qs = rel_model._default_manager.complex_filter(limit_choices_to)`
+- **New:** `qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()`
+
+**Verification:**
+- A reproduction script confirmed that before the fix, a `Book` matching multiple `Tag` criteria appeared twice in the choices list. After the fix, it appears only once.
+- No regressions were found in the targeted areas of the test suite.
+
+### Edit
+The issue was that `ForeignKey.get_choices()` could return duplicate options when `limit_choices_to` involved a join (such as filtering on a `ManyToManyField` or a reverse `ForeignKey` relation), because the underlying SQL join could produce multiple rows for the same object.
+
+I have fixed this by adding `.distinct()` to the queryset in `django/db/models/fields/__init__.py`.
+
+**Changes:**
+- In `django/db/models/fields/__init__.py`, the `get_choices` method now calls `.distinct()` on the queryset returned by `complex_filter(limit_choices_to)`.
+
+**Verification:**
+- A minimal reproduction script was created where a `Book` model with a `ManyToManyField` to `Tag` was filtered using `limit_choices_to=Q(tags__name__icontains='Django')`. 
+- Before the fix, a book with multiple matching tags appeared multiple times in the choices list.
+- After the fix, the reproduction script confirms that only distinct choices are returned.
+- The fix is minimal and targets the root cause in the model field's choice generation logic.
+
+### Verify
+The issue was that `ForeignKey.get_choices()` produced duplicate options in form fields when `limit_choices_to` involved a join (e.g., filtering on a `ManyToManyField` or a reverse `ForeignKey` relationship), because the resulting queryset contained multiple rows for the same object.
+
+I fixed this by adding `.distinct()` to the queryset generated in `get_choices` within `django/db/models/fields/__init__.py`.
+
+**Change:**
+In `django/db/models/fields/__init__.py`, line 883:
+- **Old:** `qs = rel_model._default_manager.complex_filter(limit_choices_to)`
+- **New:** `qs = rel_model._default_manager.complex_filter(limit_choices_to).distinct()`
+
+**Verification:**
+- A reproduction script confirmed that before the fix, a `Book` matching multiple `Tag` criteria appeared twice in the choices list. After the fix, it appears only once.
+- No regressions were found in the affected code paths.
+[swe_entry] django__django-13315 ok steps=10 tools=46
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jac-upstream/jac

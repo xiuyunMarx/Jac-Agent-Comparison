@@ -1,0 +1,386 @@
+### Plan
+The issue is that `sympy.Matrix(sympy.BlockDiagMatrix(M))` raises a `TypeError: 'One' object is not subscriptable` when `BlockDiagMatrix` is initialized with a single matrix `M`. This happens because `BlockDiagMatrix.blocks` returns an `ImmutableDenseMatrix` containing the blocks, and when `BlockMatrix._entry` attempts to access a block using `self.blocks[row_block, col_block]`, it retrieves the block. However, if the block is a scalar or certain type of expression (like `sympy.One` if the input was a 1x1 matrix, or more generally, how `ImmutableDenseMatrix` handles its elements), the subsequent subscripting `[i, j]` fails.
+
+Actually, looking at the traceback:
+`return self.blocks[row_block, col_block][i, j]`
+In the case of `BlockDiagMatrix(M)`, `self.blocks` is an `ImmutableDenseMatrix` of size 1x1 containing `M`.
+`self.blocks[0, 0]` should return `M`.
+If `M` is a `sympy.Matrix`, it should be subscriptable.
+Wait, the traceback says `TypeError: 'One' object is not subscriptable`. This suggests that `self.blocks[0, 0]` is returning `sympy.One` instead of the matrix `M`.
+
+If `M` is a 2x2 matrix, why would `self.blocks[0, 0]` be `One`?
+Wait, let's look at `BlockDiagMatrix.blocks`:
+```python
+    @property
+    def blocks(self):
+        from sympy.matrices.immutable import ImmutableDenseMatrix
+        mats = self.args
+        data = [[mats[i] if i == j else ZeroMatrix(mats[i].rows, mats[j].cols)
+                        for j in range(len(mats))]
+                        for i in range(len(mats))]
+        return ImmutableDenseMatrix(data)
+```
+If `mats` contains one matrix `M`, `data` is `[[M]]`. `ImmutableDenseMatrix([[M]])` should have `[0, 0]` as `M`.
+
+However, `ImmutableDenseMatrix` might be simplifying the element if it's a matrix? No, that's unlikely.
+Wait, if `M` is a matrix, `ImmutableDenseMatrix([[M]])` is a matrix of matrices.
+
+The claim: `sympy.Matrix(sympy.BlockDiagMatrix(M))` should return a regular Matrix containing the elements of `M` without raising a `TypeError`.
+
+Likely involved file:
+- `sympy/matrices/expressions/blockmatrix.py` (specifically `BlockDiagMatrix.blocks` and `BlockMatrix._entry`)
+
+Next phase: Reproduce the issue with a script and investigate why `self.blocks[row_block, col_block]` returns a non-subscriptable object (like `One`) when it should return the matrix block.
+
+### Plan
+The issue is that `sympy.Matrix(sympy.BlockDiagMatrix(M))` raises a `TypeError: 'One' object is not subscriptable` when `BlockDiagMatrix` is initialized with a single matrix `M`. It should instead return a regular `sympy.Matrix` containing the elements of `M`.
+
+The most likely involved file is:
+- `sympy/matrices/expressions/blockmatrix.py` (specifically `BlockDiagMatrix.blocks` and `BlockMatrix._entry`)
+
+### Explore
+It uses `self.blocks.shape`, `self.blocks[i, j]`, `self.blocks.tolist()`, `self.blocks * other.blocks`, `self.blocks + other.blocks`.
+
+So `self.blocks` really should be a matrix.
+
+If `ImmutableDenseMatrix` is flattening when it's 1x1, we need to prevent that.
+
+What if we use `ImmutableDenseMatrix` but ensure that the elements are not just `Matrix`?
+
+Actually, there is a simple trick to prevent `ImmutableDenseMatrix` from flattening: wrap the matrices in something that is not a matrix but can be converted back? No.
+
+Wait, what if we use `Matrix` instead of `ImmutableDenseMatrix`? No, `Matrix` also flattens.
+
+Actually, the problem is in `_handle_creation_inputs` in `matrices.py`.
+
+If we can't change `matrices.py`, we have to change how `BlockDiagMatrix.blocks` is implemented.
+
+If `len(mats) == 1`, `BlockDiagMatrix.blocks` returns `ImmutableDenseMatrix([[mats[0]]])`.
+
+If we change it to something that doesn't flatten.
+
+What if we use a custom class that inherits from `ImmutableDenseMatrix` and overrides `_handle_creation_inputs`? No, that's too complex.
+
+How about we use `ImmutableDenseMatrix` but we make the elements not be `Matrix`?
+If we use `MatrixSymbol` it doesn't flatten. But the user passed a `Matrix`.
+
+Wait, what if we use `ZeroMatrix` even for the 1x1 case?
+If we have a 1x1 block matrix, we have one block `M`. The data is `[[M]]`.
+
+If we can't use `ImmutableDenseMatrix([[M]])`, can we use something else?
+
+What if we use `ImmutableDenseMatrix` but we ensure the element is not just a `Matrix`?
+
+Actually, if we use `ImmutableDenseMatrix([[M]])`, and it flattens, it's because `M` is a `Matrix`.
+
+What if we use a different matrix class?
+
+Looking at `sympy/matrices/immutable.py` might help.<channel|>The root cause is that `ImmutableDenseMatrix` (used in `BlockDiagMatrix.blocks`) automatically flattens its contents if it is initialized with a list of lists containing only `Matrix` objects (and no other matrix-like objects such as `ZeroMatrix`). 
+
+In the case of `BlockDiagMatrix(M)` where `M` is a single matrix, `BlockDiagMatrix.blocks` creates `ImmutableDenseMatrix([[M]])`. Because it's a 1x1 block matrix and the only block is a `Matrix`, `ImmutableDenseMatrix` flattens it, returning the matrix `M` itself instead of a 1x1 matrix containing `M`. Consequently, when `BlockMatrix._entry` calls `self.blocks[row_block, col_block][i, j]`, it's actually calling `M[0, 0][i, j]`. Since `M[0, 0]` is a scalar, it raises `TypeError: 'One' object is not subscriptable`.
+
+When `len(mats) > 1`, `BlockDiagMatrix.blocks` includes `ZeroMatrix` objects for off-diagonal blocks. Since `ZeroMatrix` is a `MatrixExpr` and not a `Matrix`, `ImmutableDenseMatrix` does not flatten the result, and `self.blocks[row_block, col_block]` correctly returns the block matrix, allowing the subsequent indexing `[i, j]` to work.
+
+The fix should be in `sympy/matrices/expressions/blockmatrix.py` in the `BlockDiagMatrix.blocks` property. We need to ensure that `ImmutableDenseMatrix` does not flatten the blocks even when there is only one block. One way to achieve this is to ensure that the data passed to `ImmutableDenseMatrix` is not seen as a simple matrix structure to be flattened, or by using a different representation for the 1x1 case.
+
+**Reproduction:**
+```python
+import sympy
+M = sympy.Matrix([[1, 2], [3, 4]])
+D = sympy.BlockDiagMatrix(M)
+B = sympy.Matrix(D) # Raises TypeError: 'One' object is not subscriptable
+```
+
+**Details:**
+- **File:** `sympy/matrices/expressions/blockmatrix.py`
+- **Symbol:** `BlockDiagMatrix.blocks`
+- **Line Range:** 298-305
+
+### Explore
+The root cause is located in `sympy/matrices/expressions/blockmatrix.py` within the `BlockDiagMatrix.blocks` property. When `BlockDiagMatrix` is initialized with a single matrix `M`, `ImmutableDenseMatrix([[M]])` is called. `ImmutableDenseMatrix` flattens this input into `M` itself rather than keeping it as a 1x1 matrix containing `M`. As a result, `BlockMatrix._entry` attempts to index into a scalar, causing the `TypeError`.
+
+**File:** `sympy/matrices/expressions/blockmatrix.py`
+**Symbol:** `BlockDiagMatrix.blocks`
+**Line Range:** 298-305
+
+**Reproduction Output:**
+```
+Caught exception: TypeError: 'One' object is not subscriptable
+```
+
+### Edit
+The issue was that `BlockDiagMatrix.blocks` used `ImmutableDenseMatrix(data)` to store the block matrices. When `BlockDiagMatrix` is initialized with a single `Matrix` element, `ImmutableDenseMatrix` automatically flattens the 1x1 block structure, returning the inner matrix itself. This caused `BlockMatrix._entry` to attempt indexing into a scalar (the element of the inner matrix), resulting in a `TypeError`.
+
+The fix is to pass `evaluate=False` to the `ImmutableDenseMatrix` constructor in `BlockDiagMatrix.blocks`, which prevents this automatic flattening and ensures the block structure is preserved regardless of the number of elements.
+
+```python
+# sympy/matrices/expressions/blockmatrix.py
+
+    def blocks(self):
+        from sympy.matrices.immutable import ImmutableDenseMatrix
+        mats = self.args
+        data = [[mats[i] if i == j else ZeroMatrix(mats[i].rows, mats[j].cols)
+                        for j in range(len(mats))]
+                        for i in range(len(mats))]
+        return ImmutableDenseMatrix(data, evaluate=False)
+```
+
+### Edit
+The issue was that `BlockDiagMatrix.blocks` used `ImmutableDenseMatrix(data)` to store the block matrices. When `BlockDiagMatrix` is initialized with a single `Matrix` element, `ImmutableDenseMatrix` automatically flattens the 1x1 block structure, returning the inner matrix itself. This caused `BlockMatrix._entry` to attempt indexing into a scalar (the element of the inner matrix), resulting in a `TypeError`.
+
+The fix was to pass `evaluate=False` to the `ImmutableDenseMatrix` constructor in `BlockDiagMatrix.blocks`, which prevents this automatic flattening and ensures the block structure is preserved regardless of the number of elements.
+
+```python
+# sympy/matrices/expressions/blockmatrix.py
+
+    def blocks(self):
+        from sympy.matrices.immutable import ImmutableDenseMatrix
+        mats = self.args
+        data = [[mats[i] if i == j else ZeroMatrix(mats[i].rows, mats[j].cols)
+                        for j in range(len(mats))]
+                        for i in range(len(mats))]
+        return ImmutableDenseMatrix(data, evaluate=False)
+```
+
+### Verify
+The issue was that `sympy.BlockDiagMatrix` with a single element failed to convert to a regular `sympy.Matrix` because `ImmutableDenseMatrix` (used to store the blocks) would automatically flatten the 1x1 block structure if it contained only a `Matrix` object. This led to a `TypeError: 'One' object is not subscriptable` when `BlockMatrix._entry` attempted to index into the flattened block.
+
+I fixed this by adding `evaluate=False` to the `ImmutableDenseMatrix` constructor in `BlockDiagMatrix.blocks`, which prevents this automatic flattening and preserves the block structure.
+
+**Changes:**
+- In `sympy/matrices/expressions/blockmatrix.py`, changed `return ImmutableDenseMatrix(data)` to `return ImmutableDenseMatrix(data, evaluate=False)` in the `BlockDiagMatrix.blocks` property.
+
+**Verification:**
+- Reproduced the issue with a minimal script; it initially failed as reported.
+- Verified the fix with the same script and additional cases (multiple matrices, `MatrixSymbol`), all of which now pass.
+- Confirmed the fix works as expected and maintains consistency with `BlockMatrix`.
+
+### Verify
+The issue was caused by `ImmutableDenseMatrix` automatically flattening a 1x1 block matrix if its sole element was a `sympy.Matrix`. This caused `BlockDiagMatrix.blocks` to return the inner matrix itself instead of a 1x1 matrix containing that matrix. Consequently, `BlockMatrix._entry` attempted to index into a scalar, resulting in a `TypeError: 'One' object is not subscriptable`.
+
+I fixed this by passing `evaluate=False` to the `ImmutableDenseMatrix` constructor in `BlockDiagMatrix.blocks`, which prevents automatic flattening and preserves the block structure.
+
+**Changes:**
+- In `sympy/matrices/expressions/blockmatrix.py`, changed `return ImmutableDenseMatrix(data)` to `return ImmutableDenseMatrix(data, evaluate=False)` in the `BlockDiagMatrix.blocks` property.
+
+**Verification:**
+- Verified that `sympy.Matrix(sympy.BlockDiagMatrix(M))` now succeeds for single matrices, multiple matrices, and `MatrixSymbol` inputs.
+- Ran `sympy/matrices/expressions/tests/test_blockmatrix.py` and it passed.
+
+### Edit
+The issue was that `sympy.BlockDiagMatrix` with a single matrix element failed to convert to a regular `sympy.Matrix` because `ImmutableDenseMatrix` (used to store the block structure in `BlockDiagMatrix.blocks`) automatically flattens 1x1 matrices if the element is a `sympy.Matrix`. This caused `BlockMatrix._entry` to attempt indexing into a scalar, resulting in a `TypeError: 'One' object is not subscriptable`.
+
+The fix is to pass `evaluate=False` to the `ImmutableDenseMatrix` constructor in `BlockDiagMatrix.blocks`, which prevents this automatic flattening and ensures the block structure is preserved.
+
+```python
+# sympy/matrices/expressions/blockmatrix.py
+
+    def blocks(self):
+        from sympy.matrices.immutable import ImmutableDenseMatrix
+        mats = self.args
+        data = [[mats[i] if i == j else ZeroMatrix(mats[i].rows, mats[j].cols)
+                        for j in range(len(mats))]
+                        for i in range(len(mats))]
+        return ImmutableDenseMatrix(data, evaluate=False)
+```
+### Plan
+The issue is that `sympy.Matrix(sympy.BlockDiagMatrix(M))` raises a `TypeError: 'One' object is not subscriptable` when `BlockDiagMatrix` is initialized with a single matrix `M`. This happens because `BlockDiagMatrix.blocks` returns an `ImmutableDenseMatrix` containing the blocks, and when `BlockMatrix._entry` attempts to access a block using `self.blocks[row_block, col_block]`, it retrieves the block. However, if the block is a scalar or certain type of expression (like `sympy.One` if the input was a 1x1 matrix, or more generally, how `ImmutableDenseMatrix` handles its elements), the subsequent subscripting `[i, j]` fails.
+
+Actually, looking at the traceback:
+`return self.blocks[row_block, col_block][i, j]`
+In the case of `BlockDiagMatrix(M)`, `self.blocks` is an `ImmutableDenseMatrix` of size 1x1 containing `M`.
+`self.blocks[0, 0]` should return `M`.
+If `M` is a `sympy.Matrix`, it should be subscriptable.
+Wait, the traceback says `TypeError: 'One' object is not subscriptable`. This suggests that `self.blocks[0, 0]` is returning `sympy.One` instead of the matrix `M`.
+
+If `M` is a 2x2 matrix, why would `self.blocks[0, 0]` be `One`?
+Wait, let's look at `BlockDiagMatrix.blocks`:
+```python
+    @property
+    def blocks(self):
+        from sympy.matrices.immutable import ImmutableDenseMatrix
+        mats = self.args
+        data = [[mats[i] if i == j else ZeroMatrix(mats[i].rows, mats[j].cols)
+                        for j in range(len(mats))]
+                        for i in range(len(mats))]
+        return ImmutableDenseMatrix(data)
+```
+If `mats` contains one matrix `M`, `data` is `[[M]]`. `ImmutableDenseMatrix([[M]])` should have `[0, 0]` as `M`.
+
+However, `ImmutableDenseMatrix` might be simplifying the element if it's a matrix? No, that's unlikely.
+Wait, if `M` is a matrix, `ImmutableDenseMatrix([[M]])` is a matrix of matrices.
+
+The claim: `sympy.Matrix(sympy.BlockDiagMatrix(M))` should return a regular Matrix containing the elements of `M` without raising a `TypeError`.
+
+Likely involved file:
+- `sympy/matrices/expressions/blockmatrix.py` (specifically `BlockDiagMatrix.blocks` and `BlockMatrix._entry`)
+
+Next phase: Reproduce the issue with a script and investigate why `self.blocks[row_block, col_block]` returns a non-subscriptable object (like `One`) when it should return the matrix block.
+
+### Plan
+The issue is that `sympy.Matrix(sympy.BlockDiagMatrix(M))` raises a `TypeError: 'One' object is not subscriptable` when `BlockDiagMatrix` is initialized with a single matrix `M`. It should instead return a regular `sympy.Matrix` containing the elements of `M`.
+
+The most likely involved file is:
+- `sympy/matrices/expressions/blockmatrix.py` (specifically `BlockDiagMatrix.blocks` and `BlockMatrix._entry`)
+
+### Explore
+It uses `self.blocks.shape`, `self.blocks[i, j]`, `self.blocks.tolist()`, `self.blocks * other.blocks`, `self.blocks + other.blocks`.
+
+So `self.blocks` really should be a matrix.
+
+If `ImmutableDenseMatrix` is flattening when it's 1x1, we need to prevent that.
+
+What if we use `ImmutableDenseMatrix` but ensure that the elements are not just `Matrix`?
+
+Actually, there is a simple trick to prevent `ImmutableDenseMatrix` from flattening: wrap the matrices in something that is not a matrix but can be converted back? No.
+
+Wait, what if we use `Matrix` instead of `ImmutableDenseMatrix`? No, `Matrix` also flattens.
+
+Actually, the problem is in `_handle_creation_inputs` in `matrices.py`.
+
+If we can't change `matrices.py`, we have to change how `BlockDiagMatrix.blocks` is implemented.
+
+If `len(mats) == 1`, `BlockDiagMatrix.blocks` returns `ImmutableDenseMatrix([[mats[0]]])`.
+
+If we change it to something that doesn't flatten.
+
+What if we use a custom class that inherits from `ImmutableDenseMatrix` and overrides `_handle_creation_inputs`? No, that's too complex.
+
+How about we use `ImmutableDenseMatrix` but we make the elements not be `Matrix`?
+If we use `MatrixSymbol` it doesn't flatten. But the user passed a `Matrix`.
+
+Wait, what if we use `ZeroMatrix` even for the 1x1 case?
+If we have a 1x1 block matrix, we have one block `M`. The data is `[[M]]`.
+
+If we can't use `ImmutableDenseMatrix([[M]])`, can we use something else?
+
+What if we use `ImmutableDenseMatrix` but we ensure the element is not just a `Matrix`?
+
+Actually, if we use `ImmutableDenseMatrix([[M]])`, and it flattens, it's because `M` is a `Matrix`.
+
+What if we use a different matrix class?
+
+Looking at `sympy/matrices/immutable.py` might help.<channel|>The root cause is that `ImmutableDenseMatrix` (used in `BlockDiagMatrix.blocks`) automatically flattens its contents if it is initialized with a list of lists containing only `Matrix` objects (and no other matrix-like objects such as `ZeroMatrix`). 
+
+In the case of `BlockDiagMatrix(M)` where `M` is a single matrix, `BlockDiagMatrix.blocks` creates `ImmutableDenseMatrix([[M]])`. Because it's a 1x1 block matrix and the only block is a `Matrix`, `ImmutableDenseMatrix` flattens it, returning the matrix `M` itself instead of a 1x1 matrix containing `M`. Consequently, when `BlockMatrix._entry` calls `self.blocks[row_block, col_block][i, j]`, it's actually calling `M[0, 0][i, j]`. Since `M[0, 0]` is a scalar, it raises `TypeError: 'One' object is not subscriptable`.
+
+When `len(mats) > 1`, `BlockDiagMatrix.blocks` includes `ZeroMatrix` objects for off-diagonal blocks. Since `ZeroMatrix` is a `MatrixExpr` and not a `Matrix`, `ImmutableDenseMatrix` does not flatten the result, and `self.blocks[row_block, col_block]` correctly returns the block matrix, allowing the subsequent indexing `[i, j]` to work.
+
+The fix should be in `sympy/matrices/expressions/blockmatrix.py` in the `BlockDiagMatrix.blocks` property. We need to ensure that `ImmutableDenseMatrix` does not flatten the blocks even when there is only one block. One way to achieve this is to ensure that the data passed to `ImmutableDenseMatrix` is not seen as a simple matrix structure to be flattened, or by using a different representation for the 1x1 case.
+
+**Reproduction:**
+```python
+import sympy
+M = sympy.Matrix([[1, 2], [3, 4]])
+D = sympy.BlockDiagMatrix(M)
+B = sympy.Matrix(D) # Raises TypeError: 'One' object is not subscriptable
+```
+
+**Details:**
+- **File:** `sympy/matrices/expressions/blockmatrix.py`
+- **Symbol:** `BlockDiagMatrix.blocks`
+- **Line Range:** 298-305
+
+### Explore
+The root cause is located in `sympy/matrices/expressions/blockmatrix.py` within the `BlockDiagMatrix.blocks` property. When `BlockDiagMatrix` is initialized with a single matrix `M`, `ImmutableDenseMatrix([[M]])` is called. `ImmutableDenseMatrix` flattens this input into `M` itself rather than keeping it as a 1x1 matrix containing `M`. As a result, `BlockMatrix._entry` attempts to index into a scalar, causing the `TypeError`.
+
+**File:** `sympy/matrices/expressions/blockmatrix.py`
+**Symbol:** `BlockDiagMatrix.blocks`
+**Line Range:** 298-305
+
+**Reproduction Output:**
+```
+Caught exception: TypeError: 'One' object is not subscriptable
+```
+
+### Edit
+The issue was that `BlockDiagMatrix.blocks` used `ImmutableDenseMatrix(data)` to store the block matrices. When `BlockDiagMatrix` is initialized with a single `Matrix` element, `ImmutableDenseMatrix` automatically flattens the 1x1 block structure, returning the inner matrix itself. This caused `BlockMatrix._entry` to attempt indexing into a scalar (the element of the inner matrix), resulting in a `TypeError`.
+
+The fix is to pass `evaluate=False` to the `ImmutableDenseMatrix` constructor in `BlockDiagMatrix.blocks`, which prevents this automatic flattening and ensures the block structure is preserved regardless of the number of elements.
+
+```python
+# sympy/matrices/expressions/blockmatrix.py
+
+    def blocks(self):
+        from sympy.matrices.immutable import ImmutableDenseMatrix
+        mats = self.args
+        data = [[mats[i] if i == j else ZeroMatrix(mats[i].rows, mats[j].cols)
+                        for j in range(len(mats))]
+                        for i in range(len(mats))]
+        return ImmutableDenseMatrix(data, evaluate=False)
+```
+
+### Edit
+The issue was that `BlockDiagMatrix.blocks` used `ImmutableDenseMatrix(data)` to store the block matrices. When `BlockDiagMatrix` is initialized with a single `Matrix` element, `ImmutableDenseMatrix` automatically flattens the 1x1 block structure, returning the inner matrix itself. This caused `BlockMatrix._entry` to attempt indexing into a scalar (the element of the inner matrix), resulting in a `TypeError`.
+
+The fix was to pass `evaluate=False` to the `ImmutableDenseMatrix` constructor in `BlockDiagMatrix.blocks`, which prevents this automatic flattening and ensures the block structure is preserved regardless of the number of elements.
+
+```python
+# sympy/matrices/expressions/blockmatrix.py
+
+    def blocks(self):
+        from sympy.matrices.immutable import ImmutableDenseMatrix
+        mats = self.args
+        data = [[mats[i] if i == j else ZeroMatrix(mats[i].rows, mats[j].cols)
+                        for j in range(len(mats))]
+                        for i in range(len(mats))]
+        return ImmutableDenseMatrix(data, evaluate=False)
+```
+
+### Verify
+The issue was that `sympy.BlockDiagMatrix` with a single element failed to convert to a regular `sympy.Matrix` because `ImmutableDenseMatrix` (used to store the blocks) would automatically flatten the 1x1 block structure if it contained only a `Matrix` object. This led to a `TypeError: 'One' object is not subscriptable` when `BlockMatrix._entry` attempted to index into the flattened block.
+
+I fixed this by adding `evaluate=False` to the `ImmutableDenseMatrix` constructor in `BlockDiagMatrix.blocks`, which prevents this automatic flattening and preserves the block structure.
+
+**Changes:**
+- In `sympy/matrices/expressions/blockmatrix.py`, changed `return ImmutableDenseMatrix(data)` to `return ImmutableDenseMatrix(data, evaluate=False)` in the `BlockDiagMatrix.blocks` property.
+
+**Verification:**
+- Reproduced the issue with a minimal script; it initially failed as reported.
+- Verified the fix with the same script and additional cases (multiple matrices, `MatrixSymbol`), all of which now pass.
+- Confirmed the fix works as expected and maintains consistency with `BlockMatrix`.
+
+### Verify
+The issue was caused by `ImmutableDenseMatrix` automatically flattening a 1x1 block matrix if its sole element was a `sympy.Matrix`. This caused `BlockDiagMatrix.blocks` to return the inner matrix itself instead of a 1x1 matrix containing that matrix. Consequently, `BlockMatrix._entry` attempted to index into a scalar, resulting in a `TypeError: 'One' object is not subscriptable`.
+
+I fixed this by passing `evaluate=False` to the `ImmutableDenseMatrix` constructor in `BlockDiagMatrix.blocks`, which prevents automatic flattening and preserves the block structure.
+
+**Changes:**
+- In `sympy/matrices/expressions/blockmatrix.py`, changed `return ImmutableDenseMatrix(data)` to `return ImmutableDenseMatrix(data, evaluate=False)` in the `BlockDiagMatrix.blocks` property.
+
+**Verification:**
+- Verified that `sympy.Matrix(sympy.BlockDiagMatrix(M))` now succeeds for single matrices, multiple matrices, and `MatrixSymbol` inputs.
+- Ran `sympy/matrices/expressions/tests/test_blockmatrix.py` and it passed.
+
+### Edit
+The issue was that `sympy.BlockDiagMatrix` with a single matrix element failed to convert to a regular `sympy.Matrix` because `ImmutableDenseMatrix` (used to store the block structure in `BlockDiagMatrix.blocks`) automatically flattens 1x1 matrices if the element is a `sympy.Matrix`. This caused `BlockMatrix._entry` to attempt indexing into a scalar, resulting in a `TypeError: 'One' object is not subscriptable`.
+
+The fix is to pass `evaluate=False` to the `ImmutableDenseMatrix` constructor in `BlockDiagMatrix.blocks`, which prevents this automatic flattening and ensures the block structure is preserved.
+
+```python
+# sympy/matrices/expressions/blockmatrix.py
+
+    def blocks(self):
+        from sympy.matrices.immutable import ImmutableDenseMatrix
+        mats = self.args
+        data = [[mats[i] if i == j else ZeroMatrix(mats[i].rows, mats[j].cols)
+                        for j in range(len(mats))]
+                        for i in range(len(mats))]
+        return ImmutableDenseMatrix(data, evaluate=False)
+```
+
+### Verify
+The issue was that `sympy.BlockDiagMatrix` with a single matrix element failed to convert to a regular `sympy.Matrix` because `ImmutableDenseMatrix` (used to store the blocks in `BlockDiagMatrix.blocks`) automatically flattens 1x1 matrices if the only element is a `sympy.Matrix`. This caused `BlockMatrix._entry` to attempt indexing into a scalar, resulting in a `TypeError: 'One' object is not subscriptable`.
+
+The fix is to pass `evaluate=False` to the `ImmutableDenseMatrix` constructor in `BlockDiagMatrix.blocks`, which prevents automatic flattening and preserves the block structure.
+
+**Changes:**
+- In `sympy/matrices/expressions/blockmatrix.py`, modified the `BlockDiagMatrix.blocks` property to return `ImmutableDenseMatrix(data, evaluate=False)` instead of `ImmutableDenseMatrix(data)`.
+
+**Verification:**
+- Reproduced the failure using `sympy.Matrix(sympy.BlockDiagMatrix(M))` with a 2x2 matrix `M`.
+- Verified that the fix resolves the `TypeError` and correctly returns the original matrix.
+- Confirmed the fix works for `MatrixSymbol` and multiple matrices.
+- Ran tests in `sympy/matrices/expressions/tests` and no regressions were found.
+[swe_entry] sympy__sympy-18621 ok steps=10 tools=62
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jac-upstream/jac

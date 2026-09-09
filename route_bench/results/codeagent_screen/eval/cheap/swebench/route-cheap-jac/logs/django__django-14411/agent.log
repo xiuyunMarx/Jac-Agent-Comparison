@@ -1,0 +1,268 @@
+### Plan
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "Claim: When `ReadOnlyPasswordHashWidget` is rendered in the Django admin, the associated `<label>` element contains a `for` attribute pointing to an ID that does not correspond to a labelable form element (like an `<input>`), because the widget renders plain text. It should not have a `for` attribute.
+
+Most likely involved file:
+- `django/contrib/auth/forms.py` (defines `ReadOnlyPasswordHashWidget`)
+
+Next phase: Examine how `ReadOnlyPasswordHashWidget` is rendered and how the label is generated (likely in the admin's form rendering logic) to determine why the `for` attribute is being added and how to suppress it for this specific widget."}}</tool_call>
+
+### Plan
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "Claim: When `ReadOnlyPasswordHashWidget` is used in a form (specifically in the Django admin), the resulting HTML `<label>` has a `for` attribute pointing to an ID that does not correspond to a labelable element, because the widget renders text instead of an input. The label should not have a `for` attribute when this widget is used.
+
+Most likely involved files:
+- `django/contrib/auth/forms.py`: Defines the `ReadOnlyPasswordHashWidget`.
+- `django/forms/widgets.py` or `django/forms/fields.py`: (Potential) General logic for how widgets communicate if they are labelable.
+
+Next phase needs: Investigate how the `for` attribute is generated for labels in the admin/forms and determine if `ReadOnlyPasswordHashWidget` needs a specific property (e.g., `is_labelable = False` if it exists, or a similar mechanism) to prevent the `for` attribute from being rendered."}}</tool_call>
+
+### Explore
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue is that `ReadOnlyPasswordHashWidget` renders non-labelable content, but the form rendering logic still generates a `<label for=\"id_...\">` for it. 
+
+Reproduction:
+```python
+import django
+from django.conf import settings
+if not settings.configured:
+    settings.configure(
+        DEFAULT_AUTO_FIELD='django.db.models.AutoField',
+        INSTALLED_APPS=['django.contrib.auth', 'django.contrib.contenttypes'],
+        SECRET_KEY='dummy-key',
+    )
+django.setup()
+
+from django.forms import Form, CharField
+from django.contrib.auth.forms import ReadOnlyPasswordHashWidget
+
+class TestForm(Form):
+    password = CharField(widget=ReadOnlyPasswordHashWidget())
+
+form = TestForm()
+print(form['password'].label_tag()) 
+# Output: <label for=\"id_password\">Password:</label>
+```
+
+The `label_tag()` method (which is likely defined in `django/forms/bound_field.py`, although my grep failed to find it due to possible regex/path issues, it is the standard way BoundFields render labels) automatically adds the `for` attribute based on the field's ID. 
+
+To fix this, `ReadOnlyPasswordHashWidget` should indicate that it does not produce a labelable element. Since Django widgets don't have a standard `is_labelable` property, the fix involves ensuring the rendering logic (either in `BoundField.label_tag` or the admin templates) checks if the widget is "labelable". If no such property exists, a new one should be introduced or `ReadOnlyPasswordHashWidget` should be handled as a special case.
+
+File to change: `django/contrib/auth/forms.py` (to add a property to the widget) and potentially `django/forms/bound_field.py` (to respect that property in `label_tag`)."}}</tool_call>
+
+### Explore
+The issue is that `ReadOnlyPasswordHashWidget` in `django/contrib/auth/forms.py` renders non-labelable text instead of a form input. However, when used in a form, the `BoundField.label_tag()` method in `django/forms/boundfield.py` generates a `<label>` element with a `for` attribute pointing to the field's ID. According to HTML standards, the `for` attribute should only point to labelable elements.
+
+**Root Cause:**
+In `django/forms/boundfield.py`, the `label_tag` method calculates the `id_for_label` using `widget.id_for_label(id_)`. The base `Widget.id_for_label` method in `django/forms/widgets.py` simply returns the provided ID. Since `ReadOnlyPasswordHashWidget` does not override this method to return `None`, the `for` attribute is always added if the field has an ID.
+
+**Proposed Fix:**
+Override the `id_for_label` method in `ReadOnlyPasswordHashWidget` to return `None`. This informs the `BoundField` that the widget does not produce a labelable element, which in turn prevents `label_tag` from adding the `for` attribute to the resulting HTML.
+
+**File and symbol to change:**
+- File: `django/contrib/auth/forms.py`
+- Symbol: `ReadOnlyPasswordHashWidget`
+- Change: Add `def id_for_label(self, id_): return None`
+
+**Minimal Reproduction:**
+```python
+import django
+from django.conf import settings
+if not settings.configured:
+    settings.configure(
+        DEFAULT_AUTO_FIELD='django.db.models.AutoField',
+        INSTALLED_APPS=['django.contrib.auth', 'django.contrib.contenttypes'],
+        SECRET_KEY='dummy-key',
+    )
+django.setup()
+
+from django.forms import Form, CharField
+from django.contrib.auth.forms import ReadOnlyPasswordHashWidget
+
+class TestForm(Form):
+    password = CharField(widget=ReadOnlyPasswordHashWidget())
+
+form = TestForm()
+label_html = form['password'].label_tag()
+print(label_html) 
+# Current Output: <label for="id_password">Password:</label>
+# Expected Output: <label>Password:</label>
+```
+
+### Edit
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue was that `ReadOnlyPasswordHashWidget` rendered non-labelable text, but `BoundField.label_tag()` still generated a `<label>` with a `for` attribute. I fixed this by overriding `id_for_label` in `ReadOnlyPasswordHashWidget` to return `None`, which correctly signals that the widget does not have a labelable element.
+
+Verification:
+Ran a reproduction script where `form['password'].label_tag()` was called for a field using `ReadOnlyPasswordHashWidget`.
+- Before fix: `<label for="id_password">Password:</label>`
+- After fix: `<label>Password:</label>`
+
+The fix is minimal and targets only the problematic widget. No tests were modified."}}</tool_call>
+
+### Edit
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The fix has already been applied in a previous turn, as confirmed by the `read_file` output which now includes the `id_for_label` method returning `None`. The reproduction script also passed previously.
+
+Current state of `ReadOnlyPasswordHashWidget` in `django/contrib/auth/forms.py`:
+```python
+class ReadOnlyPasswordHashWidget(forms.Widget):
+    template_name = 'auth/widgets/read_only_password_hash.html'
+    read_only = True
+
+    def id_for_label(self, id_):
+        return None
+
+    def get_context(self, name, value, attrs):
+        ...
+```
+
+The `id_for_label` override prevents `BoundField.label_tag()` from adding a `for` attribute to the label, as there is no labelable element rendered by this widget."}}</tool_call>
+
+### Verify
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue was that `ReadOnlyPasswordHashWidget` rendered non-labelable text, but `BoundField.label_tag()` still generated a `<label>` with a `for` attribute. I fixed this by overriding `id_for_label` in `ReadOnlyPasswordHashWidget` to return `None`, which correctly signals that the widget does not produce a labelable element.
+
+Verification results:
+1.  **Reproduction Script**: Confirmed that `label_tag()` now returns `<label>Password:</label>` instead of `<label for=\"id_password\">Password:</label>`.
+2.  **Test Suite**: Ran `python tests/runtests.py auth_tests`, which executed 569 tests. All tests passed.
+
+Output:
+Ran 569 tests in 6.735s
+OK"}}</tool_call>
+
+### Verify
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "Ran the existing tests nearest the changed code using `python tests/runtests.py auth_tests`.
+
+The output was:
+Ran 569 tests in 6.730s
+OK"}}</tool_call>
+### Plan
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "Claim: When `ReadOnlyPasswordHashWidget` is rendered in the Django admin, the associated `<label>` element contains a `for` attribute pointing to an ID that does not correspond to a labelable form element (like an `<input>`), because the widget renders plain text. It should not have a `for` attribute.
+
+Most likely involved file:
+- `django/contrib/auth/forms.py` (defines `ReadOnlyPasswordHashWidget`)
+
+Next phase: Examine how `ReadOnlyPasswordHashWidget` is rendered and how the label is generated (likely in the admin's form rendering logic) to determine why the `for` attribute is being added and how to suppress it for this specific widget."}}</tool_call>
+
+### Plan
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "Claim: When `ReadOnlyPasswordHashWidget` is used in a form (specifically in the Django admin), the resulting HTML `<label>` has a `for` attribute pointing to an ID that does not correspond to a labelable element, because the widget renders text instead of an input. The label should not have a `for` attribute when this widget is used.
+
+Most likely involved files:
+- `django/contrib/auth/forms.py`: Defines the `ReadOnlyPasswordHashWidget`.
+- `django/forms/widgets.py` or `django/forms/fields.py`: (Potential) General logic for how widgets communicate if they are labelable.
+
+Next phase needs: Investigate how the `for` attribute is generated for labels in the admin/forms and determine if `ReadOnlyPasswordHashWidget` needs a specific property (e.g., `is_labelable = False` if it exists, or a similar mechanism) to prevent the `for` attribute from being rendered."}}</tool_call>
+
+### Explore
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue is that `ReadOnlyPasswordHashWidget` renders non-labelable content, but the form rendering logic still generates a `<label for=\"id_...\">` for it. 
+
+Reproduction:
+```python
+import django
+from django.conf import settings
+if not settings.configured:
+    settings.configure(
+        DEFAULT_AUTO_FIELD='django.db.models.AutoField',
+        INSTALLED_APPS=['django.contrib.auth', 'django.contrib.contenttypes'],
+        SECRET_KEY='dummy-key',
+    )
+django.setup()
+
+from django.forms import Form, CharField
+from django.contrib.auth.forms import ReadOnlyPasswordHashWidget
+
+class TestForm(Form):
+    password = CharField(widget=ReadOnlyPasswordHashWidget())
+
+form = TestForm()
+print(form['password'].label_tag()) 
+# Output: <label for=\"id_password\">Password:</label>
+```
+
+The `label_tag()` method (which is likely defined in `django/forms/bound_field.py`, although my grep failed to find it due to possible regex/path issues, it is the standard way BoundFields render labels) automatically adds the `for` attribute based on the field's ID. 
+
+To fix this, `ReadOnlyPasswordHashWidget` should indicate that it does not produce a labelable element. Since Django widgets don't have a standard `is_labelable` property, the fix involves ensuring the rendering logic (either in `BoundField.label_tag` or the admin templates) checks if the widget is "labelable". If no such property exists, a new one should be introduced or `ReadOnlyPasswordHashWidget` should be handled as a special case.
+
+File to change: `django/contrib/auth/forms.py` (to add a property to the widget) and potentially `django/forms/bound_field.py` (to respect that property in `label_tag`)."}}</tool_call>
+
+### Explore
+The issue is that `ReadOnlyPasswordHashWidget` in `django/contrib/auth/forms.py` renders non-labelable text instead of a form input. However, when used in a form, the `BoundField.label_tag()` method in `django/forms/boundfield.py` generates a `<label>` element with a `for` attribute pointing to the field's ID. According to HTML standards, the `for` attribute should only point to labelable elements.
+
+**Root Cause:**
+In `django/forms/boundfield.py`, the `label_tag` method calculates the `id_for_label` using `widget.id_for_label(id_)`. The base `Widget.id_for_label` method in `django/forms/widgets.py` simply returns the provided ID. Since `ReadOnlyPasswordHashWidget` does not override this method to return `None`, the `for` attribute is always added if the field has an ID.
+
+**Proposed Fix:**
+Override the `id_for_label` method in `ReadOnlyPasswordHashWidget` to return `None`. This informs the `BoundField` that the widget does not produce a labelable element, which in turn prevents `label_tag` from adding the `for` attribute to the resulting HTML.
+
+**File and symbol to change:**
+- File: `django/contrib/auth/forms.py`
+- Symbol: `ReadOnlyPasswordHashWidget`
+- Change: Add `def id_for_label(self, id_): return None`
+
+**Minimal Reproduction:**
+```python
+import django
+from django.conf import settings
+if not settings.configured:
+    settings.configure(
+        DEFAULT_AUTO_FIELD='django.db.models.AutoField',
+        INSTALLED_APPS=['django.contrib.auth', 'django.contrib.contenttypes'],
+        SECRET_KEY='dummy-key',
+    )
+django.setup()
+
+from django.forms import Form, CharField
+from django.contrib.auth.forms import ReadOnlyPasswordHashWidget
+
+class TestForm(Form):
+    password = CharField(widget=ReadOnlyPasswordHashWidget())
+
+form = TestForm()
+label_html = form['password'].label_tag()
+print(label_html) 
+# Current Output: <label for="id_password">Password:</label>
+# Expected Output: <label>Password:</label>
+```
+
+### Edit
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue was that `ReadOnlyPasswordHashWidget` rendered non-labelable text, but `BoundField.label_tag()` still generated a `<label>` with a `for` attribute. I fixed this by overriding `id_for_label` in `ReadOnlyPasswordHashWidget` to return `None`, which correctly signals that the widget does not have a labelable element.
+
+Verification:
+Ran a reproduction script where `form['password'].label_tag()` was called for a field using `ReadOnlyPasswordHashWidget`.
+- Before fix: `<label for="id_password">Password:</label>`
+- After fix: `<label>Password:</label>`
+
+The fix is minimal and targets only the problematic widget. No tests were modified."}}</tool_call>
+
+### Edit
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The fix has already been applied in a previous turn, as confirmed by the `read_file` output which now includes the `id_for_label` method returning `None`. The reproduction script also passed previously.
+
+Current state of `ReadOnlyPasswordHashWidget` in `django/contrib/auth/forms.py`:
+```python
+class ReadOnlyPasswordHashWidget(forms.Widget):
+    template_name = 'auth/widgets/read_only_password_hash.html'
+    read_only = True
+
+    def id_for_label(self, id_):
+        return None
+
+    def get_context(self, name, value, attrs):
+        ...
+```
+
+The `id_for_label` override prevents `BoundField.label_tag()` from adding a `for` attribute to the label, as there is no labelable element rendered by this widget."}}</tool_call>
+
+### Verify
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "The issue was that `ReadOnlyPasswordHashWidget` rendered non-labelable text, but `BoundField.label_tag()` still generated a `<label>` with a `for` attribute. I fixed this by overriding `id_for_label` in `ReadOnlyPasswordHashWidget` to return `None`, which correctly signals that the widget does not produce a labelable element.
+
+Verification results:
+1.  **Reproduction Script**: Confirmed that `label_tag()` now returns `<label>Password:</label>` instead of `<label for=\"id_password\">Password:</label>`.
+2.  **Test Suite**: Ran `python tests/runtests.py auth_tests`, which executed 569 tests. All tests passed.
+
+Output:
+Ran 569 tests in 6.735s
+OK"}}</tool_call>
+
+### Verify
+<tool_call>{"name": "finish_tool", "arguments": {"final_output": "Ran the existing tests nearest the changed code using `python tests/runtests.py auth_tests`.
+
+The output was:
+Ran 569 tests in 6.730s
+OK"}}</tool_call>
+[swe_entry] django__django-14411 ok steps=8 tools=52
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jac-upstream/jac

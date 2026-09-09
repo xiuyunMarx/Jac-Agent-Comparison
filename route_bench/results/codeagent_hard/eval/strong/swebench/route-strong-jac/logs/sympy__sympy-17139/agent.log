@@ -1,0 +1,302 @@
+### Plan
+PLAN (planning phase only; no edits made)
+
+Falsifiable claim:
+- Calling `simplify(cos(x)**I)` (with `x = Symbol('x')`) currently raises `TypeError: Invalid comparison of complex I`.
+- Expected behavior: it should return `cos(x)**I` unchanged (no trig simplification applies to a complex exponent), rather than raising.
+
+Root cause (located):
+- In `sympy/simplify/fu.py`, the inner function `_f` inside `_TR56` (around lines 498-516) performs ordering comparisons on the exponent:
+  - `if (rv.exp < 0) == True:` (line ~504)
+  - `if (rv.exp > max) == True:` (line ~506)
+- When `rv.exp` is complex/non-real (e.g. `I`), `rv.exp < 0` invokes `Expr.__lt__`, which raises `TypeError("Invalid comparison of complex ...")` because the exponent is not comparable/orderable as a real number. The code assumes the exponent is always a real integer order.
+
+Files most likely involved (1-3):
+1. `sympy/simplify/fu.py` — primary fix site: the `_f` function in `_TR56` (guard the comparisons so non-real exponents are left unchanged instead of triggering `__lt__`).
+2. `sympy/simplify/trigsimp.py` — caller path (`futrig` -> `_futrig` -> `greedy` -> `TR6`), useful for reproducing/verifying but the fix belongs in `fu.py`.
+
+Proposed minimal fix (for the next phase):
+- In `_f`, before comparing, check that the exponent is real/orderable. A robust approach is to test `rv.exp.is_real` (or that the exponent is comparable) and, if it is not definitively real, return `rv` unchanged. For example, change:
+    if (rv.exp < 0) == True:
+        return rv
+    if (rv.exp > max) == True:
+        return rv
+  to guard with a real-number check, e.g.:
+    if not rv.exp.is_real:
+        return rv
+    if (rv.exp < 0) == True:
+        return rv
+    if (rv.exp > max) == True:
+        return rv
+  This prevents the `<` comparison from being attempted on a complex exponent like `I`, leaving `cos(x)**I` unchanged while preserving existing behavior for real exponents.
+
+Next phase should: apply the guard in `sympy/simplify/fu.py` (`_f` within `_TR56`), then verify by running `python -c "from sympy import *; x=Symbol('x'); print(simplify(cos(x)**I))"` (expect `cos(x)**I`, no error) and the existing fu/trigsimp tests (e.g. `pytest sympy/simplify/tests/test_fu.py` and `pytest sympy/simplify/tests/test_trigsimp.py`).
+
+### Plan
+Falsifiable claim: `simplify(cos(x)**I)` raises `TypeError: Invalid comparison of complex I` instead of returning an expression (leaving it unchanged is acceptable).
+
+Root cause: `sympy/simplify/fu.py`, in the `_f` helper of `_TR56` (around lines 504–506):
+    if (rv.exp < 0) == True:
+        return rv
+    if (rv.exp > max) == True:
+        return rv
+These order `rv.exp` (a Pow exponent) against integers. When `rv.exp` is a non-real complex number like `I`, `Expr.__lt__` (`sympy/core/expr.py`, line ~406) raises `TypeError`. The function should return `rv` unchanged for a non-real/non-comparable exponent instead of attempting the ordering comparison.
+
+Files most likely involved:
+1. sympy/simplify/fu.py — `_TR56`/`_f` (primary fix site).
+2. sympy/simplify/trigsimp.py — `futrig`/`_futrig` call path into `TR6`/`_TR56` (not the root cause).
+3. sympy/core/expr.py — `Expr.__lt__` raising the error (correct behavior; do not change).
+
+Fix direction for next phase: In `_f` within `_TR56`, guard the comparisons so they only run when `rv.exp` is real/comparable; otherwise return `rv` unchanged before the `< 0`/`> max` checks. This avoids touching powers with complex exponents without special-casing the example. Verify with the fu/trigsimp tests (e.g. `pytest sympy/simplify/tests/test_fu.py` and `sympy/simplify/tests/test_trigsimp.py`) and confirm `simplify(cos(x)**I)` no longer raises.
+
+### Explore
+Falsifiable claim: `simplify(cos(x)**I)` raises `TypeError: Invalid comparison of complex I` instead of returning the expression unchanged.
+
+Root cause location:
+- File: `sympy/simplify/fu.py`
+- Symbol: `_TR56` (inner function `_f`)
+- Lines: ~500-506
+
+The relevant code is:
+```
+        if (rv.exp < 0) == True:
+            return rv
+        if (rv.exp > max) == True:
+            return rv
+```
+These comparisons assume `rv.exp` is real. When the exponent is complex (e.g. `I`), `rv.exp < 0` raises `TypeError: Invalid comparison of complex I`.
+
+Repro output (confirmed failing):
+```
+TypeError: Invalid comparison of complex I
+```
+at `sympy/simplify/fu.py", line 504, in _f  if (rv.exp < 0) == True`.
+
+Fix direction for next phase: guard the comparisons so that a non-real/non-comparable exponent causes `_f` to return `rv` unchanged (e.g. check `rv.exp.is_real` or wrap comparisons so a TypeError/unevaluated comparison returns `rv`). Keep the change minimal and within `sympy/simplify/fu.py` only.
+
+### Explore
+Root cause located in `sympy/simplify/fu.py`, function `_TR56` (the inner closure `_f`), lines 497-525 (the failing comparisons are at lines 503-505: `if (rv.exp < 0) == True:` and `if (rv.exp > max) == True:`).
+
+Repro: `simplify(cos(x)**I)` currently fails with `TypeError: Invalid comparison of complex I` at `fu.py:504` because `rv.exp` is `I`, which is complex/non-comparable, so the ordering comparisons `rv.exp < 0` and `rv.exp > max` raise.
+
+Falsifiable claim: calling `simplify(cos(x)**I)` (and any trigsimp of a trig function raised to a non-real/complex power) should NOT raise; it should return the expression unchanged (no rewrite of the power), because the exponent is not a comparable real number suitable for the cos**2 -> 1-sin**2 rewrite. The fix is to guard the comparisons by returning `rv` unchanged when `rv.exp` is not comparable (e.g. `if not rv.exp.is_comparable: return rv`) before the `< 0` / `> max` comparisons.
+
+Primary file to edit: `sympy/simplify/fu.py` (the `_TR56`/`_f` function around lines 497-507). No other files need changes.
+
+### Edit
+Fixed: `simplify(cos(x)**I)` raised `TypeError: Invalid comparison of complex I`.
+
+Root cause: In `_TR56` (the helper behind `TR5`/`TR6` in `sympy/simplify/fu.py`, lines ~501-525), the inner `_f` function compared `rv.exp < 0` and `rv.exp > max` directly. For a non-real exponent (e.g. `I`), these comparisons raise `TypeError` from `Expr.__lt__`/`__gt__`.
+
+Fix: Added an early guard `if not rv.exp.is_real: return rv` immediately after the Pow/base check and before the comparisons, so powers with non-real exponents are left unchanged instead of crashing.
+
+Verified:
+- Repro now runs: `simplify(cos(x)**I)` -> `cos(x)**I`, `simplify(sin(x)**I)` -> `sin(x)**I`, while existing real-power cases (`cos(x)**2`, `sin(x)**4`, `cos(x)**-2`) behave as before.
+- `sympy/simplify/tests/test_fu.py`: 27 passed.
+
+File changed: `sympy/simplify/fu.py` (symbol `_TR56`/`_f`, lines ~504-506).
+
+### Edit
+Fixed the issue in sympy/simplify/fu.py.
+
+Root cause: In _TR56's inner _f function, the comparisons `rv.exp < 0` and `rv.exp > max` call Expr.__lt__, which raises TypeError("Invalid comparison of complex ...") when the exponent is not real (e.g. I). For sin/cos raised to a non-real power, the TR5/TR6 rewrite (sin**2 -> 1-cos**2 etc.) is meaningless anyway.
+
+Fix: Added `if not rv.exp.is_real: return rv` immediately after the `rv.is_Pow and rv.base.func == f` check, before the comparisons, so non-real exponents are left untouched.
+
+Verification:
+- simplify(cos(x)**I) now returns cos(x)**I (previously raised TypeError).
+- simplify(sin(x)**I) returns sin(x)**I.
+- Existing real-exponent behavior preserved: simplify(cos(x)**2), simplify(sin(x)**4), simplify(cos(x)**-2).
+- sympy/simplify/tests/test_fu.py: all 27 tests pass.
+
+The change is a single added guard in sympy/simplify/fu.py around line 502.
+
+### Verify
+Summary of verification phase:
+
+Root cause: In sympy/simplify/fu.py, the inner function `_f` of `_TR56` (used by TR5/TR6) performed comparisons `rv.exp < 0` and `rv.exp > max` on the exponent without first checking it was real. For a complex exponent such as `I` (from `cos(x)**I`), the `<` comparison raises `TypeError: Invalid comparison of complex I` from Expr.__lt__.
+
+Fix: Added a guard in `_f` (sympy/simplify/fu.py, around line 502), placed before the `<`/`>` comparisons, that returns `rv` unchanged when the exponent is not real:
+    if not rv.exp.is_real:
+        return rv
+
+This is a minimal, general fix (not special-casing the example): any non-real exponent now bypasses the power-replacement transformation.
+
+Reproduction results:
+- Before: `simplify(cos(x)**I)` raised `TypeError: Invalid comparison of complex I`.
+- After: `simplify(cos(x)**I)` -> `cos(x)**I` and `simplify(sin(x)**I)` -> `sin(x)**I` (left unchanged, no error). Real exponents still transform normally (e.g. `cos(x)**2`, `sin(x)**4`, `cos(x)**-2` behave as before).
+
+Tests run (sympy test runner; pytest module not installed):
+- sympy/simplify/tests/test_fu.py: 27 passed, 0 failed (0.93s).
+- sympy/simplify/tests/test_trigsimp.py: 26 passed, 1 expected to fail, 0 unexpected failures (7.05s).
+
+No failures introduced by the change.
+
+### Verify
+Summary of verification phase:
+
+Root cause: In sympy/simplify/fu.py, the inner `_f` function of `_TR56` (used by TR5/TR6) compared the exponent against integers with `rv.exp < 0` and `rv.exp > max` before checking whether the exponent was real. For a complex exponent such as `I` in `cos(x)**I`, the `<` comparison raised `TypeError: Invalid comparison of complex I`.
+
+Fix: Added a guard `if not rv.exp.is_real: return rv` immediately after confirming `rv` is the relevant `Pow`, and before the `< 0` / `> max` comparisons (sympy/simplify/fu.py, ~line 503).
+
+Reproduction now passes:
+- `simplify(cos(x)**I)` -> `cos(x)**I` (no error)
+- `simplify(sin(x)**I)` -> `sin(x)**I` (no error)
+
+Tests run via sympy's own runner (pytest is not installed in this env):
+- sympy/simplify/tests/test_fu.py: 27 passed, 0 failed (0.93s)
+- sympy/simplify/tests/test_trigsimp.py: 26 passed, 1 expected to fail, 0 failures (7.05s)
+
+No test files were modified; only the library source sympy/simplify/fu.py was changed.
+### Plan
+PLAN (planning phase only; no edits made)
+
+Falsifiable claim:
+- Calling `simplify(cos(x)**I)` (with `x = Symbol('x')`) currently raises `TypeError: Invalid comparison of complex I`.
+- Expected behavior: it should return `cos(x)**I` unchanged (no trig simplification applies to a complex exponent), rather than raising.
+
+Root cause (located):
+- In `sympy/simplify/fu.py`, the inner function `_f` inside `_TR56` (around lines 498-516) performs ordering comparisons on the exponent:
+  - `if (rv.exp < 0) == True:` (line ~504)
+  - `if (rv.exp > max) == True:` (line ~506)
+- When `rv.exp` is complex/non-real (e.g. `I`), `rv.exp < 0` invokes `Expr.__lt__`, which raises `TypeError("Invalid comparison of complex ...")` because the exponent is not comparable/orderable as a real number. The code assumes the exponent is always a real integer order.
+
+Files most likely involved (1-3):
+1. `sympy/simplify/fu.py` — primary fix site: the `_f` function in `_TR56` (guard the comparisons so non-real exponents are left unchanged instead of triggering `__lt__`).
+2. `sympy/simplify/trigsimp.py` — caller path (`futrig` -> `_futrig` -> `greedy` -> `TR6`), useful for reproducing/verifying but the fix belongs in `fu.py`.
+
+Proposed minimal fix (for the next phase):
+- In `_f`, before comparing, check that the exponent is real/orderable. A robust approach is to test `rv.exp.is_real` (or that the exponent is comparable) and, if it is not definitively real, return `rv` unchanged. For example, change:
+    if (rv.exp < 0) == True:
+        return rv
+    if (rv.exp > max) == True:
+        return rv
+  to guard with a real-number check, e.g.:
+    if not rv.exp.is_real:
+        return rv
+    if (rv.exp < 0) == True:
+        return rv
+    if (rv.exp > max) == True:
+        return rv
+  This prevents the `<` comparison from being attempted on a complex exponent like `I`, leaving `cos(x)**I` unchanged while preserving existing behavior for real exponents.
+
+Next phase should: apply the guard in `sympy/simplify/fu.py` (`_f` within `_TR56`), then verify by running `python -c "from sympy import *; x=Symbol('x'); print(simplify(cos(x)**I))"` (expect `cos(x)**I`, no error) and the existing fu/trigsimp tests (e.g. `pytest sympy/simplify/tests/test_fu.py` and `pytest sympy/simplify/tests/test_trigsimp.py`).
+
+### Plan
+Falsifiable claim: `simplify(cos(x)**I)` raises `TypeError: Invalid comparison of complex I` instead of returning an expression (leaving it unchanged is acceptable).
+
+Root cause: `sympy/simplify/fu.py`, in the `_f` helper of `_TR56` (around lines 504–506):
+    if (rv.exp < 0) == True:
+        return rv
+    if (rv.exp > max) == True:
+        return rv
+These order `rv.exp` (a Pow exponent) against integers. When `rv.exp` is a non-real complex number like `I`, `Expr.__lt__` (`sympy/core/expr.py`, line ~406) raises `TypeError`. The function should return `rv` unchanged for a non-real/non-comparable exponent instead of attempting the ordering comparison.
+
+Files most likely involved:
+1. sympy/simplify/fu.py — `_TR56`/`_f` (primary fix site).
+2. sympy/simplify/trigsimp.py — `futrig`/`_futrig` call path into `TR6`/`_TR56` (not the root cause).
+3. sympy/core/expr.py — `Expr.__lt__` raising the error (correct behavior; do not change).
+
+Fix direction for next phase: In `_f` within `_TR56`, guard the comparisons so they only run when `rv.exp` is real/comparable; otherwise return `rv` unchanged before the `< 0`/`> max` checks. This avoids touching powers with complex exponents without special-casing the example. Verify with the fu/trigsimp tests (e.g. `pytest sympy/simplify/tests/test_fu.py` and `sympy/simplify/tests/test_trigsimp.py`) and confirm `simplify(cos(x)**I)` no longer raises.
+
+### Explore
+Falsifiable claim: `simplify(cos(x)**I)` raises `TypeError: Invalid comparison of complex I` instead of returning the expression unchanged.
+
+Root cause location:
+- File: `sympy/simplify/fu.py`
+- Symbol: `_TR56` (inner function `_f`)
+- Lines: ~500-506
+
+The relevant code is:
+```
+        if (rv.exp < 0) == True:
+            return rv
+        if (rv.exp > max) == True:
+            return rv
+```
+These comparisons assume `rv.exp` is real. When the exponent is complex (e.g. `I`), `rv.exp < 0` raises `TypeError: Invalid comparison of complex I`.
+
+Repro output (confirmed failing):
+```
+TypeError: Invalid comparison of complex I
+```
+at `sympy/simplify/fu.py", line 504, in _f  if (rv.exp < 0) == True`.
+
+Fix direction for next phase: guard the comparisons so that a non-real/non-comparable exponent causes `_f` to return `rv` unchanged (e.g. check `rv.exp.is_real` or wrap comparisons so a TypeError/unevaluated comparison returns `rv`). Keep the change minimal and within `sympy/simplify/fu.py` only.
+
+### Explore
+Root cause located in `sympy/simplify/fu.py`, function `_TR56` (the inner closure `_f`), lines 497-525 (the failing comparisons are at lines 503-505: `if (rv.exp < 0) == True:` and `if (rv.exp > max) == True:`).
+
+Repro: `simplify(cos(x)**I)` currently fails with `TypeError: Invalid comparison of complex I` at `fu.py:504` because `rv.exp` is `I`, which is complex/non-comparable, so the ordering comparisons `rv.exp < 0` and `rv.exp > max` raise.
+
+Falsifiable claim: calling `simplify(cos(x)**I)` (and any trigsimp of a trig function raised to a non-real/complex power) should NOT raise; it should return the expression unchanged (no rewrite of the power), because the exponent is not a comparable real number suitable for the cos**2 -> 1-sin**2 rewrite. The fix is to guard the comparisons by returning `rv` unchanged when `rv.exp` is not comparable (e.g. `if not rv.exp.is_comparable: return rv`) before the `< 0` / `> max` comparisons.
+
+Primary file to edit: `sympy/simplify/fu.py` (the `_TR56`/`_f` function around lines 497-507). No other files need changes.
+
+### Edit
+Fixed: `simplify(cos(x)**I)` raised `TypeError: Invalid comparison of complex I`.
+
+Root cause: In `_TR56` (the helper behind `TR5`/`TR6` in `sympy/simplify/fu.py`, lines ~501-525), the inner `_f` function compared `rv.exp < 0` and `rv.exp > max` directly. For a non-real exponent (e.g. `I`), these comparisons raise `TypeError` from `Expr.__lt__`/`__gt__`.
+
+Fix: Added an early guard `if not rv.exp.is_real: return rv` immediately after the Pow/base check and before the comparisons, so powers with non-real exponents are left unchanged instead of crashing.
+
+Verified:
+- Repro now runs: `simplify(cos(x)**I)` -> `cos(x)**I`, `simplify(sin(x)**I)` -> `sin(x)**I`, while existing real-power cases (`cos(x)**2`, `sin(x)**4`, `cos(x)**-2`) behave as before.
+- `sympy/simplify/tests/test_fu.py`: 27 passed.
+
+File changed: `sympy/simplify/fu.py` (symbol `_TR56`/`_f`, lines ~504-506).
+
+### Edit
+Fixed the issue in sympy/simplify/fu.py.
+
+Root cause: In _TR56's inner _f function, the comparisons `rv.exp < 0` and `rv.exp > max` call Expr.__lt__, which raises TypeError("Invalid comparison of complex ...") when the exponent is not real (e.g. I). For sin/cos raised to a non-real power, the TR5/TR6 rewrite (sin**2 -> 1-cos**2 etc.) is meaningless anyway.
+
+Fix: Added `if not rv.exp.is_real: return rv` immediately after the `rv.is_Pow and rv.base.func == f` check, before the comparisons, so non-real exponents are left untouched.
+
+Verification:
+- simplify(cos(x)**I) now returns cos(x)**I (previously raised TypeError).
+- simplify(sin(x)**I) returns sin(x)**I.
+- Existing real-exponent behavior preserved: simplify(cos(x)**2), simplify(sin(x)**4), simplify(cos(x)**-2).
+- sympy/simplify/tests/test_fu.py: all 27 tests pass.
+
+The change is a single added guard in sympy/simplify/fu.py around line 502.
+
+### Verify
+Summary of verification phase:
+
+Root cause: In sympy/simplify/fu.py, the inner function `_f` of `_TR56` (used by TR5/TR6) performed comparisons `rv.exp < 0` and `rv.exp > max` on the exponent without first checking it was real. For a complex exponent such as `I` (from `cos(x)**I`), the `<` comparison raises `TypeError: Invalid comparison of complex I` from Expr.__lt__.
+
+Fix: Added a guard in `_f` (sympy/simplify/fu.py, around line 502), placed before the `<`/`>` comparisons, that returns `rv` unchanged when the exponent is not real:
+    if not rv.exp.is_real:
+        return rv
+
+This is a minimal, general fix (not special-casing the example): any non-real exponent now bypasses the power-replacement transformation.
+
+Reproduction results:
+- Before: `simplify(cos(x)**I)` raised `TypeError: Invalid comparison of complex I`.
+- After: `simplify(cos(x)**I)` -> `cos(x)**I` and `simplify(sin(x)**I)` -> `sin(x)**I` (left unchanged, no error). Real exponents still transform normally (e.g. `cos(x)**2`, `sin(x)**4`, `cos(x)**-2` behave as before).
+
+Tests run (sympy test runner; pytest module not installed):
+- sympy/simplify/tests/test_fu.py: 27 passed, 0 failed (0.93s).
+- sympy/simplify/tests/test_trigsimp.py: 26 passed, 1 expected to fail, 0 unexpected failures (7.05s).
+
+No failures introduced by the change.
+
+### Verify
+Summary of verification phase:
+
+Root cause: In sympy/simplify/fu.py, the inner `_f` function of `_TR56` (used by TR5/TR6) compared the exponent against integers with `rv.exp < 0` and `rv.exp > max` before checking whether the exponent was real. For a complex exponent such as `I` in `cos(x)**I`, the `<` comparison raised `TypeError: Invalid comparison of complex I`.
+
+Fix: Added a guard `if not rv.exp.is_real: return rv` immediately after confirming `rv` is the relevant `Pow`, and before the `< 0` / `> max` comparisons (sympy/simplify/fu.py, ~line 503).
+
+Reproduction now passes:
+- `simplify(cos(x)**I)` -> `cos(x)**I` (no error)
+- `simplify(sin(x)**I)` -> `sin(x)**I` (no error)
+
+Tests run via sympy's own runner (pytest is not installed in this env):
+- sympy/simplify/tests/test_fu.py: 27 passed, 0 failed (0.93s)
+- sympy/simplify/tests/test_trigsimp.py: 26 passed, 1 expected to fail, 0 failures (7.05s)
+
+No test files were modified; only the library source sympy/simplify/fu.py was changed.
+[swe_entry] sympy__sympy-17139 ok steps=8 tools=23
+🛠  jac dev mode — using compiler source at /home/xiaoyu/jac-upstream/jac
