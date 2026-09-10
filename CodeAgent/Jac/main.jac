@@ -46,7 +46,7 @@ walker CodeAgent {
 
     can planning with Plan entry {
         self.record("Plan", here.work(here.goal));
-        visit [->:PhaseCapability:->][?:Explore];              # 计划之后必然要找代码，不用问模型
+        visit [->:PhaseCapability:->][?:Explore];             
     }
 
     can exploring with Explore entry {
@@ -77,7 +77,6 @@ walker CodeAgent {
             visit [->:PhaseCapability:->][?:Edit];
             return;
         }
-        # relocate 这条边只在第一次修复也没救回来、且还没用过时才摆到模型面前。
         if self.repairs >= 2 and self.relocates < MAX_RELOCATES {
             self.relocates += 1;
             visit [edge ->:PhaseCapability:kind != "forward":->] by llm(
@@ -99,7 +98,7 @@ walker CodeAgent {
     }
 
     can finishing with Finish entry {
-        repo.cleanup();                      # 复现脚本不能混进 patch
+        repo.cleanup();                     
         self.answer = "\n\n".join(self.ledger);
         report self.answer;
     }

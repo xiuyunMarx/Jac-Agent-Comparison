@@ -1,0 +1,3135 @@
+{
+ "CodeAgent/Jac/main.jac": [
+  [
+   1,
+   4,
+   "import from",
+   "adapter",
+   "import"
+  ],
+  [
+   6,
+   6,
+   "glob MAX_REPAIRS",
+   "core",
+   "repair budget / stop condition"
+  ],
+  [
+   7,
+   7,
+   "glob MAX_RELOCATES",
+   "core",
+   "relocate budget / stop condition"
+  ],
+  [
+   9,
+   14,
+   "glob SYSTEM",
+   "core",
+   "system prompt template"
+  ],
+  [
+   16,
+   106,
+   "walker CodeAgent",
+   "core",
+   "walker: graph wiring, phase abilities, guards, LLM routing"
+  ],
+  [
+   108,
+   112,
+   "def solve",
+   "core",
+   "run function over one issue (spawn walker)"
+  ],
+  [
+   114,
+   121,
+   "with entry",
+   "adapter",
+   "CLI entry point"
+  ]
+ ],
+ "CodeAgent/Jac/nodes.jac": [
+  [
+   1,
+   2,
+   "stmt",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   3,
+   3,
+   "import re",
+   "adapter",
+   "import"
+  ],
+  [
+   4,
+   4,
+   "import shlex",
+   "adapter",
+   "import"
+  ],
+  [
+   5,
+   5,
+   "import subprocess",
+   "adapter",
+   "import"
+  ],
+  [
+   6,
+   6,
+   "import warnings",
+   "adapter",
+   "import"
+  ],
+  [
+   7,
+   7,
+   "import from",
+   "adapter",
+   "import"
+  ],
+  [
+   16,
+   16,
+   "glob MODEL_NAME",
+   "adapter",
+   "env-var model name"
+  ],
+  [
+   17,
+   17,
+   "glob MODEL_BASE",
+   "adapter",
+   "env-var API base"
+  ],
+  [
+   18,
+   21,
+   "glob _base_set",
+   "adapter",
+   "env plumbing: sets OPENAI_API_BASE for litellm"
+  ],
+  [
+   22,
+   22,
+   "glob _quiet",
+   "adapter",
+   "warnings filter"
+  ],
+  [
+   23,
+   26,
+   "glob llm",
+   "core",
+   "LLM binding: Model(...) object"
+  ],
+  [
+   27,
+   27,
+   "stmt",
+   "core",
+   "closing paren of the Model(...) construction"
+  ],
+  [
+   32,
+   32,
+   "glob history",
+   "core",
+   "shared conversation state"
+  ],
+  [
+   33,
+   33,
+   "glob tool_log",
+   "core",
+   "tool log state read by written()/ran_since_edit() guards and TOOL_BUDGET"
+  ],
+  [
+   34,
+   34,
+   "glob TOOL_BUDGET",
+   "core",
+   "tool-call budget / stop condition"
+  ],
+  [
+   35,
+   35,
+   "glob SCRATCH",
+   "core",
+   "scratch dir used by run_snippet/cleanup tool behaviour"
+  ],
+  [
+   36,
+   36,
+   "glob WRITE_TOOLS",
+   "core",
+   "which tools count as writes for the guards"
+  ],
+  [
+   38,
+   42,
+   "def log_call",
+   "core",
+   "tool-log append used by every tool and the guards"
+  ],
+  [
+   44,
+   50,
+   "stmt",
+   "core",
+   "written() guard (docstring+def parsed as stmt)"
+  ],
+  [
+   52,
+   60,
+   "stmt",
+   "core",
+   "ran_since_edit() guard (docstring+def parsed as stmt)"
+  ],
+  [
+   62,
+   66,
+   "stmt",
+   "core",
+   "guard(): ReAct loop brake on tool budget (docstring+def parsed as stmt)"
+  ],
+  [
+   72,
+   257,
+   "obj Repo",
+   "core",
+   "tool bodies: Repo toolbox (read/grep/outline/replace/diff/run/snippet/revert)"
+  ],
+  [
+   258,
+   258,
+   "glob repo",
+   "core",
+   "toolbox instance"
+  ],
+  [
+   260,
+   260,
+   "sem Repo.read_file",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   261,
+   261,
+   "sem Repo.read_file.path",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   262,
+   262,
+   "sem Repo.read_file.start_line",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   263,
+   263,
+   "sem Repo.read_file.end_line",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   264,
+   264,
+   "sem Repo.grep",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   265,
+   265,
+   "sem Repo.grep.pattern",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   266,
+   266,
+   "sem Repo.grep.path",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   267,
+   267,
+   "sem Repo.grep.file_glob",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   268,
+   268,
+   "sem Repo.outline",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   269,
+   269,
+   "sem Repo.outline.path",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   270,
+   270,
+   "sem Repo.replace_in_file",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   271,
+   271,
+   "sem Repo.replace_in_file.path",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   272,
+   272,
+   "sem Repo.replace_in_file.old",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   273,
+   273,
+   "sem Repo.replace_in_file.new",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   274,
+   274,
+   "sem Repo.view_diff",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   275,
+   275,
+   "sem Repo.run_command",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   276,
+   276,
+   "sem Repo.run_command.command",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   277,
+   277,
+   "sem Repo.run_snippet",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   278,
+   278,
+   "sem Repo.run_snippet.code",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   279,
+   279,
+   "sem Repo.revert_file",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   280,
+   280,
+   "sem Repo.revert_file.path",
+   "core",
+   "sem: tool/param description (prompt)"
+  ],
+  [
+   285,
+   291,
+   "node Plan",
+   "core",
+   "Plan phase node: goal + by llm() work"
+  ],
+  [
+   293,
+   299,
+   "node Explore",
+   "core",
+   "Explore phase node"
+  ],
+  [
+   301,
+   307,
+   "node Edit",
+   "core",
+   "Edit phase node"
+  ],
+  [
+   309,
+   315,
+   "node Verify",
+   "core",
+   "Verify phase node"
+  ],
+  [
+   317,
+   319,
+   "node Finish",
+   "core",
+   "Finish phase node"
+  ],
+  [
+   322,
+   325,
+   "edge PhaseCapability",
+   "core",
+   "edge type with routing capability text"
+  ],
+  [
+   326,
+   326,
+   "sem PhaseCapability",
+   "core",
+   "sem: edge/phase prompt text"
+  ],
+  [
+   327,
+   327,
+   "sem PhaseCapability.capability",
+   "core",
+   "sem: edge/phase prompt text"
+  ],
+  [
+   329,
+   329,
+   "sem Plan.work",
+   "core",
+   "sem: edge/phase prompt text"
+  ],
+  [
+   330,
+   330,
+   "sem Plan.work.directive",
+   "core",
+   "sem: edge/phase prompt text"
+  ],
+  [
+   331,
+   331,
+   "sem Explore.work",
+   "core",
+   "sem: edge/phase prompt text"
+  ],
+  [
+   332,
+   332,
+   "sem Explore.work.directive",
+   "core",
+   "sem: edge/phase prompt text"
+  ],
+  [
+   333,
+   333,
+   "sem Edit.work",
+   "core",
+   "sem: edge/phase prompt text"
+  ],
+  [
+   334,
+   334,
+   "sem Edit.work.directive",
+   "core",
+   "sem: edge/phase prompt text"
+  ],
+  [
+   335,
+   335,
+   "sem Verify.work",
+   "core",
+   "sem: edge/phase prompt text"
+  ],
+  [
+   336,
+   336,
+   "sem Verify.work.directive",
+   "core",
+   "sem: edge/phase prompt text"
+  ]
+ ],
+ "CodeAgent/Jac/orchestrator.jac": [
+  [
+   1,
+   2,
+   "stmt",
+   "adapter",
+   "module docstring (bridge adapter)"
+  ],
+  [
+   3,
+   3,
+   "import os",
+   "adapter",
+   "import"
+  ],
+  [
+   4,
+   4,
+   "import re",
+   "adapter",
+   "import"
+  ],
+  [
+   5,
+   5,
+   "import litellm",
+   "adapter",
+   "import"
+  ],
+  [
+   6,
+   6,
+   "import main",
+   "adapter",
+   "import"
+  ],
+  [
+   7,
+   7,
+   "import from",
+   "adapter",
+   "import"
+  ],
+  [
+   10,
+   10,
+   "glob usage_log",
+   "adapter",
+   "telemetry: usage log"
+  ],
+  [
+   11,
+   11,
+   "glob _orig_completion",
+   "adapter",
+   "telemetry: saved litellm.completion"
+  ],
+  [
+   13,
+   21,
+   "def _counting_completion",
+   "adapter",
+   "telemetry: usage-counting wrapper around litellm.completion"
+  ],
+  [
+   30,
+   30,
+   "glob _trace",
+   "adapter",
+   "trace counter"
+  ],
+  [
+   30,
+   30,
+   "stmt",
+   "adapter",
+   "trace counter (duplicate listing of line 30)"
+  ],
+  [
+   31,
+   31,
+   "glob _KNOWN_KEYS",
+   "adapter",
+   "trace helper constant"
+  ],
+  [
+   33,
+   33,
+   "def _as_str",
+   "adapter",
+   "trace json default helper"
+  ],
+  [
+   35,
+   47,
+   "def _jsonable",
+   "adapter",
+   "trace serialisation helper"
+  ],
+  [
+   49,
+   76,
+   "def _trace_call",
+   "adapter",
+   "per-call trace writer ($CODEAGENT_TRACE)"
+  ],
+  [
+   78,
+   80,
+   "with entry",
+   "adapter",
+   "monkeypatch litellm for telemetry"
+  ],
+  [
+   83,
+   86,
+   "obj ToolCall",
+   "adapter",
+   "harness result type ToolCall"
+  ],
+  [
+   89,
+   98,
+   "obj RunResult",
+   "adapter",
+   "harness result type RunResult"
+  ],
+  [
+   101,
+   110,
+   "def _usage_int",
+   "adapter",
+   "token usage extraction"
+  ],
+  [
+   113,
+   123,
+   "def _cached_tokens",
+   "adapter",
+   "cached-token extraction"
+  ],
+  [
+   126,
+   128,
+   "def active_model_name",
+   "adapter",
+   "bridge glue: model name for eval record"
+  ],
+  [
+   131,
+   149,
+   "def solve",
+   "adapter",
+   "bridge wrapper: calls main.solve then packs token/tool stats into RunResult"
+  ]
+ ],
+ "CodeAgent/langgraph/main.py": [
+  [
+   1,
+   1,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   3,
+   3,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   5,
+   5,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   6,
+   6,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   7,
+   7,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   9,
+   9,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   10,
+   10,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   11,
+   11,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   12,
+   12,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   13,
+   13,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   14,
+   14,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   15,
+   15,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   17,
+   18,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   20,
+   20,
+   "assign MAX_REPAIRS",
+   "core",
+   "repair budget / stop condition"
+  ],
+  [
+   21,
+   21,
+   "assign MAX_RELOCATES",
+   "core",
+   "relocate budget / stop condition"
+  ],
+  [
+   23,
+   28,
+   "assign SYSTEM",
+   "core",
+   "system prompt template"
+  ],
+  [
+   30,
+   34,
+   "assign REPAIR_INTENT",
+   "core",
+   "routing intent prompt"
+  ],
+  [
+   35,
+   39,
+   "assign RELOCATE_INTENT",
+   "core",
+   "routing intent prompt"
+  ],
+  [
+   42,
+   42,
+   "assign FINAL_INSTRUCTION",
+   "core",
+   "final-answer nudge prompt"
+  ],
+  [
+   45,
+   52,
+   "def tool_errors",
+   "core",
+   "tool-call middleware: keep tool failures recoverable in the loop"
+  ],
+  [
+   55,
+   73,
+   "def work",
+   "core",
+   "per-phase ReAct loop via create_agent with budget middleware"
+  ],
+  [
+   76,
+   91,
+   "def select_edge",
+   "core",
+   "LLM edge routing with structured output"
+  ],
+  [
+   94,
+   103,
+   "class AgentState",
+   "core",
+   "graph state TypedDict"
+  ],
+  [
+   106,
+   107,
+   "def _record",
+   "core",
+   "ledger append helper"
+  ],
+  [
+   110,
+   113,
+   "def _fields",
+   "core",
+   "state fields shown to router"
+  ],
+  [
+   116,
+   119,
+   "def _phase_node",
+   "core",
+   "phase node factory"
+  ],
+  [
+   122,
+   146,
+   "def verify_node",
+   "core",
+   "Verify node: deterministic guards then LLM routing"
+  ],
+  [
+   149,
+   151,
+   "def finish_node",
+   "core",
+   "Finish node"
+  ],
+  [
+   154,
+   167,
+   "def build_app",
+   "core",
+   "StateGraph wiring: add_node/add_edge/conditional edges"
+  ],
+  [
+   170,
+   180,
+   "def solve",
+   "core",
+   "run function over one issue"
+  ],
+  [
+   183,
+   187,
+   "if __name__ == '__main__'",
+   "adapter",
+   "CLI entry point"
+  ]
+ ],
+ "CodeAgent/langgraph/nodes.py": [
+  [
+   1,
+   1,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   3,
+   3,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   5,
+   5,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   6,
+   6,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   7,
+   7,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   8,
+   8,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   9,
+   9,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   10,
+   10,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   11,
+   11,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   12,
+   12,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   13,
+   13,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   15,
+   15,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   16,
+   16,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   17,
+   17,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   19,
+   19,
+   "assign MODEL_NAME",
+   "adapter",
+   "env-var model name"
+  ],
+  [
+   20,
+   21,
+   "assign MODEL_BASE",
+   "adapter",
+   "env-var API base"
+  ],
+  [
+   22,
+   22,
+   "assign API_KEY",
+   "adapter",
+   "env-var API key"
+  ],
+  [
+   23,
+   23,
+   "assign TEMPERATURE",
+   "adapter",
+   "env-var temperature"
+  ],
+  [
+   26,
+   29,
+   "def get_model",
+   "core",
+   "LLM binding: ChatOpenAI(...) factory"
+  ],
+  [
+   32,
+   32,
+   "assign history",
+   "core",
+   "shared conversation state"
+  ],
+  [
+   33,
+   33,
+   "assign tool_log",
+   "core",
+   "tool log state read by guards and budget"
+  ],
+  [
+   34,
+   34,
+   "assign TOOL_BUDGET",
+   "core",
+   "tool-call budget / stop condition"
+  ],
+  [
+   35,
+   35,
+   "assign SCRATCH",
+   "core",
+   "scratch dir used by run_snippet/cleanup tool behaviour"
+  ],
+  [
+   36,
+   36,
+   "assign WRITE_TOOLS",
+   "core",
+   "which tools count as writes for the guards"
+  ],
+  [
+   39,
+   42,
+   "def log_call",
+   "core",
+   "tool-log append used by every tool and the guards"
+  ],
+  [
+   45,
+   47,
+   "def written",
+   "core",
+   "written() guard"
+  ],
+  [
+   50,
+   58,
+   "def ran_since_edit",
+   "core",
+   "ran_since_edit() guard"
+  ],
+  [
+   61,
+   286,
+   "class Repo",
+   "core",
+   "tool bodies: Repo toolbox (docstrings become tool schemas)"
+  ],
+  [
+   290,
+   290,
+   "assign repo",
+   "core",
+   "toolbox instance"
+  ],
+  [
+   293,
+   303,
+   "class Phase",
+   "core",
+   "Phase dataclass + StructuredTool registration (toolbox)"
+  ],
+  [
+   306,
+   332,
+   "assign PHASES",
+   "core",
+   "phase definitions: goals, tool subsets, iteration caps, sem prompts"
+  ],
+  [
+   335,
+   341,
+   "class PhaseCapability",
+   "core",
+   "edge dataclass with routing capability text"
+  ],
+  [
+   344,
+   354,
+   "assign EDGES",
+   "core",
+   "graph edges"
+  ],
+  [
+   357,
+   362,
+   "def edges_from",
+   "core",
+   "edge query used by wiring and routing"
+  ]
+ ],
+ "CodeAgent/langgraph/orchestrator.py": [
+  [
+   1,
+   1,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   3,
+   3,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   5,
+   5,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   6,
+   6,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   7,
+   7,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   8,
+   8,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   10,
+   10,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   11,
+   11,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   13,
+   13,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   14,
+   14,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   16,
+   16,
+   "assign usage_log",
+   "adapter",
+   "telemetry: usage log"
+  ],
+  [
+   19,
+   51,
+   "class RunTelemetry",
+   "adapter",
+   "telemetry: LangChain callback for usage + trace"
+  ],
+  [
+   54,
+   54,
+   "assign DEFAULT_MODEL",
+   "adapter",
+   "bridge export of model name"
+  ],
+  [
+   57,
+   60,
+   "class ToolCall",
+   "adapter",
+   "harness result type ToolCall"
+  ],
+  [
+   63,
+   72,
+   "class RunResult",
+   "adapter",
+   "harness result type RunResult"
+  ],
+  [
+   75,
+   76,
+   "def active_model_name",
+   "adapter",
+   "bridge glue: model name for eval record"
+  ],
+  [
+   79,
+   94,
+   "def solve",
+   "adapter",
+   "bridge wrapper: calls main.solve then packs token/tool stats into RunResult"
+  ],
+  [
+   97,
+   97,
+   "assign __all__",
+   "adapter",
+   "__all__"
+  ]
+ ],
+ "CodeAgent/openai_sdk/main.py": [
+  [
+   1,
+   7,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   9,
+   9,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   11,
+   11,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   12,
+   12,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   14,
+   14,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   15,
+   15,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   17,
+   17,
+   "assign MAX_REPAIRS",
+   "core",
+   "repair budget / stop condition"
+  ],
+  [
+   18,
+   18,
+   "assign MAX_RELOCATES",
+   "core",
+   "relocate budget / stop condition"
+  ],
+  [
+   20,
+   25,
+   "assign SYSTEM",
+   "core",
+   "system prompt template"
+  ],
+  [
+   27,
+   31,
+   "assign REPAIR_INTENT",
+   "core",
+   "routing intent prompt"
+  ],
+  [
+   32,
+   36,
+   "assign RELOCATE_INTENT",
+   "core",
+   "routing intent prompt"
+  ],
+  [
+   39,
+   57,
+   "class CodeAgent",
+   "core",
+   "agent state dataclass (walker twin)"
+  ],
+  [
+   60,
+   62,
+   "def _forward",
+   "core",
+   "forward-edge step"
+  ],
+  [
+   65,
+   87,
+   "def route_verify",
+   "core",
+   "Verify routing: deterministic guards then LLM edge pick"
+  ],
+  [
+   90,
+   104,
+   "def walk",
+   "core",
+   "the walk loop over phases"
+  ],
+  [
+   107,
+   110,
+   "def solve",
+   "core",
+   "run function over one issue"
+  ],
+  [
+   113,
+   117,
+   "if __name__ == '__main__'",
+   "adapter",
+   "CLI entry point"
+  ]
+ ],
+ "CodeAgent/openai_sdk/nodes.py": [
+  [
+   1,
+   6,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   8,
+   8,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   10,
+   10,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   11,
+   11,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   12,
+   12,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   13,
+   13,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   14,
+   14,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   15,
+   15,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   16,
+   16,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   17,
+   17,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   18,
+   18,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   19,
+   19,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   20,
+   20,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   25,
+   25,
+   "assign MODEL_NAME",
+   "adapter",
+   "env-var model name"
+  ],
+  [
+   26,
+   31,
+   "assign MODEL_BASE",
+   "adapter",
+   "env-var API base"
+  ],
+  [
+   32,
+   32,
+   "assign API_KEY",
+   "adapter",
+   "env-var API key"
+  ],
+  [
+   35,
+   35,
+   "assign TEMPERATURE",
+   "adapter",
+   "env-var temperature"
+  ],
+  [
+   36,
+   36,
+   "expr",
+   "adapter",
+   "warnings filter"
+  ],
+  [
+   46,
+   46,
+   "assign _trace_n",
+   "adapter",
+   "trace counter"
+  ],
+  [
+   47,
+   47,
+   "assign _KNOWN_KEYS",
+   "adapter",
+   "trace helper constant"
+  ],
+  [
+   50,
+   74,
+   "def trace_call",
+   "adapter",
+   "per-call trace writer ($CODEAGENT_TRACE)"
+  ],
+  [
+   77,
+   125,
+   "class Model",
+   "core",
+   "LLM binding + hand-written call-the-model helper (Model.complete); trace call inside is minor"
+  ],
+  [
+   128,
+   128,
+   "assign usage_log",
+   "adapter",
+   "telemetry: usage log"
+  ],
+  [
+   129,
+   129,
+   "assign llm",
+   "core",
+   "LLM binding: Model(...) instance"
+  ],
+  [
+   135,
+   135,
+   "assign history",
+   "core",
+   "shared conversation state"
+  ],
+  [
+   136,
+   136,
+   "assign tool_log",
+   "core",
+   "tool log state read by guards and budget"
+  ],
+  [
+   137,
+   137,
+   "assign TOOL_BUDGET",
+   "core",
+   "tool-call budget / stop condition"
+  ],
+  [
+   138,
+   138,
+   "assign SCRATCH",
+   "core",
+   "scratch dir used by run_snippet/cleanup tool behaviour"
+  ],
+  [
+   139,
+   139,
+   "assign WRITE_TOOLS",
+   "core",
+   "which tools count as writes for the guards"
+  ],
+  [
+   142,
+   145,
+   "def log_call",
+   "core",
+   "tool-log append used by every tool and the guards"
+  ],
+  [
+   148,
+   150,
+   "def written",
+   "core",
+   "written() guard"
+  ],
+  [
+   153,
+   161,
+   "def ran_since_edit",
+   "core",
+   "ran_since_edit() guard"
+  ],
+  [
+   164,
+   168,
+   "def guard",
+   "core",
+   "guard(): ReAct loop brake on tool budget"
+  ],
+  [
+   176,
+   358,
+   "class Repo",
+   "core",
+   "tool bodies: Repo toolbox"
+  ],
+  [
+   361,
+   361,
+   "assign repo",
+   "core",
+   "toolbox instance"
+  ],
+  [
+   364,
+   393,
+   "assign SEM",
+   "core",
+   "tool descriptions (sem strings) -> tool schemas"
+  ],
+  [
+   395,
+   395,
+   "assign _JSON_TYPES",
+   "core",
+   "type map for tool schema derivation"
+  ],
+  [
+   398,
+   433,
+   "class Tool",
+   "core",
+   "Tool: schema + invoke wrapper (tool registration)"
+  ],
+  [
+   436,
+   453,
+   "def make_tool",
+   "core",
+   "make_tool: build tool schema from signature + sem"
+  ],
+  [
+   456,
+   461,
+   "assign FINISH_TOOL",
+   "core",
+   "finish_tool schema"
+  ],
+  [
+   468,
+   477,
+   "class Phase",
+   "core",
+   "Phase dataclass + toolbox registration"
+  ],
+  [
+   480,
+   506,
+   "assign PHASES",
+   "core",
+   "phase definitions: goals, tool subsets, iteration caps, sem prompts"
+  ],
+  [
+   507,
+   507,
+   "assign DIRECTIVE_SEM",
+   "core",
+   "sem prompt text"
+  ],
+  [
+   510,
+   516,
+   "class PhaseCapability",
+   "core",
+   "edge dataclass with routing capability text"
+  ],
+  [
+   519,
+   519,
+   "assign PHASE_CAPABILITY_SEM",
+   "core",
+   "sem prompt text"
+  ],
+  [
+   520,
+   520,
+   "assign CAPABILITY_SEM",
+   "core",
+   "sem prompt text"
+  ],
+  [
+   522,
+   532,
+   "assign EDGES",
+   "core",
+   "graph edges"
+  ],
+  [
+   535,
+   540,
+   "def edges_from",
+   "core",
+   "edge query used by walk and routing"
+  ],
+  [
+   543,
+   549,
+   "assign __all__",
+   "adapter",
+   "__all__"
+  ]
+ ],
+ "CodeAgent/openai_sdk/orchestrator.py": [
+  [
+   1,
+   6,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   8,
+   8,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   10,
+   10,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   11,
+   11,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   12,
+   12,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   14,
+   14,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   15,
+   15,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   17,
+   17,
+   "assign DEFAULT_MODEL",
+   "adapter",
+   "bridge export of model name"
+  ],
+  [
+   20,
+   23,
+   "class ToolCall",
+   "adapter",
+   "harness result type ToolCall"
+  ],
+  [
+   26,
+   35,
+   "class RunResult",
+   "adapter",
+   "harness result type RunResult"
+  ],
+  [
+   38,
+   44,
+   "def _usage_int",
+   "adapter",
+   "token usage extraction"
+  ],
+  [
+   47,
+   54,
+   "def _cached_tokens",
+   "adapter",
+   "cached-token extraction"
+  ],
+  [
+   57,
+   58,
+   "def active_model_name",
+   "adapter",
+   "bridge glue: model name for eval record"
+  ],
+  [
+   61,
+   76,
+   "def solve",
+   "adapter",
+   "bridge wrapper: calls main.solve then packs token/tool stats into RunResult"
+  ],
+  [
+   79,
+   79,
+   "assign __all__",
+   "adapter",
+   "__all__"
+  ]
+ ],
+ "CodeAgent/openai_sdk/phase_agent.py": [
+  [
+   1,
+   26,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   28,
+   28,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   30,
+   30,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   31,
+   31,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   33,
+   43,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   46,
+   50,
+   "assign SYSTEM_PERSONA",
+   "core",
+   "system persona prompt (hand-written byLLM scaffolding)"
+  ],
+  [
+   51,
+   55,
+   "assign INSTRUCTION_TOOL",
+   "core",
+   "tool-use instruction prompt"
+  ],
+  [
+   57,
+   57,
+   "assign FINAL_INSTRUCTION",
+   "core",
+   "final-answer nudge prompt"
+  ],
+  [
+   59,
+   62,
+   "assign ROUTER_SYSTEM",
+   "core",
+   "router system prompt"
+  ],
+  [
+   63,
+   63,
+   "assign LAST_RESULT_CHARS",
+   "core",
+   "ReAct loop constant (last result truncation for guard)"
+  ],
+  [
+   66,
+   71,
+   "def call_frame",
+   "core",
+   "prompt rendering of the phase call frame"
+  ],
+  [
+   74,
+   83,
+   "def assistant_turn",
+   "core",
+   "ReAct loop: assistant message shaping"
+  ],
+  [
+   86,
+   87,
+   "def tool_turn",
+   "core",
+   "ReAct loop: tool message shaping"
+  ],
+  [
+   90,
+   99,
+   "def parse_args",
+   "core",
+   "ReAct loop: tool-argument parsing"
+  ],
+  [
+   102,
+   107,
+   "def dispatch",
+   "core",
+   "ReAct loop: tool dispatch"
+  ],
+  [
+   110,
+   113,
+   "def _finish_output",
+   "core",
+   "ReAct loop: finish_tool output extraction"
+  ],
+  [
+   116,
+   136,
+   "def _persist",
+   "core",
+   "conversation write-back (shared history semantics)"
+  ],
+  [
+   139,
+   179,
+   "def work",
+   "core",
+   "hand-written per-phase ReAct loop"
+  ],
+  [
+   182,
+   199,
+   "def _force_final_answer",
+   "core",
+   "forced final answer on budget/iteration cap"
+  ],
+  [
+   205,
+   210,
+   "def _safe_repr",
+   "core",
+   "router prompt rendering helper"
+  ],
+  [
+   213,
+   214,
+   "def describe_walker",
+   "core",
+   "router prompt rendering: walker"
+  ],
+  [
+   217,
+   219,
+   "def describe_node",
+   "core",
+   "router prompt rendering: node"
+  ],
+  [
+   222,
+   224,
+   "def describe_edge",
+   "core",
+   "router prompt rendering: edge"
+  ],
+  [
+   227,
+   266,
+   "def select_edge",
+   "core",
+   "LLM edge routing call with retry"
+  ],
+  [
+   269,
+   279,
+   "def route_schema",
+   "core",
+   "router response_format JSON schema"
+  ],
+  [
+   285,
+   285,
+   "assign SCHEMA_HINT",
+   "core",
+   "router schema hint prompt"
+  ],
+  [
+   288,
+   296,
+   "def correction",
+   "core",
+   "router correction prompt on parse failure"
+  ],
+  [
+   299,
+   307,
+   "def parse_choice",
+   "core",
+   "router response parsing"
+  ],
+  [
+   310,
+   313,
+   "assign __all__",
+   "adapter",
+   "__all__"
+  ]
+ ],
+ "CodeAgent/NOOA/agent.py": [
+  [
+   2,
+   53,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   55,
+   55,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   57,
+   57,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   58,
+   58,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   60,
+   60,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   61,
+   61,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   62,
+   62,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   63,
+   63,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   65,
+   65,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   66,
+   66,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   67,
+   67,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   68,
+   68,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   69,
+   69,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   77,
+   77,
+   "assign CELLS_PER_STEP",
+   "core",
+   "cells-per-step budget / stop condition"
+  ],
+  [
+   83,
+   83,
+   "assign DEFAULT_MAX_STEPS",
+   "core",
+   "max generated-method calls budget"
+  ],
+  [
+   87,
+   87,
+   "assign WRITE_TOOLS",
+   "core",
+   "which tools count as writes for the guards"
+  ],
+  [
+   89,
+   89,
+   "assign RUN_TOOLS",
+   "core",
+   "which tools count as runs for the guards"
+  ],
+  [
+   93,
+   93,
+   "assign EXIT_CODE",
+   "core",
+   "exit-code regex used by the verification gate"
+  ],
+  [
+   100,
+   105,
+   "assign NO_WRITE_NOTE",
+   "core",
+   "guard feedback prompt (no write)"
+  ],
+  [
+   112,
+   117,
+   "assign NO_VERIFY_NOTE",
+   "core",
+   "guard feedback prompt (no run since write)"
+  ],
+  [
+   120,
+   122,
+   "def _log",
+   "core",
+   "tool-log names for guards"
+  ],
+  [
+   125,
+   135,
+   "def write_count",
+   "core",
+   "write-count guard helper"
+  ],
+  [
+   138,
+   148,
+   "def ran_since_last_write",
+   "core",
+   "ran-since-last-write guard helper"
+  ],
+  [
+   151,
+   165,
+   "def must_have_written",
+   "core",
+   "postcondition invariant: must have written"
+  ],
+  [
+   168,
+   180,
+   "def must_have_verified",
+   "core",
+   "postcondition invariant: must have verified"
+  ],
+  [
+   185,
+   188,
+   "assign WORK",
+   "core",
+   "CodeAct loop config: iteration cap + postconditions"
+  ],
+  [
+   191,
+   245,
+   "class Report",
+   "core",
+   "result type Report with Field prompts + rendering"
+  ],
+  [
+   248,
+   256,
+   "class Checked",
+   "core",
+   "gate result type"
+  ],
+  [
+   259,
+   603,
+   "class CodeAgent",
+   "core",
+   "agent object: docstring prompt, ten tool methods (registration), resolve/repair LLM methods, check gate, run loop"
+  ],
+  [
+   606,
+   621,
+   "assign __all__",
+   "adapter",
+   "__all__"
+  ]
+ ],
+ "CodeAgent/NOOA/llm.py": [
+  [
+   1,
+   12,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   14,
+   14,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   16,
+   16,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   17,
+   17,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   19,
+   19,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   23,
+   23,
+   "assign DEFAULT_MODEL",
+   "adapter",
+   "env-var model name"
+  ],
+  [
+   31,
+   31,
+   "assign TEMPERATURE",
+   "adapter",
+   "env-var temperature"
+  ],
+  [
+   32,
+   32,
+   "assign MAX_TOKENS",
+   "adapter",
+   "env-var max tokens"
+  ],
+  [
+   36,
+   36,
+   "assign API_BASE",
+   "adapter",
+   "env-var API base"
+  ],
+  [
+   38,
+   38,
+   "assign _client",
+   "core",
+   "LLM client holder (lazy singleton slot)"
+  ],
+  [
+   39,
+   39,
+   "assign _model",
+   "adapter",
+   "model-name override slot for bridge/tests"
+  ],
+  [
+   42,
+   42,
+   "assign token_usage",
+   "adapter",
+   "telemetry: token usage meter instance"
+  ],
+  [
+   45,
+   57,
+   "def active_model_name",
+   "adapter",
+   "bridge glue: model name for eval record"
+  ],
+  [
+   60,
+   65,
+   "def set_model",
+   "adapter",
+   "bridge/test hook to override the model"
+  ],
+  [
+   68,
+   80,
+   "def build_client",
+   "core",
+   "LLM binding: get_llm_client(...) construction"
+  ],
+  [
+   83,
+   93,
+   "def get_client",
+   "core",
+   "LLM binding accessor (lazy build; also attaches meter) ?"
+  ],
+  [
+   96,
+   104,
+   "def set_client",
+   "adapter",
+   "test hook to inject a fake client"
+  ],
+  [
+   107,
+   118,
+   "assign __all__",
+   "adapter",
+   "__all__"
+  ]
+ ],
+ "CodeAgent/NOOA/orchestrator.py": [
+  [
+   2,
+   14,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   16,
+   16,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   18,
+   18,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   19,
+   19,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   20,
+   20,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   21,
+   21,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   22,
+   22,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   23,
+   23,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   25,
+   25,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   26,
+   33,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   34,
+   34,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   36,
+   47,
+   "assign __all__",
+   "adapter",
+   "__all__"
+  ],
+  [
+   50,
+   72,
+   "class RunResult",
+   "adapter",
+   "harness result type RunResult"
+  ],
+  [
+   75,
+   119,
+   "def arun",
+   "core",
+   "run function over one objective: builds CodeAgent with client+workspace context and awaits agent.run; RunResult packing at the end is secondary ?"
+  ],
+  [
+   122,
+   130,
+   "def solve",
+   "adapter",
+   "bridge seam: sync asyncio.run wrapper (mirrors other arms' orchestrator.solve)"
+  ],
+  [
+   133,
+   147,
+   "def parse_args",
+   "adapter",
+   "argparse CLI"
+  ],
+  [
+   150,
+   161,
+   "def main",
+   "adapter",
+   "CLI main: prints answer + telemetry line"
+  ],
+  [
+   164,
+   165,
+   "if __name__ == '__main__'",
+   "adapter",
+   "CLI entry point"
+  ]
+ ],
+ "CodeAgent/NOOA/telemetry.py": [
+  [
+   1,
+   24,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   26,
+   26,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   28,
+   28,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   29,
+   29,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   30,
+   30,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   33,
+   44,
+   "class LLMCall",
+   "adapter",
+   "telemetry record"
+  ],
+  [
+   47,
+   71,
+   "def extract_cached_tokens",
+   "adapter",
+   "cached-token extraction"
+  ],
+  [
+   74,
+   150,
+   "class TokenUsage",
+   "adapter",
+   "telemetry: token meter wrapping the client"
+  ],
+  [
+   153,
+   153,
+   "assign __all__",
+   "adapter",
+   "__all__"
+  ]
+ ],
+ "CodeAgent/NOOA/tools/common.py": [
+  [
+   1,
+   32,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   34,
+   34,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   36,
+   36,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   37,
+   37,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   38,
+   38,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   41,
+   44,
+   "assign SKIP_DIRS",
+   "core",
+   "tool behaviour: directories skipped by grep/find/ls"
+  ],
+  [
+   48,
+   48,
+   "assign NO_WRITE_DIRS",
+   "core",
+   "tool behaviour: write-protected dirs"
+  ],
+  [
+   50,
+   50,
+   "assign MAX_FILE_BYTES",
+   "core",
+   "tool limit"
+  ],
+  [
+   51,
+   51,
+   "assign MAX_LINE_CHARS",
+   "core",
+   "tool limit"
+  ],
+  [
+   52,
+   52,
+   "assign MAX_TOOL_CHARS",
+   "core",
+   "tool limit"
+  ],
+  [
+   53,
+   53,
+   "assign MAX_GREP_MATCHES",
+   "core",
+   "tool limit"
+  ],
+  [
+   54,
+   54,
+   "assign MAX_LIST_ENTRIES",
+   "core",
+   "tool limit"
+  ],
+  [
+   57,
+   66,
+   "class ToolCall",
+   "core",
+   "tool-log record consumed by the write/verify guards (also serialised by harness) ?"
+  ],
+  [
+   69,
+   69,
+   "assign tool_call_log",
+   "core",
+   "tool log state read by guards"
+  ],
+  [
+   72,
+   73,
+   "def log_tool_call",
+   "core",
+   "tool-log append used by every tool and the guards"
+  ],
+  [
+   76,
+   77,
+   "def get_tool_calls",
+   "core",
+   "tool-log read used by guards"
+  ],
+  [
+   80,
+   81,
+   "def reset_tool_log",
+   "core",
+   "per-run tool-log reset (mirrors tool_log.clear())"
+  ],
+  [
+   84,
+   102,
+   "def safe_path",
+   "core",
+   "tool primitive: path confinement"
+  ],
+  [
+   105,
+   110,
+   "def is_write_blocked",
+   "core",
+   "tool primitive: write-protection check"
+  ],
+  [
+   113,
+   119,
+   "def rel_to",
+   "core",
+   "tool primitive: repo-relative path"
+  ],
+  [
+   122,
+   126,
+   "def refuse_path",
+   "core",
+   "tool primitive: refusal message"
+  ],
+  [
+   129,
+   134,
+   "def clip",
+   "core",
+   "tool primitive: output truncation"
+  ],
+  [
+   137,
+   147,
+   "def clip_ends",
+   "core",
+   "tool primitive: head+tail truncation"
+  ],
+  [
+   150,
+   164,
+   "def scrub",
+   "adapter",
+   "benchmark determinism aid: scrubs paths/durations so A/B logs compare ?"
+  ]
+ ],
+ "CodeAgent/NOOA/tools/edit.py": [
+  [
+   1,
+   10,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   12,
+   12,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   14,
+   14,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   15,
+   15,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   17,
+   24,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   27,
+   72,
+   "def syntax_error",
+   "core",
+   "tool behaviour: syntax check after write (other arms embed compile() in replace_in_file)"
+  ],
+  [
+   75,
+   276,
+   "class EditCode",
+   "core",
+   "tool bodies: write_file / replace_in_file"
+  ]
+ ],
+ "CodeAgent/NOOA/tools/explore.py": [
+  [
+   1,
+   11,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   13,
+   13,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   15,
+   15,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   16,
+   16,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   17,
+   17,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   19,
+   31,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   36,
+   36,
+   "assign MAX_SERVED_WINDOWS",
+   "core",
+   "tool limit: served-window memory cap"
+  ],
+  [
+   39,
+   351,
+   "class ExploreCodeBase",
+   "core",
+   "tool bodies: read_file / ls_repo / find_files / grep"
+  ]
+ ],
+ "CodeAgent/NOOA/tools/plan.py": [
+  [
+   1,
+   12,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   14,
+   14,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   16,
+   16,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   17,
+   17,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   19,
+   19,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   21,
+   21,
+   "assign TaskStatus",
+   "core",
+   "tool schema: status Literal shown to the model"
+  ],
+  [
+   23,
+   23,
+   "assign TASK_STATUSES",
+   "core",
+   "tool schema: status enum values"
+  ],
+  [
+   26,
+   31,
+   "class PlanItem",
+   "core",
+   "plan state item"
+  ],
+  [
+   34,
+   87,
+   "class PlanTasks",
+   "core",
+   "tool bodies: set_plan / update_task / show_plan"
+  ]
+ ],
+ "CodeAgent/NOOA/tools/verify.py": [
+  [
+   1,
+   31,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   33,
+   33,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   35,
+   35,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   36,
+   36,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   37,
+   37,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   38,
+   38,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   39,
+   39,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   40,
+   40,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   41,
+   41,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   43,
+   43,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   50,
+   54,
+   "assign ALLOWED_COMMANDS",
+   "core",
+   "run_command allowlist (tool behaviour)"
+  ],
+  [
+   58,
+   70,
+   "assign DENIED_FLAGS",
+   "core",
+   "run_command denied flags"
+  ],
+  [
+   74,
+   79,
+   "assign FORCED_FLAGS",
+   "core",
+   "run_command forced flags"
+  ],
+  [
+   91,
+   93,
+   "assign DEFAULT_FLAGS",
+   "core",
+   "run_command default flags"
+  ],
+  [
+   98,
+   101,
+   "assign DEFAULT_FLAG_ALIASES",
+   "core",
+   "run_command default-flag aliases"
+  ],
+  [
+   103,
+   103,
+   "assign SHELL_METACHARS",
+   "core",
+   "run_command shell metachar refusal list"
+  ],
+  [
+   117,
+   117,
+   "assign EXEC_LOCAL",
+   "core",
+   "execution backend selector (embedded in Repo._exec in other arms)"
+  ],
+  [
+   118,
+   118,
+   "assign EXEC_DOCKER",
+   "core",
+   "execution backend selector (embedded in Repo._exec in other arms)"
+  ],
+  [
+   124,
+   124,
+   "assign EXEC_UDOCKER",
+   "core",
+   "execution backend selector (embedded in Repo._exec in other arms)"
+  ],
+  [
+   129,
+   132,
+   "assign DEFAULT_CONTAINER_PATH",
+   "core",
+   "container PATH for run_command (embedded in Repo._in_env in other arms)"
+  ],
+  [
+   137,
+   137,
+   "assign TIMEOUT_EXIT_CODES",
+   "core",
+   "run_command timeout exit codes"
+  ],
+  [
+   138,
+   138,
+   "assign KILL_GRACE_SEC",
+   "core",
+   "run_command kill grace"
+  ],
+  [
+   140,
+   140,
+   "assign DOCKER_OVERHEAD_SEC",
+   "core",
+   "run_command docker deadline slack"
+  ],
+  [
+   147,
+   147,
+   "assign WORKSPACE_COMMANDS",
+   "core",
+   "run_command allowlist widening in container"
+  ],
+  [
+   152,
+   155,
+   "assign WORKSPACE_DENIED_FLAGS",
+   "core",
+   "run_command denied flags in container"
+  ],
+  [
+   159,
+   159,
+   "assign SIG_TERM",
+   "core",
+   "run_command signal constant"
+  ],
+  [
+   160,
+   160,
+   "assign SIG_KILL",
+   "core",
+   "run_command signal constant"
+  ],
+  [
+   162,
+   162,
+   "assign DEFAULT_TIMEOUT_SEC",
+   "core",
+   "run_command default timeout"
+  ],
+  [
+   163,
+   163,
+   "assign MAX_TIMEOUT_SEC",
+   "core",
+   "run_command max timeout"
+  ],
+  [
+   164,
+   164,
+   "assign MAX_CAPTURE_BYTES",
+   "core",
+   "run_command output cap"
+  ],
+  [
+   165,
+   165,
+   "assign POLL_SEC",
+   "core",
+   "run_command poll interval"
+  ],
+  [
+   168,
+   176,
+   "def default_flags",
+   "core",
+   "tool primitive: default flag injection"
+  ],
+  [
+   179,
+   188,
+   "def allowlist_text",
+   "core",
+   "tool primitive: allowlist rendering for error/prompt text"
+  ],
+  [
+   191,
+   199,
+   "def first_subcommand",
+   "core",
+   "tool primitive: subcommand parsing"
+  ],
+  [
+   202,
+   256,
+   "def child_env",
+   "core",
+   "tool primitive: scrubbed child environment"
+  ],
+  [
+   259,
+   288,
+   "def container_env",
+   "core",
+   "tool primitive: in-container environment (embedded in Repo._in_env in other arms)"
+  ],
+  [
+   291,
+   629,
+   "class VerifyCode",
+   "core",
+   "tool body: run_command with screening, docker/udocker wrapping, spawn/timeout"
+  ]
+ ],
+ "CodeAgent/Jac/tools.jac": []
+}

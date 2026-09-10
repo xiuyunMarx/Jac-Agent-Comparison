@@ -26,13 +26,11 @@ glob llm = Model(
     config={"base_url": MODEL_BASE}
 );
 
-# ---------------------------------------------------------------------------
-# 整个 run 共用的状态。关键设计：一段对话跑完整个 run，阶段切换只换工具和目标。
-# ---------------------------------------------------------------------------
-glob history: list[dict] = [];          # byLLM 会原地 append 每一轮
-glob tool_log: list[dict] = [];         # 每次工具调用一条 {"name": .., "ok": ..}
-glob TOOL_BUDGET: int = 60;             # 预算按工具调用数算，不按阶段数算
-glob SCRATCH: str = ".agent_scratch";   # 复现脚本放这里，Finish 阶段删掉
+
+glob history: list[dict] = [];         
+glob tool_log: list[dict] = [];        
+glob TOOL_BUDGET: int = 60;            
+glob SCRATCH: str = ".agent_scratch";   
 glob WRITE_TOOLS: list[str] = ["replace_in_file", "write_file"];
 
 def log_call(name: str, ok: bool = True, args: str = "") -> dict {

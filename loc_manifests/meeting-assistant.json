@@ -1,0 +1,962 @@
+{
+ "meeting-assistant/byLLM/main.jac": [
+  [
+   1,
+   3,
+   "stmt",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   4,
+   4,
+   "import from",
+   "adapter",
+   "import"
+  ],
+  [
+   6,
+   17,
+   "with entry",
+   "adapter",
+   "entry point: register telemetry, read meeting_notes.txt, spawn walker, dump results (mirrors openai main()/CrewAI kickoff())"
+  ]
+ ],
+ "meeting-assistant/byLLM/nodes.jac": [
+  [
+   1,
+   1,
+   "import os",
+   "adapter",
+   "import"
+  ],
+  [
+   2,
+   2,
+   "import from",
+   "adapter",
+   "import"
+  ],
+  [
+   3,
+   3,
+   "import from",
+   "adapter",
+   "import"
+  ],
+  [
+   10,
+   10,
+   "glob BENCH_MODEL",
+   "adapter",
+   "env-var read for model id (mirrors openai MODEL_ID / CrewAI _model_name)"
+  ],
+  [
+   11,
+   13,
+   "glob _base_set",
+   "adapter",
+   "env-var plumbing: sets OPENAI_API_BASE for litellm"
+  ],
+  [
+   15,
+   17,
+   "def _model_name",
+   "adapter",
+   "config plumbing: adds litellm provider prefix (mirrors CrewAI _model_name)"
+  ],
+  [
+   22,
+   26,
+   "glob llm",
+   "core",
+   "LLM binding: Model(...) object the agent calls"
+  ],
+  [
+   28,
+   30,
+   "node LoadMeetingNode",
+   "core",
+   "state/node definition (empty and unused, but a graph node decl) ?"
+  ],
+  [
+   32,
+   35,
+   "obj MeetingTask",
+   "core",
+   "result type"
+  ],
+  [
+   36,
+   36,
+   "sem MeetingTask.name",
+   "core",
+   "prompt semantics"
+  ],
+  [
+   37,
+   37,
+   "sem MeetingTask.description",
+   "core",
+   "prompt semantics"
+  ],
+  [
+   38,
+   41,
+   "node TaskNode",
+   "core",
+   "state/node definition (unused by walker) ?"
+  ],
+  [
+   43,
+   50,
+   "def _tasks_are_valid",
+   "core",
+   "validation/retry condition for extraction output"
+  ],
+  [
+   52,
+   61,
+   "node GeneratingTasks",
+   "core",
+   "by llm() declarations for extraction and repair"
+  ],
+  [
+   62,
+   62,
+   "sem GeneratingTasks.analyse_meeting_transcript",
+   "core",
+   "prompt"
+  ],
+  [
+   63,
+   63,
+   "sem GeneratingTasks.analyse_meeting_transcript.transcript",
+   "core",
+   "prompt"
+  ],
+  [
+   64,
+   64,
+   "sem GeneratingTasks.repair_meeting_tasks",
+   "core",
+   "prompt"
+  ],
+  [
+   65,
+   65,
+   "sem GeneratingTasks.repair_meeting_tasks.transcript",
+   "core",
+   "prompt"
+  ],
+  [
+   66,
+   66,
+   "sem GeneratingTasks.repair_meeting_tasks.invalid_output",
+   "core",
+   "prompt"
+  ],
+  [
+   68,
+   78,
+   "node AddTask",
+   "core",
+   "phase node: loop over tasks, create trello cards"
+  ],
+  [
+   80,
+   84,
+   "node Save2CSV",
+   "core",
+   "phase node: save CSV"
+  ],
+  [
+   86,
+   90,
+   "node SendNotification",
+   "core",
+   "phase node: slack notification"
+  ],
+  [
+   93,
+   136,
+   "walker MeetingAssistant",
+   "core",
+   "orchestrator: graph wiring, visit, extraction + repair retry, fan-out"
+  ]
+ ],
+ "meeting-assistant/byLLM/tools.jac": [
+  [
+   1,
+   6,
+   "stmt",
+   "adapter",
+   "module docstring (+ import litellm)"
+  ],
+  [
+   7,
+   7,
+   "import time",
+   "adapter",
+   "import"
+  ],
+  [
+   9,
+   9,
+   "glob mock_trello_board",
+   "adapter",
+   "mock output collector for eval"
+  ],
+  [
+   10,
+   10,
+   "glob mock_slack_messages",
+   "adapter",
+   "mock output collector for eval"
+  ],
+  [
+   11,
+   11,
+   "glob mock_csv_rows",
+   "adapter",
+   "mock output collector for eval"
+  ],
+  [
+   13,
+   18,
+   "def create_trello_card",
+   "adapter",
+   "mock Trello helper: appends to collector list (criterion lists mock Trello as harness glue) ?"
+  ],
+  [
+   20,
+   24,
+   "def send_message_to_channel",
+   "adapter",
+   "mock Slack helper: appends to collector list (criterion lists mock Slack as harness glue) ?"
+  ],
+  [
+   26,
+   36,
+   "def save_tasks_to_csv",
+   "core",
+   "real side-effect tool: writes new_tasks.csv (CrewAI does this inline in the flow) ?"
+  ],
+  [
+   38,
+   43,
+   "def _usage_field",
+   "adapter",
+   "token accounting helper"
+  ],
+  [
+   45,
+   90,
+   "stmt",
+   "adapter",
+   "obj TokenUsage (with docstring): token/cost telemetry"
+  ],
+  [
+   92,
+   92,
+   "glob token_usage",
+   "adapter",
+   "telemetry singleton"
+  ],
+  [
+   94,
+   98,
+   "def register_token_tracking",
+   "adapter",
+   "telemetry hook registration"
+  ],
+  [
+   100,
+   113,
+   "def dump_outputs",
+   "adapter",
+   "result serialisation for eval"
+  ]
+ ],
+ "meeting-assistant/CrewAI/src/meeting_assistant_flow/__init__.py": [],
+ "meeting-assistant/CrewAI/src/meeting_assistant_flow/crews/meeting_assistant_crew/config/agents.yaml": [
+  [
+   1,
+   11,
+   "file agents.yaml",
+   "core",
+   "agent prompt config (role/goal/backstory)"
+  ]
+ ],
+ "meeting-assistant/CrewAI/src/meeting_assistant_flow/crews/meeting_assistant_crew/config/tasks.yaml": [
+  [
+   1,
+   25,
+   "file tasks.yaml",
+   "core",
+   "task prompt config (description/expected_output)"
+  ]
+ ],
+ "meeting-assistant/CrewAI/src/meeting_assistant_flow/crews/meeting_assistant_crew/meeting_assistant_crew.py": [
+  [
+   1,
+   1,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   2,
+   2,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   4,
+   4,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   5,
+   5,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   6,
+   6,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   8,
+   10,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   13,
+   16,
+   "def _model_name",
+   "adapter",
+   "config plumbing: env-var model id with litellm prefix (mirrors Jac _model_name)"
+  ],
+  [
+   19,
+   61,
+   "class MeetingAssistantCrew",
+   "core",
+   "LLM binding + agent/task/crew wiring"
+  ]
+ ],
+ "meeting-assistant/CrewAI/src/meeting_assistant_flow/main.py": [
+  [
+   2,
+   2,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   3,
+   3,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   4,
+   4,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   6,
+   6,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   8,
+   10,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   11,
+   11,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   12,
+   16,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   17,
+   17,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   18,
+   18,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   21,
+   23,
+   "class MeetingState",
+   "core",
+   "flow state definition"
+  ],
+  [
+   26,
+   71,
+   "class MeetingFlow",
+   "core",
+   "flow wiring: @start/@listen phases, crew kickoff, trello/csv/slack fan-out (load_meeting_notes reads the input file, but dominant purpose is flow logic)"
+  ],
+  [
+   74,
+   81,
+   "def kickoff",
+   "adapter",
+   "entry point: register telemetry, run flow, dump outputs (mirrors Jac with-entry / openai main())"
+  ],
+  [
+   84,
+   89,
+   "def plot",
+   "adapter",
+   "CLI helper to plot the flow graph"
+  ],
+  [
+   92,
+   93,
+   "if __name__ == '__main__'",
+   "adapter",
+   "entry point"
+  ]
+ ],
+ "meeting-assistant/CrewAI/src/meeting_assistant_flow/types.py": [
+  [
+   1,
+   1,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   4,
+   6,
+   "class MeetingTask",
+   "core",
+   "result type (pydantic)"
+  ],
+  [
+   9,
+   10,
+   "class MeetingTaskList",
+   "core",
+   "structured-output wrapper type"
+  ]
+ ],
+ "meeting-assistant/CrewAI/src/meeting_assistant_flow/utils/mock_outputs.py": [
+  [
+   1,
+   5,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   7,
+   7,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   8,
+   8,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   10,
+   10,
+   "assign mock_trello_board",
+   "adapter",
+   "mock output collector for eval"
+  ],
+  [
+   11,
+   11,
+   "assign mock_slack_messages",
+   "adapter",
+   "mock output collector for eval"
+  ],
+  [
+   12,
+   12,
+   "assign mock_csv_rows",
+   "adapter",
+   "mock output collector for eval"
+  ],
+  [
+   14,
+   14,
+   "assign _LLM_PATHS",
+   "adapter",
+   "telemetry constant"
+  ],
+  [
+   17,
+   25,
+   "def _usage_field",
+   "adapter",
+   "token accounting helper"
+  ],
+  [
+   28,
+   75,
+   "class TokenUsage",
+   "adapter",
+   "token/cost telemetry"
+  ],
+  [
+   78,
+   78,
+   "assign token_usage",
+   "adapter",
+   "telemetry singleton"
+  ],
+  [
+   81,
+   107,
+   "def register_token_tracking",
+   "adapter",
+   "telemetry: monkeypatch openai SDK transport"
+  ],
+  [
+   110,
+   119,
+   "def dump_outputs",
+   "adapter",
+   "result serialisation for eval"
+  ]
+ ],
+ "meeting-assistant/CrewAI/src/meeting_assistant_flow/utils/slack_helper.py": [
+  [
+   1,
+   5,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   7,
+   7,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   10,
+   13,
+   "def send_message_to_channel",
+   "adapter",
+   "mock Slack helper: appends to collector list (criterion lists mock Slack as harness glue) ?"
+  ],
+  [
+   16,
+   18,
+   "if __name__ == '__main__'",
+   "adapter",
+   "manual test entry"
+  ]
+ ],
+ "meeting-assistant/CrewAI/src/meeting_assistant_flow/utils/trello_helper.py": [
+  [
+   1,
+   5,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   7,
+   7,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   9,
+   9,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   10,
+   10,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   13,
+   24,
+   "def create_trello_card",
+   "adapter",
+   "mock Trello helper: appends to collector list (criterion lists mock Trello as harness glue) ?"
+  ],
+  [
+   27,
+   37,
+   "def save_tasks_to_trello",
+   "core",
+   "loop + name/description validation over tasks; equivalent of AddTask.work in the other arms ?"
+  ],
+  [
+   40,
+   46,
+   "if __name__ == '__main__'",
+   "adapter",
+   "manual test entry"
+  ]
+ ],
+ "meeting-assistant/openai_sdk/main.py": [
+  [
+   1,
+   8,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   10,
+   10,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   11,
+   11,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   14,
+   23,
+   "def main",
+   "adapter",
+   "entry point: register telemetry, read meeting_notes.txt, run pipeline, dump outputs (mirrors Jac with-entry / CrewAI kickoff())"
+  ],
+  [
+   26,
+   27,
+   "if __name__ == '__main__'",
+   "adapter",
+   "entry point"
+  ]
+ ],
+ "meeting-assistant/openai_sdk/nodes.py": [
+  [
+   1,
+   13,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   15,
+   15,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   16,
+   16,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   17,
+   17,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   18,
+   18,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   20,
+   25,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   28,
+   28,
+   "assign MODEL_ID",
+   "adapter",
+   "env-var read for model id (mirrors Jac BENCH_MODEL)"
+  ],
+  [
+   30,
+   30,
+   "assign MODEL",
+   "adapter",
+   "config plumbing: strip litellm prefix (mirrors _model_name)"
+  ],
+  [
+   35,
+   35,
+   "assign TEMPERATURE",
+   "core",
+   "model call parameter; inline in Model()/LLM() construction in the other arms ?"
+  ],
+  [
+   37,
+   37,
+   "assign _client",
+   "core",
+   "lazy LLM client singleton holder (part of LLM binding)"
+  ],
+  [
+   40,
+   49,
+   "def _get_client",
+   "core",
+   "LLM binding: constructs OpenAI() client"
+  ],
+  [
+   52,
+   57,
+   "class MeetingTask",
+   "core",
+   "result type"
+  ],
+  [
+   72,
+   97,
+   "assign SYSTEM_PROMPT",
+   "core",
+   "prompt"
+  ],
+  [
+   99,
+   99,
+   "assign USER_PROMPT",
+   "core",
+   "prompt template"
+  ],
+  [
+   103,
+   107,
+   "assign RETRY_PROMPT",
+   "core",
+   "corrective retry prompt"
+  ],
+  [
+   114,
+   153,
+   "assign RESPONSE_FORMAT",
+   "core",
+   "hand-written JSON schema for structured output (framework-derived in other arms)"
+  ],
+  [
+   156,
+   165,
+   "def _complete",
+   "core",
+   "hand-written call-the-model helper (one token_usage.track line inside)"
+  ],
+  [
+   172,
+   172,
+   "assign _FENCE_RE",
+   "core",
+   "part of hand-written response parser (fence stripping)"
+  ],
+  [
+   175,
+   176,
+   "def _json_text",
+   "core",
+   "hand-written response parser helper"
+  ],
+  [
+   178,
+   194,
+   "def _parse_tasks",
+   "core",
+   "hand-written parse-the-response into MeetingTask"
+  ],
+  [
+   197,
+   213,
+   "class GeneratingTasks",
+   "core",
+   "extraction phase: build messages, call model, parse, one corrective retry"
+  ],
+  [
+   216,
+   222,
+   "class AddTask",
+   "core",
+   "phase: loop over tasks, create trello cards"
+  ],
+  [
+   225,
+   227,
+   "class Save2CSV",
+   "core",
+   "phase: save CSV"
+  ],
+  [
+   230,
+   232,
+   "class SendNotification",
+   "core",
+   "phase: slack notification"
+  ],
+  [
+   235,
+   251,
+   "class MeetingAssistant",
+   "core",
+   "orchestrator: run() drives extraction then fan-out"
+  ]
+ ],
+ "meeting-assistant/openai_sdk/tools.py": [
+  [
+   1,
+   17,
+   "docstring",
+   "adapter",
+   "module docstring"
+  ],
+  [
+   19,
+   19,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   20,
+   20,
+   "import",
+   "adapter",
+   "import"
+  ],
+  [
+   22,
+   22,
+   "assign mock_trello_board",
+   "adapter",
+   "mock output collector for eval"
+  ],
+  [
+   23,
+   23,
+   "assign mock_slack_messages",
+   "adapter",
+   "mock output collector for eval"
+  ],
+  [
+   24,
+   24,
+   "assign mock_csv_rows",
+   "adapter",
+   "mock output collector for eval"
+  ],
+  [
+   27,
+   31,
+   "def create_trello_card",
+   "adapter",
+   "mock Trello helper: appends to collector list (criterion lists mock Trello as harness glue) ?"
+  ],
+  [
+   34,
+   37,
+   "def send_message_to_channel",
+   "adapter",
+   "mock Slack helper: appends to collector list (criterion lists mock Slack as harness glue) ?"
+  ],
+  [
+   40,
+   46,
+   "def save_tasks_to_csv",
+   "core",
+   "real side-effect tool: writes new_tasks.csv (CrewAI does this inline in the flow) ?"
+  ],
+  [
+   49,
+   52,
+   "def _usage_field",
+   "adapter",
+   "token accounting helper"
+  ],
+  [
+   55,
+   83,
+   "class TokenUsage",
+   "adapter",
+   "token/cost telemetry"
+  ],
+  [
+   86,
+   86,
+   "assign token_usage",
+   "adapter",
+   "telemetry singleton"
+  ],
+  [
+   89,
+   96,
+   "def register_token_tracking",
+   "adapter",
+   "telemetry hook (no-op here)"
+  ],
+  [
+   99,
+   108,
+   "def dump_outputs",
+   "adapter",
+   "result serialisation for eval"
+  ]
+ ]
+}
