@@ -36,7 +36,11 @@ def _model_name() -> str {
     return BENCH_MODEL if "/" in BENCH_MODEL else f"openai/{BENCH_MODEL}";
 }
 
-glob llm = Model(model_name=_model_name(), api_key=os.environ.get("OPENAI_API_KEY", ""));
+# gpt-5 / o-series bill their thinking against the completion budget, which
+# empties the pinned max_tokens before any answer is written. "minimal"
+# switches that off; empty on every other model, which has no such parameter.
+glob LLM_CALL_PARAMS: dict = ({"reasoning_effort": "minimal"} if BENCH_MODEL.split("/")[-1].startswith(("gpt-5", "o1", "o3", "o4")) else {});
+glob llm = Model(model_name=_model_name(), api_key=os.environ.get("OPENAI_API_KEY", ""), call_params=LLM_CALL_PARAMS);
 glob MAILBOX_REF: list = [None];   # [MailBox | None]; a holder, since main has no global-rebinding statement
 
 

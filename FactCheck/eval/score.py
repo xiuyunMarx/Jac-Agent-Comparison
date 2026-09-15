@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics as st
 from collections import defaultdict
 from pathlib import Path
@@ -42,7 +43,9 @@ def mean_med(vals: list[float]) -> str:
 
 def report(by_arm: dict[str, list[dict]]) -> str:
     arms = [a for a in ORDER if a in by_arm] + [a for a in by_arm if a not in ORDER]
-    lines = ["# FactCheck 3-way comparison (GLM-5.2, HoVer dev claims)", ""]
+    # Name the model that was actually run, not the one this was written for.
+    model = os.environ.get("FC_MODEL", "") or os.environ.get("BENCH_MODEL", "") or "unknown model"
+    lines = [f"# FactCheck 3-way comparison ({model.split('/')[-1]}, HoVer dev claims)", ""]
     n_claims = max(len(v) for v in by_arm.values())
     lines.append(f"{n_claims} claims per arm; knobs: FC_SCOUTS=2, FC_ROUNDS=FC_MIN_ROUNDS=6 (defaults). "
                  "NEED_MORE = round cap reached without a decision, scored as wrong.")

@@ -32,7 +32,8 @@ class MeetingAssistantCrew:
         model=_model_name(),
         base_url=os.environ.get("OPENAI_BASE_URL", "https://ollama.com/v1"),
         api_key=os.environ.get("OPENAI_API_KEY"),
-        temperature=0.7,
+        # Omitted for gpt-5 / o-series, which accept only the default.
+        **({"reasoning_effort": "minimal"} if _model_name().split("/", 1)[-1].startswith(("gpt-5", "o1", "o3", "o4")) else {"temperature": 0.7}),
     )
 
     @agent

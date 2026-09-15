@@ -311,7 +311,7 @@ def judge_run(results, dataset, model):
     prompt = build_judge_prompt(results, dataset, transcript)
     resp = client.chat.completions.create(
         model=model,
-        temperature=0,
+        **({} if model.split("/", 1)[-1].startswith(("gpt-5", "o1", "o3", "o4")) else {"temperature": 0}),
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": JUDGE_SYSTEM},

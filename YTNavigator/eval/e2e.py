@@ -36,6 +36,8 @@ EVAL_DIR = Path(__file__).resolve().parent
 ROOT = EVAL_DIR.parent                      # YTNavigator/
 LANGGRAPH_DIR = ROOT / "langchain"
 OPENAI_SDK_DIR = ROOT / "openai_sdk"
+NOOA_DIR = ROOT / "NOOA"
+NOOA_PYTHON = os.environ.get("NOOA_PYTHON", str(Path.home() / "miniconda3/envs/nooa/bin/python"))
 BYLLM_DIR = ROOT / "byLLM"
 DATASETS_DIR = ROOT / "datasets"
 
@@ -274,7 +276,7 @@ def run_step(cmd, cwd=None, name=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--impl", choices=["all", "both", "byllm", "langgraph", "openai_sdk"],
+    parser.add_argument("--impl", choices=["all", "both", "byllm", "langgraph", "openai_sdk", "nooa"],
                         default="all",
                         help="'both' = byllm + langgraph (the historical pair); "
                              "'all' adds the no-framework openai_sdk baseline")
@@ -376,6 +378,21 @@ def main():
             run_step([sys.executable, str(EVAL_DIR / "run.py"), "--impl", "openai_sdk",
                       "--questions", args.questions, "--no-score"], name="openai_sdk run")
             results.append(EVAL_DIR / "out" / "results_openai_sdk.jsonl")
+
+    if args.impl in ("all", "nooa"):
+        stage("Stage 5c/7: NOOA implementation")
+        # Runs in the nooa env's interpreter ($NOOA_PYTHON): needs `nooa`,
+        # psycopg2 and sentence-transformers there.
+        probe = subprocess.run([NOOA_PYTHON, "-c", "import nooa, psycopg2, sentence_transformers"],
+                               capture_output=True, text=True)
+        if probe.returncode != 0:
+            print(f"SKIPPED: the NOOA arm's dependencies are not importable with {NOOA_PYTHON}: "
+                  f"{probe.stderr.strip().splitlines()[-1] if probe.stderr.strip() else 'unknown'}. "
+                  "Install nooa, psycopg2-binary and sentence-transformers there and rerun with --impl nooa.")
+        else:
+            run_step([sys.executable, str(EVAL_DIR / "run.py"), "--impl", "nooa",
+                      "--questions", args.questions, "--no-score"], name="NOOA run")
+            results.append(EVAL_DIR / "out" / "results_nooa.jsonl")
 
     if args.impl in ("all", "both", "langgraph"):
         stage("Stage 6/7: LangGraph implementation")

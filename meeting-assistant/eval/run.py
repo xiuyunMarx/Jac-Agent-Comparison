@@ -54,6 +54,16 @@ def crew_python() -> str:
     return str(venv) if venv.is_file() else sys.executable
 
 
+# The NOOA arm needs the nooa package (Python 3.12/3.13): $NOOA_PYTHON, else
+# the conda env named nooa, else the interpreter running this script.
+def nooa_python() -> str:
+    explicit = os.environ.get("NOOA_PYTHON", "")
+    if explicit:
+        return explicit
+    env = Path.home() / "miniconda3" / "envs" / "nooa" / "bin" / "python"
+    return str(env) if env.is_file() else sys.executable
+
+
 def has_module(python: str, module: str) -> bool:
     probe = subprocess.run([python, "-c", f"import {module}"], capture_output=True)
     return probe.returncode == 0
@@ -85,6 +95,10 @@ def implementations():
         # from the interpreter running this script.
         "openai_sdk": {
             "cmd": [sys.executable, str(ROOT / "openai_sdk" / "main.py")],
+            "env": dict(os.environ),
+        },
+        "NOOA": {
+            "cmd": [nooa_python(), str(ROOT / "NOOA" / "main.py")],
             "env": dict(os.environ),
         },
     }
@@ -158,7 +172,7 @@ def run_once(impl_name, impl, case, rep, timeout):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--impl", action="append",
-                    choices=["CrewAI", "byLLM", "openai_sdk"],
+                    choices=["CrewAI", "byLLM", "openai_sdk", "NOOA"],
                     help="implementation(s) to run (default: all)")
     ap.add_argument("--cases", nargs="+", default=None,
                     help="case ids to run, e.g. meeting_003 (default: all)")
@@ -176,6 +190,12 @@ def main():
             f"crewai is not importable with {crew_python()} - build CrewAI/.venv "
             "with a Python < 3.14 (python -m venv CrewAI/.venv && CrewAI/.venv/bin/pip "
             "install crewai==1.6.1), set $CREW_PYTHON, or restrict --impl."
+        )
+
+    if (not args.impl or "NOOA" in args.impl) and not has_module(nooa_python(), "nooa"):
+        sys.exit(
+            f"nooa is not importable with {nooa_python()} - pip install nooa into a "
+            "Python 3.12/3.13 env, set $NOOA_PYTHON, or restrict --impl."
         )
 
     impls = implementations()

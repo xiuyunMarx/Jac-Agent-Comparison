@@ -26,10 +26,20 @@ glob BENCH_MODEL: str = os.environ.get("BENCH_MODEL", "glm-5.2");
 glob _base_set: bool = (os.environ.setdefault(
     "OPENAI_API_BASE", os.environ.get("OPENAI_BASE_URL", "https://ollama.com/v1")
 ) is not None);
+# gpt-5 / o-series bill their thinking against the completion budget, which
+# empties the pinned max_tokens before any answer is written. "minimal"
+# switches that off; empty on every other model, which has no such parameter.
+glob LLM_CALL_PARAMS: dict = ({"reasoning_effort": "minimal"} if BENCH_MODEL.split("/")[-1].startswith(("gpt-5", "o1", "o3", "o4")) else {});
 glob llm = Model(
     model_name=(BENCH_MODEL if "/" in BENCH_MODEL else f"openai/{BENCH_MODEL}"),
-    api_key=os.environ.get("OPENAI_API_KEY", "")
+    api_key=os.environ.get("OPENAI_API_KEY", ""),
+    call_params=LLM_CALL_PARAMS
 );
+
+# gpt-5 / o-series accept only the default temperature. byLLM drops the param
+# when it resolves to None, so this keeps the pinned 0.0 on every other model
+# and sends nothing there.
+glob LLM_TEMP: any = (None if BENCH_MODEL.split("/")[-1].startswith(("gpt-5", "o1", "o3", "o4")) else 0.0);
 
 glob STATIC_REPLY: str = "I'm sorry, I can't answer, please try again with a different question.";
 
@@ -67,7 +77,7 @@ sem AgentAnswer.placeholder = "A user-friendly message that answers the user's r
 sem AgentAnswer.videos = "The source videos for the answer. Whenever the answer draws on tool results, list the 1-5 videos whose transcript chunks or metadata support it, using their real ids, titles and thumbnail urls exactly as returned by the tools - only the videos actually used, not every search hit. Do not hallucinate videos. Empty only when no video content was used (greetings, refusals).";
 
 
-def direct_reply(channel: str, user: str, conversation: str, message: str) -> AgentAnswer by llm(temperature=0.0);
+def direct_reply(channel: str, user: str, conversation: str, message: str) -> AgentAnswer by llm(temperature=LLM_TEMP);
 sem direct_reply = "You are YTNavigator, an expert YouTube assistant and friendly AI guide. Answer the user's message based on the given channel data. Avoid mentioning the channel id unless necessary. Be friendly and professional. If unsure about the answer, just say 'I don't know'. Do not invent videos; leave videos empty for conversational replies.";
 sem direct_reply.channel = "The channel data to ground the answer in.";
 sem direct_reply.user = "Information about the user being addressed.";
@@ -76,7 +86,7 @@ sem direct_reply.message = "The user's latest message to answer.";
 
 def tool_reply(channel: str, user: str, conversation: str, message: str) -> AgentAnswer by llm(
     tools=[similarity_videos_search, execute_query],
-    temperature=0.0,
+    temperature=LLM_TEMP,
     max_react_iterations=6
 );
 sem tool_reply = "You are YTNavigator, an expert YouTube assistant and friendly AI guide. Provide comprehensive, relevant information about the channel below, using the tools to gather video information before answering. Always use the tools to get the latest data; rely solely on tool data or the provided channel data - avoid hallucinations. Offer thorough explanations, adopt a tone related to the channel content, and address the user directly. Cite the relevant videos with their ids, titles, thumbnails, and timestamps from the tool results.";
@@ -160,7 +170,7 @@ walker ChatAgent {
         try {
             visit [-->] by llm(
                 select=1,
-                temperature=0.0,
+                temperature=LLM_TEMP,
                 intent=ROUTE_INTENT,
                 incl_info={
                     "Channel data": self.channel_info,

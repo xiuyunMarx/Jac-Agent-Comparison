@@ -6,14 +6,19 @@ import requests;
 import from jaclang.byllm.llm { Model }
 
 glob MODEL_NAME: str = os.environ.get("FC_MODEL", "openai/glm-5.2");
-glob MODEL_BASE: str = "https://ollama.com/v1";
+glob MODEL_BASE: str = os.environ.get("FC_MODEL_BASE", "https://ollama.com/v1");
 # byLLM 0.31.1 drops config["base_url"] on the litellm path, so the endpoint
 # reaches litellm through OPENAI_API_BASE instead.
 glob _ = os.environ.setdefault("OPENAI_API_BASE", MODEL_BASE);
+# gpt-5 / o-series bill their thinking against the completion budget, which
+# empties the pinned max_tokens before any answer is written. "minimal"
+# switches that off; empty on every other model, which has no such parameter.
+glob LLM_CALL_PARAMS: dict = ({"reasoning_effort": "minimal"} if MODEL_NAME.split("/")[-1].startswith(("gpt-5", "o1", "o3", "o4")) else {});
 glob llm = Model(
     model_name=MODEL_NAME,
-    api_key=os.environ.get("OLLAMA_API_KEY", ""),
-    config={"base_url": MODEL_BASE}
+    api_key=(os.environ.get("OLLAMA_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""),
+    config={"base_url": MODEL_BASE},
+    call_params=LLM_CALL_PARAMS
 );
 
 glob MAX_SCOUTS: int = int(os.environ.get("FC_SCOUTS", "2"));
@@ -54,7 +59,7 @@ sem Finding.question = "The independently investigated question, copied exactly.
 sem Finding.answer = "A concise answer grounded only in the search results.";
 sem Finding.source = "The exact Wikipedia title and URL supporting the answer, or an empty string when none was found.";
 sem Finding.excerpt = "The shortest exact excerpt from the search results that supports the answer, or an empty string.";
-sem Finding.stance = "SUPPORTS if the result supports this part of the claim, CONTRADICTS if it disproves it, otherwise INSUFFICIENT.";
+sem Finding.stance = "SUPPORTS if the search results establish the part of the claim this question is about, CONTRADICTS if they establish that it is false, INSUFFICIENT only if they do not answer the question.";
 
 
 obj Evidence {
@@ -72,7 +77,7 @@ obj Verdict {
     has sources: list[str] = [];
 }
 
-sem Verdict.label = "SUPPORTED only when the evidence supports every material part of the claim; NOT_SUPPORTED when a material part is contradicted by reliable evidence; NEED_MORE when a material part is still INSUFFICIENT and another search could settle it.";
+sem Verdict.label = "SUPPORTED only when the evidence supports every material part of the claim; NOT_SUPPORTED when a material part is contradicted by reliable evidence; NEED_MORE only when a material part has no evidence either way and another search could plausibly settle it.";
 sem Verdict.rationale = "A concise cross-document explanation of the verdict that names every unsupported or contradicted part.";
 sem Verdict.sources = "Only the exact non-empty source strings from the evidence that were used for the verdict.";
 
@@ -221,7 +226,7 @@ sem EvidenceScout = "One independent branch in the fact check's evidence fan-out
 sem EvidenceScout.slot = "Zero-based position of the question assigned to this scout.";
 sem EvidenceScout.websearch = "Search English Wikipedia for passages relevant to one independent evidence question.";
 sem EvidenceScout.websearch.query = "A self-contained factual question used as the Wikipedia search query.";
-sem EvidenceScout.assess_evidence = "Assess only the supplied search results, using earlier evidence solely to resolve references in the question. Return one Finding. Copy its question exactly. Do not use unstated background knowledge, invent a source, or treat the absence of evidence as a contradiction. The source and excerpt must be copied from the search results. If the results do not settle the question, return INSUFFICIENT.";
+sem EvidenceScout.assess_evidence = "Assess only the supplied search results, using earlier evidence solely to resolve references in the question. Return one Finding. Copy its question exactly. Judge only the part of the claim this question is about: SUPPORTS if the search results establish that part as the claim states it, CONTRADICTS if they establish that it is false, INSUFFICIENT only if the search results do not answer the question. Whether the other parts of the claim are settled is the verifier's job, not this finding's: a finding that answers its own question is SUPPORTS or CONTRADICTS even when the claim as a whole cannot yet be decided. Do not use unstated background knowledge, invent a source, or treat the absence of evidence as a contradiction. The source and excerpt must be copied from the search results.";
 sem EvidenceScout.assess_evidence.claim = "The complete claim, supplied only so the finding's stance can be measured against it.";
 sem EvidenceScout.assess_evidence.evidences = "Every finding collected in earlier rounds of this fact check, oldest first.";
 sem EvidenceScout.assess_evidence.question = "The single independent question assigned to this scout.";
@@ -256,7 +261,7 @@ node EvidenceAnalyzer {
 }
 
 sem EvidenceAnalyzer = "The single fan-in verifier that combines all independent evidence branches and decides whether another round is needed.";
-sem EvidenceAnalyzer.verify_claim = "Apply HoVer's decision rule to the claim and all evidence together. Return SUPPORTED only if reliable evidence collectively establishes every material part of the claim and no reliable evidence contradicts it. Return NOT_SUPPORTED when a material part is contradicted. Return NEED_MORE when a material part is still insufficiently evidenced and a further search could settle it. Explain the cross-document reasoning, and cite only source strings present in the evidence objects.";
+sem EvidenceAnalyzer.verify_claim = "Apply HoVer's decision rule to the claim and all evidence together, reading the findings' answers and passages, not only their stance labels. Return SUPPORTED only if reliable evidence collectively establishes every material part of the claim and no reliable evidence contradicts it. Return NOT_SUPPORTED when a material part is contradicted, including a named entity or attribute that the evidence shows to be wrong. A retrieved Wikipedia article about an entity that lists its roles or attributes and does not mention a claimed one is evidence against that part, not missing evidence. Return NEED_MORE only when a material part has no evidence either way and a further search could plausibly settle it; when the same fact has already been searched for repeatedly without result, decide on the balance of the evidence. Explain the cross-document reasoning, and cite only source strings present in the evidence objects.";
 sem EvidenceAnalyzer.verify_claim.claim = "The complete claim to classify.";
 sem EvidenceAnalyzer.verify_claim.evidences = "The complete set of findings collected so far, oldest first.";
 

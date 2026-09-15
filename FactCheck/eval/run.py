@@ -1,6 +1,6 @@
-"""Drive the three FactCheck arms over hover_claims.tsv, one result JSON per (arm, claim).
+"""Drive the FactCheck arms over hover_claims.tsv, one result JSON per (arm, claim).
 
-    python eval/run.py --arms jac openai langgraph [--limit N] [--workers 2] [--out eval/out]
+    python eval/run.py --arms jac openai langgraph nooa [--limit N] [--workers 2] [--out eval/out]
 
 Each claim is one subprocess of the arm's entry point with the same knobs the
 arm reads on its own (FC_*), the shared wiki_cache, and a per-call token log:
@@ -24,11 +24,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]          # FactCheck/
 PY = os.environ.get("FC_PY", str(Path.home() / "miniconda3/envs/jaseci/bin/python"))
 JAC = os.environ.get("FC_JAC", str(Path.home() / "miniconda3/envs/jac-main/bin/jac"))
+PY_NOOA = os.environ.get("FC_PY_NOOA", str(Path.home() / "miniconda3/envs/nooa/bin/python"))
 
 ARMS = {
     "jac": {"cwd": ROOT / "Jac", "cmd": [JAC, "run", "fact_check.jac"], "log_env": "BYLLM_USAGE_LOG"},
     "openai": {"cwd": ROOT, "cmd": [PY, "OpenaiSDK/fact_check.py"], "log_env": "FC_TRACE"},
     "langgraph": {"cwd": ROOT, "cmd": [PY, "LangGraph/fact_check.py"], "log_env": "FC_TRACE"},
+    "nooa": {"cwd": ROOT, "cmd": [PY_NOOA, "NOOA/fact_check.py"], "log_env": "FC_TRACE"},
 }
 
 

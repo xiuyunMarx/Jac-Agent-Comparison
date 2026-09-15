@@ -32,7 +32,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-MANIFEST_DIR = ROOT / "loc_manifests"   # <app>.json: {file: [[start,end,"kind name",tag,reason],...]}
+if ROOT.name == "loc_manifests":          # script lives inside loc_manifests/
+    MANIFEST_DIR, ROOT = ROOT, ROOT.parent
+else:
+    MANIFEST_DIR = ROOT / "loc_manifests"  # <app>.json: {file: [[start,end,"kind name",tag,reason],...]}
 
 # --------------------------------------------------------------------------
 # Scope manifest.  "core" = the agent itself: orchestration, nodes, tools,
@@ -45,18 +48,21 @@ ARMS: dict[str, dict[str, dict[str, list[str]]]] = {
         "Jac":       {"core": ["fact_check.jac"], "all": ["**/*.jac", "**/*.py"]},
         "LangGraph": {"core": ["fact_check.py"], "all": ["**/*.py"]},
         "OpenaiSDK": {"core": ["fact_check.py"], "all": ["**/*.py"]},
+        "NOOA":      {"core": ["fact_check.py"], "all": ["**/*.py"]},
     },
     "Email-Auto-response": {
         "byLLM":            {"core": ["*.jac"], "all": ["**/*.jac", "**/*.py"]},
         "CrewAI-LangGraph": {"core": ["main.py", "src/**/*.py", "src/**/*.yaml"],
                              "all": ["**/*.py", "**/*.yaml"]},
         "openai_sdk":       {"core": ["*.py"], "all": ["**/*.py"]},
+        "NOOA":             {"core": ["main.py"], "all": ["**/*.py"]},
     },
     "meeting-assistant": {
         "byLLM":      {"core": ["*.jac"], "all": ["**/*.jac", "**/*.py"]},
         "CrewAI":     {"core": ["src/**/*.py", "src/**/*.yaml"],
                        "all": ["src/**/*.py", "src/**/*.yaml"]},
         "openai_sdk": {"core": ["*.py"], "all": ["**/*.py"]},
+        "NOOA":       {"core": ["*.py"], "all": ["**/*.py"]},
     },
     "YTNavigator": {
         "byLLM":      {"core": ["*.jac"], "all": ["**/*.jac", "**/*.py"]},
@@ -66,6 +72,7 @@ ARMS: dict[str, dict[str, dict[str, list[str]]]] = {
                                 "app/schemas/agent.py", "app/schemas/tools.py"],
                        "all": ["app/**/*.py", "yt_navigator/**/*.py", "manage.py"]},
         "openai_sdk": {"core": ["*.py"], "all": ["**/*.py"]},
+        "NOOA":       {"core": ["*.py"], "all": ["**/*.py"]},
     },
     "CodeAgent": {
         "Jac":        {"core": ["*.jac"], "all": ["**/*.jac", "**/*.py"]},

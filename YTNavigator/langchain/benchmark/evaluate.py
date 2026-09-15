@@ -161,7 +161,7 @@ def judge_run(results, questions_by_id, model_name):
             reply = litellm.completion(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
+                **({} if model_name.split("/", 1)[-1].startswith(("gpt-5", "o1", "o3", "o4")) else {"temperature": 0.0}),
             ).choices[0].message.content
             payload = json.loads(reply[reply.index("{") : reply.rindex("}") + 1])
             score = int(payload["score"])

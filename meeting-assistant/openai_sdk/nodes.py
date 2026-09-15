@@ -33,6 +33,12 @@ MODEL = MODEL_ID.split("/", 1)[-1]
 # "gpt-4o") sends none at all (provider default 1.0); the fidelity target is
 # byLLM, so 0.7 is what goes on the wire. No max_tokens, matching both sides.
 TEMPERATURE = 0.7
+# gpt-5 / o-series accept only the default temperature; send none there.
+SEND_TEMPERATURE = not MODEL.split("/", 1)[-1].startswith(("gpt-5", "o1", "o3", "o4"))
+# gpt-5 / o-series bill their thinking against the completion budget, which
+# empties the pinned max_tokens before any answer is written. "minimal"
+# switches that off. None on every other model, which has no such parameter.
+REASONING_EFFORT = None if SEND_TEMPERATURE else "minimal"
 
 _client = None
 
@@ -155,12 +161,12 @@ RESPONSE_FORMAT = {
 
 def _complete(messages: list[dict]) -> str:
     """One round trip, recorded. The whole of the model seam."""
-    response = _get_client().chat.completions.create(
-        model=MODEL,
-        temperature=TEMPERATURE,
-        messages=messages,
-        response_format=RESPONSE_FORMAT,
-    )
+    params: dict = {"model": MODEL, "messages": messages, "response_format": RESPONSE_FORMAT}
+    if SEND_TEMPERATURE:
+        params["temperature"] = TEMPERATURE
+    if REASONING_EFFORT:
+        params["reasoning_effort"] = REASONING_EFFORT
+    response = _get_client().chat.completions.create(**params)
     token_usage.track(response)
     return response.choices[0].message.content or ""
 

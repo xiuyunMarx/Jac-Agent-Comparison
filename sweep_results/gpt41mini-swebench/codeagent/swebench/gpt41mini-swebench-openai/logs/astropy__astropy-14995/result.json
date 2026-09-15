@@ -1,0 +1,106 @@
+{
+  "instance_id": "astropy__astropy-14995",
+  "model": "openai/gpt-4.1-mini",
+  "answer": "### Plan\nThe issue is that the NDDataRef.multiply method with handle_mask=np.bitwise_or fails when one operand has no mask (mask is None). This is because _arithmetic_mask calls handle_mask with None masks, causing TypeError. The expected behavior is that if only one operand has a mask, the output mask should be a copy of that mask, and if neither operand has a mask, the output mask should be None.\n\nThe root cause is in _arithmetic_mask in astropy/nddata/mixins/ndarithmetic.py. The current condition does not handle the case where one mask is None, and the other is not, causing handle_mask to be called with a None argument.\n\nThe fix is to update _arithmetic_mask to copy the existing mask if the other is None before calling handle_mask. This ensures handle_mask never receives None and avoids the TypeError.\n\nFiles involved:\n- astropy/nddata/mixins/ndarithmetic.py\n\nThe next phase should implement this fix by modifying _arithmetic_mask to properly propagate masks when one operand has no mask, making sure to copy the existing mask rather than passing None to the handle_mask function.\n\n### Explore\nThe issue is that NDDataRef.multiply with handle_mask=np.bitwise_or fails when one operand has no mask (mask=None). The expected behavior is that if only one operand has a mask, the output mask should be a copy of that mask, and if neither operand has a mask, the output mask should be None.\n\nThe root cause is in NDArithmeticMixin._arithmetic_mask in astropy/nddata/mixins/ndarithmetic.py at lines 480-560. The current implementation tries to call handle_mask (np.bitwise_or) on self.mask and operand.mask without properly handling when one is None, causing a TypeError.\n\nA minimal reproduction confirms this error:\n\nmask * no mask raised: unsupported operand type(s) for |: 'int' and 'NoneType'\nmask * no mask (2nd) raised: unsupported operand type(s) for |: 'int' and 'NoneType'\n\nThe fix is to modify _arithmetic_mask to check if one mask is None and return the other mask directly without applying handle_mask, ensuring the output mask is correct and no TypeError occurs.\n\n### Edit\nThe issue is that NDDataRef.multiply with handle_mask=np.bitwise_or fails if one operand has no mask (mask=None). The expected behavior is that if only one operand has a mask, the output mask should be a copy of that mask, and if neither operand has a mask, the output mask should be None.\n\nI identified the relevant code in astropy/nddata/mixins/ndarithmetic.py in the _arithmetic_mask method of NDArithmeticMixin class. The current code tries to apply handle_mask directly on masks that may be None, causing the TypeError.\n\nI applied a minimal fix by adding a condition to return a copy of the single existing mask if one operand's mask is None and the other's is not, before applying handle_mask. This prevents the bitwise_or from being called on None.\n\nI confirmed the fix with a minimal reproduction snippet that exercises the failing cases. Both cases now pass without error and produce the expected mask output.\n\nFile: astropy/nddata/mixins/ndarithmetic.py\nSymbol: NDArithmeticMixin._arithmetic_mask\nLines: 480-560\n\nThe fix was inserted at line 515 in the _arithmetic_mask method.\n\nThe final fix code snippet is:\n\n        elif self.mask is None or operand.mask is None:\n            # If one mask is None and the other is not, just use the one that exists\n            return deepcopy(self.mask) if self.mask is not None else deepcopy(operand.mask)\n\nNo other code or tests were changed.\n\nThis resolves the issue described in the prompt.\n\n### Verify\nThe issue is that NDDataRef.multiply with handle_mask=np.bitwise_or fails when one operand has no mask (mask is None). The expected behavior is that if only one operand has a mask, the output mask should be a copy of that mask, and if neither has a mask, the output should be None.\n\nThe relevant code is in astropy/nddata/mixins/ndarithmetic.py in the _arithmetic_mask method of NDArithmeticMixin. The current code tries to apply handle_mask on None and an integer mask, which causes a TypeError.\n\nI fixed _arithmetic_mask to handle the case where exactly one mask is None by returning a deepcopy of the existing mask instead of calling handle_mask. This prevents the TypeError and matches the intended behavior.\n\nI confirmed the fix by a minimal reproduction snippet that previously raised but now correctly returns the mask.\n\nI also ran the nearest existing tests in astropy/nddata/mixins/tests/test_ndarithmetic.py which all passed.\n\nSummary:\n- File changed: astropy/nddata/mixins/ndarithmetic.py\n- Function changed: NDArithmeticMixin._arithmetic_mask\n- Lines changed: approx 510-520\n- Fix: return deepcopy(existing mask) if one mask is None instead of calling handle_mask\n- Verified by minimal repro and existing tests passing\n\nThe problem is fixed as requested.",
+  "steps": 4,
+  "llm_calls": 16,
+  "prompt_tokens": 105830,
+  "completion_tokens": 2763,
+  "cached_tokens": 63616,
+  "tool_calls": [
+    {
+      "name": "grep",
+      "args": {
+        "args": "multiply in astropy/nddata (*.py)",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "outline",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "outline",
+      "args": {
+        "args": "astropy/nddata/nddata_withmixins.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "outline",
+      "args": {
+        "args": "astropy/nddata/nduncertainty.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:600-640",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:480-520",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:521-560",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "read_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py:480-560",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import numpy as np\nfrom astropy.nddata import NDDataRef\n\narray = np.array([[0, 1",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "replace_in_file",
+      "args": {
+        "args": "astropy/nddata/mixins/ndarithmetic.py",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_snippet",
+      "args": {
+        "args": "import numpy as np\nfrom astropy.nddata import NDDataRef\n\narray = np.array([[0, 1",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "view_diff",
+      "args": {
+        "args": "",
+        "ok": "True"
+      }
+    },
+    {
+      "name": "run_command",
+      "args": {
+        "args": "pytest astropy/nddata/mixins/tests/test_ndarithmetic.py -q --tb=short -rP",
+        "ok": "True"
+      }
+    }
+  ],
+  "tool_call_count": 13,
+  "error": "",
+  "wall_clock_sec": 46.811
+}

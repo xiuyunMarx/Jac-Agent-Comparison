@@ -71,8 +71,7 @@ glm-5.2 0.42 in / 1.32 out; gemma4:31b 0.09 in / 0.34 out.
 
 `route_bench/run_arm.sh <arm> collect|train|eval|score|all` runs the same protocol on a few cases of
 meeting (train meeting_001-005, eval 006-010), factcheck (train claims 1-3, eval 4-6), ytnav (train q1-6,
-eval q7-12). codeagent is wired but was not run (SWE-bench docker is too memory-hungry on this box).
-Results under `results/<arm>/{collect,router,eval/<mode>}`; `report_arms.py` writes `results/REPORT_arms.md`.
+eval q7-12). Results under `results/<arm>/{collect,router,eval/<mode>}`; `report_arms.py` writes `results/REPORT_arms.md`.
 `FactCheck/Jac/fact_check.jac` now reads `FC_MODEL` so the cheap model can be selected.
 
 Label detail: byLLM wraps non-object return types in `{"schema_object_wrapper": ...}` but accepts the bare

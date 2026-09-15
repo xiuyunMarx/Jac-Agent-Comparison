@@ -13,7 +13,8 @@ MODEL_LLM = LLM(
     api_key=os.environ.get("OPENAI_API_KEY"),
     # byLLM's default; CrewAI sends no temperature at all unless asked, which
     # left this arm on the provider default while the other two ran at 0.7.
-    temperature=0.7,
+    # Omitted for gpt-5 / o-series, which accept only the default.
+    **({"reasoning_effort": "minimal"} if _BENCH_MODEL.split("/", 1)[-1].startswith(("gpt-5", "o1", "o3", "o4")) else {"temperature": 0.7}),
 )
 
 class EmailFilterAgents():

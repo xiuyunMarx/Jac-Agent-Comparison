@@ -28,6 +28,9 @@ ROOT = EVAL_DIR.parent                      # YTNavigator/
 LANGGRAPH_DIR = ROOT / "langchain"
 BYLLM_DIR = ROOT / "byLLM"
 OPENAI_SDK_DIR = ROOT / "openai_sdk"
+NOOA_DIR = ROOT / "NOOA"
+# The NOOA arm needs the `nooa` package (Python 3.12/3.13); override with $NOOA_PYTHON.
+NOOA_PYTHON = os.environ.get("NOOA_PYTHON", str(Path.home() / "miniconda3/envs/nooa/bin/python"))
 EVALUATE = LANGGRAPH_DIR / "benchmark" / "evaluate.py"
 
 
@@ -66,8 +69,8 @@ def run_impl(name, cmd, cwd, env, timeout):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
-        "--impl", choices=["all", "both", "byllm", "langgraph", "openai_sdk"], default="both",
-        help="Which implementation(s) to run: 'both' = byllm + langgraph (historical name), 'all' adds openai_sdk",
+        "--impl", choices=["all", "both", "byllm", "langgraph", "openai_sdk", "nooa"], default="both",
+        help="Which implementation(s) to run: 'both' = byllm + langgraph (historical name), 'all' adds openai_sdk and nooa",
     )
     parser.add_argument(
         "--questions",
@@ -122,6 +125,20 @@ def main():
         # Runs in this interpreter's env: needs `openai` + psycopg2 (see
         # openai_sdk/pyproject.toml).
         ok, _ = run_impl("openai_sdk", [sys.executable, "main.py"], OPENAI_SDK_DIR, sdk_env, args.timeout)
+        if ok:
+            results.append(out)
+
+    if args.impl in ("all", "nooa"):
+        out = out_dir / "results_nooa.jsonl"
+        nooa_env = dict(env)
+        nooa_env.update(
+            {
+                "YTNAV_QUESTIONS": str(questions.resolve()),
+                "YTNAV_OUTPUT": str(out.resolve()),
+                "YTNAV_CHANNEL": args.channel,
+            }
+        )
+        ok, _ = run_impl("nooa", [NOOA_PYTHON, "main.py"], NOOA_DIR, nooa_env, args.timeout)
         if ok:
             results.append(out)
 

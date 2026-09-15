@@ -19,10 +19,15 @@ def _model_name() -> str {
 # ctx_window: litellm carries no context-length metadata for a locally served
 # model, and without it byLLM's auto-compaction misreads the window and fails on
 # short histories. OpenAI models report their own, so stating it costs nothing.
+# gpt-5 / o-series bill their thinking against the completion budget, which
+# empties the pinned max_tokens before any answer is written. "minimal"
+# switches that off; empty on every other model, which has no such parameter.
+glob LLM_CALL_PARAMS: dict = ({"reasoning_effort": "minimal"} if BENCH_MODEL.split("/")[-1].startswith(("gpt-5", "o1", "o3", "o4")) else {});
 glob llm = Model(
     model_name=_model_name(),
     api_key=os.environ.get("OPENAI_API_KEY", ""),
-    ctx_window=int(os.environ.get("BENCH_CTX", "0"))
+    ctx_window=int(os.environ.get("BENCH_CTX", "0")),
+    call_params=LLM_CALL_PARAMS
 );
 
 node LoadMeetingNode {

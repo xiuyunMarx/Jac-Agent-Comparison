@@ -1,0 +1,158 @@
+"""Headless benchmark runner for the NOOA YT-Navigator counterpart.
+
+A port of byLLM's `main.jac`, record for record: reads the shared questions
+JSONL, runs each question through the agent (fresh conversation per question;
+questions sharing a scenario_id continue one conversation in file order), and
+writes one result record per question in the shared benchmark schema, so the
+output is scored side by side with the other arms by eval/score.py, unchanged.
+
+Configuration (env, same names as the other arms):
+    YTNAV_QUESTIONS  questions JSONL (default ../datasets/questions.jsonl)
+    YTNAV_OUTPUT     results JSONL   (default results_nooa.jsonl)
+    YTNAV_CHANNEL    channel id      (default: the only channel in the database)
+    POSTGRES_*       database connection (same names as the langchain app's .env)
+    BENCH_MODEL / OPENAI_BASE_URL / OPENAI_API_KEY   the model (see agent.py)
+
+Run:  python main.py   (from this directory, with the nooa env's Python)
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import time
+import uuid
+from datetime import datetime, timezone
+from typing import Any
+
+import agent
+
+FRAMEWORK = "nooa"
+
+
+def load_questions(path: str) -> list[dict[str, Any]]:
+    questions = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            questions.append(json.loads(line))
+    return questions
+
+
+def conversation_text(history: list[dict[str, Any]]) -> str:
+    """The last 3 exchanges, byLLM's plain-text stand-in for the original's 1000-token trimming."""
+    parts = []
+    for turn in history[-3:]:
+        parts.append("User: " + str(turn["user"]))
+        parts.append("Assistant: " + str(turn.get("assistant") or ""))
+    return "\n".join(parts)
+
+
+def answer_to_dict(answer: agent.AgentAnswer) -> dict[str, Any]:
+    return answer.model_dump()
+
+
+async def run(questions_path: str, output_path: str, channel_pref: str) -> None:
+    channel_id = str(agent.retrieval.resolve_channel(channel_pref))
+    info = str(agent.retrieval.channel_info(channel_id))
+    navigator = agent.YTNavigator(channel_id=channel_id)
+
+    questions = load_questions(questions_path)
+    run_id = uuid.uuid4().hex[:8]
+    print(f"Run {run_id}: {len(questions)} questions against channel '{channel_id}' -> {output_path}")
+
+    histories: dict[str, list[dict[str, Any]]] = {}
+    error_count = 0
+    with open(output_path, "w", encoding="utf-8") as out:
+        for idx, question in enumerate(questions):
+            qid = str(question.get("id") or f"q{idx + 1}")
+            scenario = question.get("scenario_id")
+            thread_key = str(scenario) if scenario else qid
+            history = histories.setdefault(thread_key, [])
+            message = str(question["question"])
+
+            calls_before = agent.llm_call_count()
+            status = "ok"
+            error = None
+            # Created here and passed in, so the route and fallback events
+            # decided before an exception survive into the record.
+            result = agent.ChatResult()
+            started = time.perf_counter()
+            try:
+                await navigator.chat(info, conversation_text(history), message, result=result)
+            except Exception as e:  # noqa: BLE001 - one bad question, not the run
+                status = "error"
+                error = str(e)
+                error_count += 1
+            latency = round(time.perf_counter() - started, 3)
+
+            llm_calls = agent.llm_calls_since(calls_before)
+            prompt_tokens = sum(int(c.get("prompt_tokens") or 0) for c in llm_calls)
+            completion_tokens = sum(int(c.get("completion_tokens") or 0) for c in llm_calls)
+
+            route = result.route or None
+            fallback_events = list(result.fallback_events)
+            parse_failed = any(ev.get("event") == "output_parse_fallback" for ev in fallback_events)
+            answer_text = None
+            answer_raw = None
+            answer_parsed = False
+            cited: list[str] = []
+            answer = result.answer
+            if answer is not None:
+                answer_text = answer.placeholder
+                answer_raw = json.dumps(answer_to_dict(answer))
+                answer_parsed = not parse_failed
+                cited = [v.id for v in answer.videos if v.id]
+                if status == "ok":
+                    history.append({"user": message, "assistant": answer_text})
+
+            record = {
+                "run_id": run_id,
+                "framework": FRAMEWORK,
+                "question_id": qid,
+                "scenario_id": scenario,
+                "thread_id": f"bench-{run_id}-{thread_key}",
+                "question": message,
+                "status": status,
+                "error": error,
+                "route": route,
+                "answer_text": answer_text,
+                "answer_raw": answer_raw,
+                "answer_parsed": answer_parsed,
+                "cited_video_ids": cited,
+                "tool_calls": list(result.tool_calls),
+                "llm_calls": llm_calls,
+                "fallback_events": fallback_events,
+                "latency_s": latency,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            out.write(json.dumps(record) + "\n")
+            out.flush()
+            detail = f"route={route}" if status == "ok" else str(error)
+            total = prompt_tokens + completion_tokens
+            print(f"  [{idx + 1}/{len(questions)}] {qid}: {status} ({latency}s, {total} tokens) {detail}", flush=True)
+
+    print(
+        f"Done: {len(questions) - error_count}/{len(questions)} completed, "
+        f"{error_count} errors. Results: {output_path}"
+    )
+
+
+def main() -> None:
+    asyncio.run(
+        run(
+            os.environ.get("YTNAV_QUESTIONS", "../datasets/questions.jsonl"),
+            os.environ.get("YTNAV_OUTPUT", "results_nooa.jsonl"),
+            os.environ.get("YTNAV_CHANNEL", ""),
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -26,6 +26,12 @@ DEFAULT_POWERFUL_MODEL = os.environ.get("BENCH_MODEL", "glm-5.2")
 # Pinned identically on all three sides, or the benchmark measures the model
 # rather than the framework.
 TEMPERATURE = 0.0
+# gpt-5 / o-series accept only the default temperature; send none there.
+SEND_TEMPERATURE = not DEFAULT_INSTANT_MODEL.split("/", 1)[-1].startswith(("gpt-5", "o1", "o3", "o4"))
+# gpt-5 / o-series bill their thinking against the completion budget, which
+# empties the pinned max_tokens before any answer is written. "minimal"
+# switches that off. None on every other model, which has no such parameter.
+REASONING_EFFORT = None if SEND_TEMPERATURE else "minimal"
 
 _client: Any | None = None
 
@@ -111,8 +117,11 @@ def complete(
     payload: dict[str, Any] = {
         "model": model,
         "messages": list(messages),
-        "temperature": TEMPERATURE,
     }
+    if SEND_TEMPERATURE:
+        payload["temperature"] = TEMPERATURE
+    if REASONING_EFFORT:
+        payload["reasoning_effort"] = REASONING_EFFORT
     tool_specs = list(tools) if tools else None
     if tool_specs:
         payload["tools"] = tool_specs

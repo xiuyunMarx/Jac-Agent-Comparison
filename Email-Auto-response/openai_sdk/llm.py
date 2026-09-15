@@ -32,6 +32,13 @@ DEFAULT_MODEL = os.environ.get("BENCH_MODEL", "glm-5.2")
 # none): temperature 0.7, no max_tokens. Matched here rather than "improved" --
 # a different temperature would be a hidden variable in the A/B comparison.
 TEMPERATURE = 0.7
+# gpt-5 / o-series accept only the default temperature; send none there rather
+# than fail every call. Every other model keeps the pinned value.
+SEND_TEMPERATURE = not DEFAULT_MODEL.split("/", 1)[-1].startswith(("gpt-5", "o1", "o3", "o4"))
+# gpt-5 / o-series bill their thinking against the completion budget, which
+# empties the pinned max_tokens before any answer is written. "minimal"
+# switches that off. None on every other model, which has no such parameter.
+REASONING_EFFORT = None if SEND_TEMPERATURE else "minimal"
 
 _client: Any | None = None
 
@@ -86,8 +93,11 @@ def complete(
     payload: dict[str, Any] = {
         "model": active_model_name(),
         "messages": list(messages),
-        "temperature": TEMPERATURE,
     }
+    if SEND_TEMPERATURE:
+        payload["temperature"] = TEMPERATURE
+    if REASONING_EFFORT:
+        payload["reasoning_effort"] = REASONING_EFFORT
     if tools:
         payload["tools"] = list(tools)
     if response_format is not None:

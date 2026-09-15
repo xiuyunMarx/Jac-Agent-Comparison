@@ -49,6 +49,16 @@ def crewai_python() -> str:
     return str(venv) if venv.is_file() else sys.executable
 
 
+def nooa_python() -> str:
+    """The NOOA arm's interpreter: $NOOA_PYTHON, else the nooa conda env (nooa
+    0.0.9 needs Python 3.12/3.13), else this one."""
+    env = os.environ.get("NOOA_PYTHON", "")
+    if env:
+        return env
+    conda = Path.home() / "miniconda3" / "envs" / "nooa" / "bin" / "python"
+    return str(conda) if conda.is_file() else sys.executable
+
+
 def implementations() -> dict[str, dict]:
     """Each arm: where it runs, how it is launched, how the dataset reaches it.
 
@@ -71,6 +81,11 @@ def implementations() -> dict[str, dict]:
         "openai_sdk": {
             "dir": ROOT / "openai_sdk",
             "cmd": [sys.executable, "main.py"],
+            "takes_dataset_arg": True,
+        },
+        "NOOA": {
+            "dir": ROOT / "NOOA",
+            "cmd": [nooa_python(), "main.py"],
             "takes_dataset_arg": True,
         },
     }
@@ -132,8 +147,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--impl", action="append",
-                    choices=["byLLM", "CrewAI-LangGraph", "openai_sdk"],
-                    help="implementation(s) to run (default: all three)")
+                    choices=["byLLM", "CrewAI-LangGraph", "openai_sdk", "NOOA"],
+                    help="implementation(s) to run (default: all)")
     ap.add_argument("--batches", nargs="+", default=None,
                     help="batch stems to run, e.g. batch_001 (default: all)")
     ap.add_argument("--timeout", type=int, default=1200,
