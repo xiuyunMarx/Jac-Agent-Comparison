@@ -29,11 +29,11 @@ scope = core + core-only symbols
 |  | `Email-Auto-response/openai_sdk/nodes.py` | | 397 | 375 | 311 | 64 | 5 | 5007 | 5326 | |
 | Email-Auto-response | NOOA | 1 | 209 | 182 | 167 | 15 | 9 | 4247 | 2583 | 0.94x |
 |  | `Email-Auto-response/NOOA/main.py` | | 209 | 182 | 167 | 15 | 9 | 4247 | 2583 | |
-| meeting-assistant | byLLM | 3 | 118 | 112 | 112 | 0 | 0 | 2262 | 1787 | 1.00x |
+| meeting-assistant | byLLM | 3 | 111 | 106 | 106 | 0 | 0 | 2196 | 1787 | 1.00x |
 |  | `meeting-assistant/byLLM/main.jac` | | 0 | 0 | 0 | 0 | 0 | 0 | 0 | |
-|  | `meeting-assistant/byLLM/nodes.jac` | | 107 | 101 | 101 | 0 | 0 | 2033 | 1748 | |
+|  | `meeting-assistant/byLLM/nodes.jac` | | 100 | 95 | 95 | 0 | 0 | 1967 | 1748 | |
 |  | `meeting-assistant/byLLM/tools.jac` | | 11 | 11 | 11 | 0 | 0 | 229 | 39 | |
-| meeting-assistant | CrewAI | 9 | 143 | 118 | 94 | 24 | 12 | 2020 | 1923 | 0.84x |
+| meeting-assistant | CrewAI | 9 | 143 | 118 | 94 | 24 | 12 | 2020 | 1923 | 0.89x |
 |  | `meeting-assistant/CrewAI/src/meeting_assistant_flow/__init__.py` | | 0 | 0 | 0 | 0 | 0 | 0 | 0 | |
 |  | `meeting-assistant/CrewAI/src/meeting_assistant_flow/crews/meeting_assistant_crew/config/agents.yaml` | | 10 | 10 | 4 | 6 | 0 | 40 | 410 | |
 |  | `meeting-assistant/CrewAI/src/meeting_assistant_flow/crews/meeting_assistant_crew/config/tasks.yaml` | | 24 | 19 | 4 | 15 | 4 | 68 | 879 | |
@@ -43,11 +43,11 @@ scope = core + core-only symbols
 |  | `meeting-assistant/CrewAI/src/meeting_assistant_flow/utils/mock_outputs.py` | | 0 | 0 | 0 | 0 | 0 | 0 | 0 | |
 |  | `meeting-assistant/CrewAI/src/meeting_assistant_flow/utils/slack_helper.py` | | 0 | 0 | 0 | 0 | 0 | 0 | 0 | |
 |  | `meeting-assistant/CrewAI/src/meeting_assistant_flow/utils/trello_helper.py` | | 11 | 10 | 7 | 3 | 0 | 153 | 151 | |
-| meeting-assistant | openai_sdk | 3 | 174 | 165 | 161 | 4 | 3 | 2347 | 2703 | 1.44x |
+| meeting-assistant | openai_sdk | 3 | 174 | 165 | 161 | 4 | 3 | 2347 | 2703 | 1.52x |
 |  | `meeting-assistant/openai_sdk/main.py` | | 0 | 0 | 0 | 0 | 0 | 0 | 0 | |
 |  | `meeting-assistant/openai_sdk/nodes.py` | | 167 | 158 | 154 | 4 | 3 | 2133 | 2664 | |
 |  | `meeting-assistant/openai_sdk/tools.py` | | 7 | 7 | 7 | 0 | 0 | 214 | 39 | |
-| meeting-assistant | NOOA | 3 | 110 | 104 | 87 | 17 | 1 | 2215 | 2369 | 0.78x |
+| meeting-assistant | NOOA | 3 | 110 | 104 | 87 | 17 | 1 | 2215 | 2369 | 0.82x |
 |  | `meeting-assistant/NOOA/main.py` | | 0 | 0 | 0 | 0 | 0 | 0 | 0 | |
 |  | `meeting-assistant/NOOA/nodes.py` | | 103 | 97 | 80 | 17 | 1 | 2001 | 2330 | |
 |  | `meeting-assistant/NOOA/tools.py` | | 7 | 7 | 7 | 0 | 0 | 214 | 39 | |

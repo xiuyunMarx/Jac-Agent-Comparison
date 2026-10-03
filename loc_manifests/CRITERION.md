@@ -49,3 +49,41 @@ file gets exactly one tag.
   cache or delay, keep the tool core (the tool is required).
 - When unsure, write the reason and pick the tag; the reviewer will re-check
   anything with a `?` in the reason.
+
+## PROTECTION code (third pass; `<app>.guard.json`, subtracted by `loc_count.py --core --no-guard`)
+
+Goal: the agent's core logic with defensive code removed.  Protection = lines whose
+only job is to detect, reject, repair or recover from bad model output, bad data,
+or a misbehaving tool call.  Ranges are sub-symbol `[start, end, reason]`; only lines
+already tagged core matter (adapter lines are gone anyway).
+
+PROTECTION (subtract):
+- Model-output validation: schema/isinstance/enum checks that raise or coerce,
+  `_enum`-style coercers, empty-field validators, pydantic validators that reject
+  or clamp, "no task list in the reply" style raises, fence stripping / lenient
+  JSON extraction added because the model ignores response_format.
+- Repair and retry: repair LLM methods and their prompts/sems, RETRY/correction
+  prompts, the correction turn inside structured_call, try/except around a model
+  call that re-asks, retry budgets (`max_output_retries`, `OUTPUT_ATTEMPTS`,
+  `max_retries=` in a strategy config, `max_output_retries=` inside `by llm(...)`).
+- Fallbacks: PARSE_FAILURE_REPLY-style texts, fallback_events bookkeeping, the
+  branch that emits a canned answer when the tool loop or parse fails, skip/continue
+  branches for malformed items ("missing a name or description. Skipping").
+- Tool-safety guards: path confinement (safe_path, refuse_path), write-protected
+  dirs, command allow/deny lists and flag screening, shell-metachar refusal,
+  timeouts/kill/grace handling, output-size caps and truncation (clip/clip_ends,
+  MAX_*_CHARS/BYTES), duplicate-call / no-progress detection, postcondition
+  invariants (must_have_written / must_have_verified) and their feedback prompts.
+
+NOT protection (keep):
+- The main loop's iteration cap / round budget (MAX_ROUNDS, max_react_iterations,
+  MAX_STEPS) and the normal stop condition: without them the loop is unbounded.
+- Parsing that is the only way to read the reply at all (json.loads + field
+  pickup); only the reject/raise/coerce lines around it are protection.
+- Prompt text that merely asks for clean output ("never return an empty task").
+- Rate limiting / caching of live HTTP fetches (bench determinism, already handled).
+- Tool bodies themselves (read_file, grep, run_command execution) minus the guard lines.
+
+Rules: mirror across arms (a guard inlined in a Jac ability and factored into a
+Python helper get the same lines removed); brace/closing lines that only exist for
+the removed block go with it; when in doubt keep the line and add `?` to the reason.

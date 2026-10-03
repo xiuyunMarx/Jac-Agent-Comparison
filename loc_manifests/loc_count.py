@@ -80,6 +80,12 @@ ARMS: dict[str, dict[str, dict[str, list[str]]]] = {
         "openai_sdk": {"core": ["*.py"], "all": ["**/*.py"]},
         "NOOA":       {"core": ["*.py", "tools/*.py"], "all": ["**/*.py"]},
     },
+    "ReAct_loop": {
+        "Jac":       {"core": ["main.jac"], "all": ["**/*.jac", "**/*.py"]},
+        "LangGraph": {"core": ["main.py"], "all": ["**/*.py"]},
+        "OpenaiSDK": {"core": ["main.py"], "all": ["**/*.py"]},
+        "NOOA":      {"core": ["main.py"], "all": ["**/*.py"]},
+    },
 }
 
 EXCLUDE_PARTS = {".venv", "venv", "__pycache__", ".jac", "tests", "test",
@@ -267,6 +273,22 @@ def load_manifest(app: str) -> dict[str, list]:
     return json.loads(f.read_text()) if f.exists() else {}
 
 
+def load_guard(app: str) -> dict[str, list]:
+    """<app>.guard.json: {file: [[start,end,reason],...]} = protection code
+    (validation, repair, retries, fallbacks) subtracted by --no-guard."""
+    f = MANIFEST_DIR / f"{app}.guard.json"
+    if not f.exists():
+        return {}
+    return {k: v for k, v in json.loads(f.read_text()).items() if not k.startswith("_")}
+
+
+def guard_lines(guard: dict[str, list], rel: str) -> set[int]:
+    out: set[int] = set()
+    for start, end, *_ in guard.get(rel, []):
+        out.update(range(start, end + 1))
+    return out
+
+
 def core_lines(manifest: dict[str, list], rel: str) -> set[int] | None:
     """Line numbers tagged core for this file, or None if the file is untagged."""
     if rel not in manifest:
@@ -300,6 +322,9 @@ def main() -> None:
     ap.add_argument("--core", action="store_true",
                     help="count only symbols tagged core in loc_manifests/<app>.json "
                          "(execution logic + state; drops CLI/harness/telemetry adapters)")
+    ap.add_argument("--no-guard", action="store_true",
+                    help="with --core: also drop protection code listed in loc_manifests/<app>.guard.json "
+                         "(validation, repair prompts/calls, retry loops, skip/fallback branches)")
     ap.add_argument("--files", action="store_true", help="per-file rows")
     ap.add_argument("--csv", type=Path)
     args = ap.parse_args()
@@ -313,18 +338,23 @@ def main() -> None:
             total = Counts()
             per_file = []
             manifest = load_manifest(app) if args.core else {}
+            guard = load_guard(app) if args.no_guard else {}
+            if args.no_guard and not guard:
+                print(f"!! {app}: no guard file, --no-guard has no effect here", file=sys.stderr)
             for p in collect(arm_dir, scopes[args.scope]):
                 rel = str(p.relative_to(ROOT))
                 keep = core_lines(manifest, rel) if args.core else None
                 if args.core and keep is None:
                     print(f"!! {rel}: no manifest entry, counting whole file", file=sys.stderr)
+                if keep is not None and guard:
+                    keep = keep - guard_lines(guard, rel)
                 c = count_file(p, keep)
                 per_file.append(c)
                 total.add(c)
             rows.append((app, arm, total, per_file))
 
     hdr = ["app", "arm", "files", "phys", "sloc", "logic", "prompt", "comment", "codechars", "strchars"]
-    print(f"scope = {args.scope}{' + core-only symbols' if args.core else ''}\n")
+    print(f"scope = {args.scope}{' + core-only symbols' if args.core else ''}{' - protection code' if args.no_guard else ''}\n")
     print("| " + " | ".join(hdr) + " | vs Jac (logic) |")
     print("|" + "---|" * (len(hdr) + 1))
     jac_logic: dict[str, int] = {}

@@ -1,0 +1,48 @@
+{
+ "_doc": "Protection code: output validation, repair/correction prompts and calls, retry loops and budgets, fallback and skip branches, defensive parsing, tool-argument screening. Subtracted from core with `loc_count.py --core --no-guard`. Ranges are [start, end, reason]. Mirrors: Jac walker try/except+isinstance+one-retry == openai_sdk run_agent isinstance+one-retry == NOOA run try/except+one-retry; CrewAI's only analogue is the pipe-split guard in create_draft (the framework handles retries).",
+ "Email-Auto-response/byLLM/nodes.jac": [
+  [198, 200, "? walker: skip empty thread (data guard; openai_sdk 86-88 and NOOA 351-352 mirror it)"],
+  [201, 205, "walker: comment + try around email_action_agent (line 206, the call, stays)"],
+  [207, 218, "walker: except -> record_draft_error/skip, and isinstance(ThreadAnalysis) check -> record/skip"],
+  [219, 225, "walker: comment, reply/failure init, for attempt in range(2), try (line 226, the writer call, stays)"],
+  [227, 245, "walker: except, isinstance(DraftReply) break, unstructured_error, retry print, final record/skip"]
+ ],
+ "Email-Auto-response/CrewAI-LangGraph/src/crew/tools.py": [
+  [27, 29, "create_draft tool: comment + try around the pipe split (line 30, the split, stays)"],
+  [31, 33, "create_draft tool: except -> record_draft_error, re-raise (malformed tool input)"]
+ ],
+ "Email-Auto-response/openai_sdk/main.py": [
+  [86, 88, "? run_agent: skip thread whose pull returned 'Error:' (mirrors Jac len(thread.emails)==0 skip)"],
+  [91, 95, "run_agent: isinstance(ThreadAnalysis) check -> record_draft_error/skip"],
+  [98, 110, "run_agent: isinstance(DraftReply) check -> one retry -> record_draft_error/skip (line 97, the writer call, stays)"]
+ ],
+ "Email-Auto-response/openai_sdk/nodes.py": [
+  [43, 46, "? FINAL_ANSWER_NUDGE: canned re-ask emitted when the tool budget trips (byLLM does this inside the runtime)"],
+  [95, 95, "_FENCE_RE: strip ```json fences the model emits despite response_format"],
+  [98, 99, "_json_text: fence stripping helper"],
+  [171, 176, "dispatch_tool: unknown-tool-name refusal + try around the argument parse (line 177, the parse, stays)"],
+  [178, 181, "dispatch_tool: except invalid JSON -> error string; missing 'query' -> error string"],
+  [216, 219, "? run_stage: post-budget brake -- nudge + one tool-less call (loop budget MAX_TOOL_ROUNDS itself stays)"],
+  [228, 228, "MAX_OUTPUT_RETRIES: typed-output retry budget"],
+  [232, 234, "salvage_json: docstring of the salvage helper"],
+  [236, 236, "salvage_json: try around json.loads (line 235 fence strip + 237 json.loads stay as the minimal parse)"],
+  [238, 242, "salvage_json: except -> outermost {...} salvage"],
+  [245, 256, "correction(): byllm's corrective retry prompt, word for word"],
+  [268, 272, "typed_stage: docstring, extra/raw init, retry loop header (259-267 signature and 273-275 run_stage call stay)"],
+  [276, 276, "typed_stage: try (line 277, parse(raw), stays)"],
+  [278, 280, "typed_stage: except -> correction turn; fall back to raw text after retries"],
+  [349, 349, "filter_emails.parse: try (line 350, the category pickup, stays)"],
+  [351, 355, "filter_emails.parse: except -> bare-enum salvage; off-enum -> raise for the retry"],
+  [369, 369, "filter_emails: off-enum fallback to '' (would be `return result`)"]
+ ],
+ "Email-Auto-response/NOOA/main.py": [
+  [105, 105, "OUTPUT_ATTEMPTS: structured-output retry budget (fed to PredictConfig max_retries on line 220, which stays as the binding)"],
+  [351, 352, "? run: skip empty thread (mirrors Jac 198-200)"],
+  [354, 356, "run: comment block for the try/except"],
+  [358, 358, "run: try around email_action_agent (line 359, the call, stays)"],
+  [360, 364, "run: except -> record_draft_error/skip"],
+  [366, 366, "run: retry comment"],
+  [368, 371, "run: reply/failure init, for attempt in range(2), try (line 372, the writer call, stays)"],
+  [373, 382, "run: break/except/retry print, final record/skip"]
+ ]
+}

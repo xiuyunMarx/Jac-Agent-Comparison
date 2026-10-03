@@ -30,20 +30,12 @@ glob llm = Model(
     call_params=LLM_CALL_PARAMS
 );
 
-node LoadMeetingNode {
-
-}
-
 obj MeetingTask {
     has name: str;
     has description: str;
 }
 sem MeetingTask.name = "Required, non-empty, short, actionable title for the task";
 sem MeetingTask.description = "Required, non-empty, detailed description of the task: clear instructions, owner, deadline, steps to reproduce, and acceptance criteria where applicable";
-node TaskNode {
-    has name: str;
-    has description: str;
-}
 
 def _tasks_are_valid(tasks: list[MeetingTask]) -> bool {
     for task in tasks {

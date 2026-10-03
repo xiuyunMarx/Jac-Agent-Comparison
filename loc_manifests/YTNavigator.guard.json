@@ -1,0 +1,398 @@
+{
+ "_doc": "Protection code: answer validation/coercion, parse fallbacks and PARSE_FAILURE replies, fallback_events bookkeeping, router recovery ladders, tool-error catch branches, tool-call screening. Subtracted from core with `loc_count.py --core --no-guard`. Ranges are [start, end, reason]. Kept: STATIC_REPLY, MAX_REACT_ITERATIONS / at-cap handling, plain JSON parse + field pickup, tool bodies, router itself. Reviewed 2026-09-15: langchain's outer try/except wrappers that only log and re-raise are KEPT as core (they recover nothing).",
+ "YTNavigator/byLLM/nodes.jac": [
+  [
+   99,
+   132,
+   "coerce_answer: defensive normalisation of byLLM output that escaped the converter (mirrors parse_answer coercions / AgentOutput validators)"
+  ],
+  [
+   156,
+   156,
+   "walker: fallback_events bookkeeping field"
+  ],
+  [
+   170,
+   170,
+   "decide: try (router error fallback); line 180 `) else {` kept because it also closes the by llm call"
+  ],
+  [
+   181,
+   185,
+   "decide: router_empty_fallback branch -> DirectReply"
+  ],
+  [
+   186,
+   189,
+   "decide: router_error_fallback except -> DirectReply (+ closing brace of try)"
+  ],
+  [
+   199,
+   199,
+   "reply_direct: try"
+  ],
+  [
+   206,
+   208,
+   "reply_direct: output_type_fallback event when result is not AgentAnswer"
+  ],
+  [
+   210,
+   214,
+   "reply_direct: output_parse_fallback except -> raw text or PARSE_FAILURE reply"
+  ],
+  [
+   219,
+   219,
+   "reply_tools: try"
+  ],
+  [
+   226,
+   228,
+   "reply_tools: output_type_fallback event when result is not AgentAnswer"
+  ],
+  [
+   230,
+   234,
+   "reply_tools: output_parse_fallback except -> raw text or PARSE_FAILURE reply"
+  ]
+ ],
+ "YTNavigator/byLLM/tools.jac": [
+  [
+   34,
+   34,
+   "similarity_videos_search: try"
+  ],
+  [
+   36,
+   38,
+   "similarity_videos_search: except -> 'Search failed' string for the model"
+  ],
+  [
+   46,
+   46,
+   "execute_query: try"
+  ],
+  [
+   48,
+   50,
+   "execute_query: except -> 'Query failed' string for the model"
+  ]
+ ],
+ "YTNavigator/langchain/app/schemas/agent.py": [
+  [
+   75,
+   81,
+   "AgentOutputVideos.fix_thumbnail_url: null -> placeholder url validator"
+  ],
+  [
+   96,
+   102,
+   "AgentOutput.limit_videos_length: null -> [] and cap at 5 videos"
+  ],
+  [
+   110,
+   116,
+   "AgentOutput.fix_null_videos: null -> [] validator (render_placeholder_to_html kept: rendering, not protection)"
+  ]
+ ],
+ "YTNavigator/langchain/app/services/agent/main_graph.py": [
+  [
+   163,
+   163,
+   "route_message: outer try"
+  ],
+  [
+   183,
+   183,
+   "route_message: inner try around output_parser.parse"
+  ],
+  [
+   185,
+   194,
+   "route_message: OutputParserException -> keyword-scan router_parse_fallback, else re-raise"
+  ],
+  [
+   214,
+   214,
+   "router_condition: try"
+  ],
+  [
+   224,
+   228,
+   "router_condition: except -> router_condition_error_fallback to non_tool_calls_reply"
+  ],
+  [
+   262,
+   262,
+   "non_tool_calls_reply: outer try"
+  ],
+  [
+   280,
+   280,
+   "non_tool_calls_reply: inner try around output_parser.parse"
+  ],
+  [
+   282,
+   288,
+   "non_tool_calls_reply: OutputParserException -> output_parse_fallback (raw text as placeholder)"
+  ],
+  [
+   340,
+   340,
+   "? build_graph: try (log-and-reraise wrapper)"
+  ],
+  [
+   397,
+   397,
+   "? invoke: try (log-and-reraise wrapper)"
+  ],
+  [
+   485,
+   485,
+   "extract_response: try"
+  ],
+  [
+   487,
+   489,
+   "extract_response: no-messages guard -> None"
+  ],
+  [
+   497,
+   501,
+   "extract_response: no-AI-message guard and except -> None"
+  ],
+  [
+   528,
+   528,
+   "? process_message: try (log-and-reraise wrapper)"
+  ]
+ ],
+ "YTNavigator/langchain/app/services/agent/react_graph.py": [
+  [
+   108,
+   109,
+   "call_model: normalize_final_answer call on the final turn (fence-tolerant reparse + fallback)"
+  ],
+  [
+   138,
+   155,
+   "normalize_final_answer: lenient reparse of the final answer (GLM fences) with output_parse_fallback (mirrors openai_sdk _finish/extract_json protection)"
+  ]
+ ],
+ "YTNavigator/langchain/app/services/vector_database/tools/sql_tool.py": [
+  [
+   137,
+   137,
+   "run_async_query: try"
+  ],
+  [
+   139,
+   140,
+   "run_async_query: except -> 'Error executing query' string for the model"
+  ],
+  [
+   152,
+   152,
+   "SQLTools.tool: handle_tool_error=True (framework tool-error catch)"
+  ]
+ ],
+ "YTNavigator/langchain/app/services/vector_database/tools/vector_tool.py": [
+  [
+   353,
+   353,
+   "VectorDatabaseTools.tool: handle_tool_error=True (framework tool-error catch; no try/except inside search_as_json)"
+  ]
+ ],
+ "YTNavigator/openai_sdk/agent.py": [
+  [
+   44,
+   44,
+   "PARSE_FAILURE_REPLY: fallback answer text"
+  ],
+  [
+   46,
+   46,
+   "_FENCE_RE: code-fence stripping for lenient JSON extraction"
+  ],
+  [
+   77,
+   77,
+   "ChatResult.fallback_events bookkeeping field"
+  ],
+  [
+   80,
+   85,
+   "AnswerParseError: parser error type carrying raw output for the fallback"
+  ],
+  [
+   97,
+   98,
+   "extract_json: fence strip + try around json.loads (plain json.loads line 99 kept)"
+  ],
+  [
+   100,
+   105,
+   "extract_json: except/pass, outermost {...} slice retry, 'no JSON object found' raise"
+  ],
+  [
+   115,
+   117,
+   "parse_answer: empty-reply raise + try around extract_json (call line 118 kept)"
+  ],
+  [
+   119,
+   122,
+   "parse_answer: invalid-JSON and non-object raises"
+  ],
+  [
+   126,
+   127,
+   "parse_answer: non-list videos coerced to []"
+  ],
+  [
+   129,
+   130,
+   "parse_answer: skip non-dict video entries"
+  ],
+  [
+   133,
+   133,
+   "parse_answer: skip non-dict timestamp entries (isinstance guard line)"
+  ],
+  [
+   191,
+   191,
+   "route_query: outer try"
+  ],
+  [
+   196,
+   196,
+   "route_query: inner try around extract_json"
+  ],
+  [
+   199,
+   199,
+   "route_query: `if answer in ROUTES` validation (return line 200 kept)"
+  ],
+  [
+   201,
+   201,
+   "route_query: 'answer not in ROUTES' raise"
+  ],
+  [
+   202,
+   210,
+   "route_query: except -> keyword-scan router_parse_fallback, else 'unroutable reply' raise"
+  ],
+  [
+   211,
+   216,
+   "route_query: outer except -> router_error_fallback to 'No'"
+  ],
+  [
+   224,
+   224,
+   "_finish: try (plain parse_answer call line 225 kept)"
+  ],
+  [
+   226,
+   229,
+   "_finish: AnswerParseError -> output_parse_fallback, raw text or PARSE_FAILURE_REPLY"
+  ]
+ ],
+ "YTNavigator/openai_sdk/tools.py": [
+  [
+   70,
+   70,
+   "similarity_videos_search: try"
+  ],
+  [
+   72,
+   73,
+   "similarity_videos_search: except -> 'Search failed' string for the model"
+  ],
+  [
+   79,
+   79,
+   "execute_query: try"
+  ],
+  [
+   81,
+   82,
+   "execute_query: except -> 'Query failed' string for the model"
+  ],
+  [
+   147,
+   149,
+   "dispatch: unknown-tool-name error string"
+  ],
+  [
+   150,
+   150,
+   "dispatch: try around json.loads of the arguments (json.loads line 151 kept)"
+  ],
+  [
+   152,
+   155,
+   "dispatch: invalid-JSON and non-object argument error strings"
+  ],
+  [
+   157,
+   158,
+   "dispatch: missing/empty 'query' argument error string"
+  ]
+ ],
+ "YTNavigator/NOOA/agent.py": [
+  [
+   60,
+   60,
+   "PARSE_FAILURE_REPLY: fallback answer text"
+  ],
+  [
+   150,
+   150,
+   "ChatResult.fallback_events bookkeeping field"
+  ],
+  [
+   245,
+   245,
+   "similarity_videos_search: try"
+  ],
+  [
+   247,
+   248,
+   "similarity_videos_search: except -> 'Search failed' string for the model"
+  ],
+  [
+   259,
+   259,
+   "execute_query: try"
+  ],
+  [
+   261,
+   262,
+   "execute_query: except -> 'Query failed' string for the model"
+  ],
+  [
+   329,
+   329,
+   "chat: try around route()"
+  ],
+  [
+   331,
+   334,
+   "chat: except -> router_error_fallback to DIRECT_REPLY"
+  ],
+  [
+   342,
+   342,
+   "chat: try around the reply call"
+  ],
+  [
+   344,
+   346,
+   "chat: except -> output_parse_fallback with PARSE_FAILURE_REPLY"
+  ]
+ ]
+}
