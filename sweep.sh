@@ -11,7 +11,7 @@
 #   DRY_RUN=1 ./sweep.sh              # print every command, call nothing
 #   MEETING_ARMS="byLLM CrewAI" ./sweep.sh meeting
 #
-# Knobs: SWEEP_PROVIDER (anthropic|openai|ollama) SWEEP_MODEL SWEEP_BASE_URL
+# Knobs: SWEEP_PROVIDER (anthropic|openai|ollama|local) SWEEP_MODEL SWEEP_BASE_URL
 #        RESULTS RETRIES JUDGE NICE
 #   arms:        FACTCHECK_ARMS EMAIL_ARMS MEETING_ARMS YTNAV_ARMS CODEAGENT_ARMS
 #   datasets:    FC_LIMIT EMAIL_BATCHES MEETING_CASES MEETING_REPEAT YTNAV_LIMIT
@@ -35,7 +35,15 @@ case "$SWEEP_PROVIDER" in
     anthropic) _model=claude-sonnet-5; _base=https://api.anthropic.com/v1; _keyvar=ANTHROPIC_API_KEY ;;
     openai)    _model=gpt-5;           _base=https://api.openai.com/v1;    _keyvar=OPENAI_API_KEY ;;
     ollama)    _model=glm-5.2;         _base=https://ollama.com/v1;        _keyvar=OLLAMA_API_KEY ;;
-    *) echo "unknown SWEEP_PROVIDER '$SWEEP_PROVIDER' (anthropic openai ollama)" >&2; exit 2 ;;
+    # The user-space ollama on this machine (11435), behind local_nothink.py
+    # on 11436, which switches Qwen's default thinking off for every arm
+    # (ollama has no server-side switch, and not every framework can send
+    # reasoning_effort). The key is ignored; a dummy one means an arm that
+    # misses the base URL fails instead of spending a real key. BENCH_CTX
+    # matches the server's OLLAMA_CONTEXT_LENGTH.
+    local)     _model=qwen3.6-27b;     _base=http://127.0.0.1:11436/v1;    _keyvar=LOCAL_API_KEY
+               : "${LOCAL_API_KEY:=local}" "${BENCH_CTX:=65536}" ;;
+    *) echo "unknown SWEEP_PROVIDER '$SWEEP_PROVIDER' (anthropic openai ollama local)" >&2; exit 2 ;;
 esac
 SWEEP_MODEL="${SWEEP_MODEL:-$_model}"                  # bare id; arms add the provider prefix
 SWEEP_BASE_URL="${SWEEP_BASE_URL:-$_base}"             # no trailing slash
@@ -268,6 +276,7 @@ sweep_email() {
         "$ROOT"/Email-Auto-response/eval/out/scores_byLLM_*.json \
         "$ROOT"/Email-Auto-response/eval/out/scores_CrewAI-LangGraph_*.json \
         "$ROOT"/Email-Auto-response/eval/out/scores_openai_sdk_*.json \
+        "$ROOT"/Email-Auto-response/eval/out/scores_NOOA_*.json \
         "$ROOT/Email-Auto-response/eval/out/summary.json"
     for arm in $EMAIL_ARMS; do
         run_step email "$arm" "$RUN_DIR/email/$arm" \

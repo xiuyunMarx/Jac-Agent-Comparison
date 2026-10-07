@@ -1,0 +1,88 @@
+
+======================================================================
+== Stage 1/7: prerequisites
+======================================================================
+All prerequisites present.
+
+======================================================================
+== Stage 2/7: database
+======================================================================
+Using existing benchmark Postgres on port 5544
+
+======================================================================
+== Stage 3/7: dataset (synthetic NeuralBytes channel)
+======================================================================
+$ /home/xiaoyu/miniconda3/envs/ytnav/bin/python /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/datasets/build.py
+Channel 'UCbenchNeuralBytes000001' already loaded - nothing to do (use --replace to rebuild).
+
+======================================================================
+== Stage 4/7: retrieval sanity check (no LLM)
+======================================================================
+Channel resolved: UCbenchNeuralBytes000001
+SQL tool: video count -> {'n': 10}
+Semantic search OK: transformer video ranked for a self-attention query.
+
+======================================================================
+== Stage 5c/7: NOOA implementation
+======================================================================
+$ /home/xiaoyu/miniconda3/envs/ytnav/bin/python /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/run.py --impl nooa --questions /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/datasets/questions.jsonl --no-score
+
+=== nooa: /home/xiaoyu/miniconda3/envs/nooa/bin/python main.py (cwd=/home/xiaoyu/Jac-Agent-Comparison/YTNavigator/NOOA) ===
+Run c4c6dd32: 23 questions against channel 'UCbenchNeuralBytes000001' -> /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/results_nooa.jsonl
+  [1/23] q01: ok (20.221s, 27987 tokens) route=Yes
+  [2/23] q02: ok (14.165s, 27401 tokens) route=Yes
+  [3/23] q03: ok (14.11s, 23866 tokens) route=Yes
+  [4/23] q04: ok (14.289s, 29255 tokens) route=Yes
+  [5/23] q05: ok (18.647s, 29232 tokens) route=Yes
+  [6/23] q06: ok (16.025s, 28201 tokens) route=Yes
+  [7/23] q07: ok (15.455s, 28515 tokens) route=Yes
+  [8/23] q08: ok (12.899s, 23050 tokens) route=Yes
+  [9/23] q09: ok (9.82s, 22359 tokens) route=Yes
+  [10/23] q10: ok (17.057s, 28348 tokens) route=Yes
+  [11/23] q11: ok (9.23s, 18506 tokens) route=Yes
+  [12/23] q12: ok (5.029s, 9564 tokens) route=Yes
+  [13/23] q13: ok (5.183s, 9733 tokens) route=Yes
+  [14/23] q14: ok (24.411s, 21771 tokens) route=Yes
+  [15/23] q15: ok (11.494s, 26935 tokens) route=Yes
+  [16/23] q16: ok (1.557s, 4013 tokens) route=No
+  [17/23] q17: ok (1.354s, 3980 tokens) route=No
+  [18/23] q18: ok (0.543s, 1939 tokens) route=Not relevant
+  [19/23] q19: ok (0.573s, 1952 tokens) route=Not relevant
+  [20/23] q20: ok (17.253s, 20192 tokens) route=Yes
+  [21/23] q21: ok (13.194s, 28047 tokens) route=Yes
+  [22/23] q22: ok (20.013s, 29504 tokens) route=Yes
+Loading weights:   0%|          | 0/199 [00:00<?, ?it/s]Loading weights: 100%|██████████| 199/199 [00:00<00:00, 13231.03it/s]
+  [23/23] q23: ok (12.063s, 27196 tokens) route=Yes
+Done: 23/23 completed, 0 errors. Results: /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/results_nooa.jsonl
+=== nooa: ok in 277.5s ===
+
+Results: /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/results_nooa.jsonl
+Score later with: python /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/score.py /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/results_nooa.jsonl --questions /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/datasets/questions.jsonl
+
+======================================================================
+== Stage 7/7: scoring
+======================================================================
+$ /home/xiaoyu/miniconda3/envs/ytnav/bin/python /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/score.py /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/results_nooa.jsonl --questions /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/datasets/questions.jsonl --report /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/report.json --judge --judge-model openai/gpt-4.1-mini
+                               nooa
+-----------------------------------
+Questions                        23
+Completed                        23
+Error rate                      0.0
+Fallback rate                 0.391
+Routing accuracy              0.957
+Retrieval hit rate              0.5
+Retrieval recall                0.5
+Answer parse rate             0.609
+Judge score (1-5)              3.22
+Latency mean (s)              11.94
+Latency p50 (s)               13.19
+Latency p95 (s)                20.2
+Tokens / question             20502
+Tokens total                 471546
+LLM calls / question            5.3
+Tool calls / question          2.83
+
+Full report written to /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/report.json
+
+Done. Result files: /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/results_nooa.jsonl
+Full report: /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/report.json

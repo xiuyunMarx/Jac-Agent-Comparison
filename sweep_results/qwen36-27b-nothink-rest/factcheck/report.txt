@@ -1,0 +1,76 @@
+# FactCheck 3-way comparison (qwen3.6-27b, HoVer dev claims)
+
+29 claims per arm; knobs: FC_SCOUTS=2, FC_ROUNDS=FC_MIN_ROUNDS=6 (defaults). NEED_MORE = round cap reached without a decision, scored as wrong.
+
+## Task performance
+
+| arm | runs | failed | accuracy | decided | acc. on decided | abstain (NEED_MORE) | SUPPORTED acc. | NOT_SUPPORTED acc. |
+|---|---|---|---|---|---|---|---|---|
+| Jac (byLLM) | 29 | 0 | **34.5%** (10/29) | 12 | 83.3% | 58.6% | 37.5% | 30.8% |
+| OpenAI SDK | 29 | 0 | **24.1%** (7/29) | 10 | 70.0% | 65.5% | 25.0% | 23.1% |
+| LangGraph | 29 | 0 | **24.1%** (7/29) | 10 | 70.0% | 65.5% | 25.0% | 23.1% |
+| nooa | 29 | 0 | **44.8%** (13/29) | 15 | 86.7% | 48.3% | 37.5% | 53.8% |
+
+### Accuracy by hop count
+
+| arm | 2 hops | 3 hops | 4 hops |
+|---|---|---|---|
+| Jac (byLLM) | 30.0% (3/10) | 33.3% (3/9) | 40.0% (4/10) |
+| OpenAI SDK | 20.0% (2/10) | 11.1% (1/9) | 40.0% (4/10) |
+| LangGraph | 20.0% (2/10) | 11.1% (1/9) | 40.0% (4/10) |
+| nooa | 30.0% (3/10) | 55.6% (5/9) | 50.0% (5/10) |
+
+### Verdict distribution
+
+| arm | SUPPORTED | NOT_SUPPORTED | NEED_MORE | none (failed) |
+|---|---|---|---|---|
+| Jac (byLLM) | 7 | 5 | 17 | 0 |
+| OpenAI SDK | 5 | 5 | 19 | 0 |
+| LangGraph | 5 | 5 | 19 | 0 |
+| nooa | 7 | 8 | 14 | 0 |
+
+## Token usage (per claim, mean / median)
+
+| arm | model calls | retries | prompt tokens | completion tokens | total tokens | wall s | total prompt tokens (all claims) |
+|---|---|---|---|---|---|---|---|
+| Jac (byLLM) | 23 / 24 | 0 / 0 | 125,075 / 153,694 | 2,380 / 2,125 | 127,455 / 156,616 | 142 / 158 | 3,627,182 |
+| OpenAI SDK | 23 / 24 | 0 / 0 | 135,253 / 155,311 | 2,315 / 2,163 | 137,568 / 157,079 | 139 / 147 | 3,922,332 |
+| LangGraph | 23 / 24 | 0 / 0 | 134,689 / 155,311 | 2,319 / 2,201 | 137,007 / 157,003 | 138 / 145 | 3,905,970 |
+| nooa | 21 / 24 | 0 / 0 | 120,099 / 117,380 | 2,648 / 2,487 | 122,747 / 119,776 | 166 / 172 | 3,482,875 |
+
+Retries: for the Python arms, correction turns after an unparseable reply (traced as `*/retry`); byLLM's own correction calls are not tagged in its usage log and show up only in the call count.
+
+## Per-claim verdicts
+
+| # | hops | gold | Jac (byLLM) | OpenAI SDK | LangGraph | nooa | prompt tokens (jac/openai/langgraph/nooa) |
+|---|---|---|---|---|---|---|---|
+| 1 | 3 | SUPPORTED | ✓ SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✓ SUPPORTED | 167k/137k/135k/147k |
+| 2 | 3 | NOT_SUPPORTED | ✓ NOT_SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✓ NOT_SUPPORTED | 153k/136k/136k/58k |
+| 3 | 2 | SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | 109k/162k/164k/170k |
+| 4 | 2 | SUPPORTED | ✓ SUPPORTED | ✓ SUPPORTED | ✓ SUPPORTED | ✓ SUPPORTED | 31k/32k/32k/46k |
+| 5 | 3 | SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | 157k/155k/155k/172k |
+| 6 | 4 | NOT_SUPPORTED | ✗ NEED_MORE | ✓ NOT_SUPPORTED | ✓ NOT_SUPPORTED | ✗ NEED_MORE | 15k/41k/24k/40k |
+| 7 | 4 | SUPPORTED | ✓ SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✓ SUPPORTED | 44k/72k/72k/61k |
+| 8 | 4 | SUPPORTED | ✓ SUPPORTED | ✓ SUPPORTED | ✓ SUPPORTED | ✓ SUPPORTED | 64k/180k/180k/79k |
+| 9 | 3 | SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | 62k/55k/55k/88k |
+| 10 | 4 | NOT_SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | 86k/93k/93k/111k |
+| 11 | 4 | NOT_SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | ✓ NOT_SUPPORTED | 180k/163k/163k/146k |
+| 12 | 4 | SUPPORTED | ✓ SUPPORTED | ✓ SUPPORTED | ✓ SUPPORTED | ✓ SUPPORTED | 92k/167k/167k/72k |
+| 13 | 3 | SUPPORTED | ✗ NOT_SUPPORTED | ✗ NOT_SUPPORTED | ✗ NOT_SUPPORTED | ✓ SUPPORTED | 184k/181k/181k/199k |
+| 14 | 2 | NOT_SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | ✓ NOT_SUPPORTED | 81k/95k/95k/131k |
+| 15 | 2 | NOT_SUPPORTED | ✓ NOT_SUPPORTED | ✓ NOT_SUPPORTED | ✓ NOT_SUPPORTED | ✓ NOT_SUPPORTED | 153k/149k/149k/65k |
+| 16 | 3 | SUPPORTED | ✗ NEED_MORE | ✓ SUPPORTED | ✓ SUPPORTED | ✗ NEED_MORE | 110k/98k/98k/108k |
+| 17 | 3 | NOT_SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | 174k/181k/181k/180k |
+| 18 | 2 | SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | 139k/167k/167k/163k |
+| 19 | 2 | SUPPORTED | ✗ NEED_MORE | ✗ NOT_SUPPORTED | ✗ NOT_SUPPORTED | ✗ NOT_SUPPORTED | 200k/136k/136k/68k |
+| 20 | 4 | NOT_SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | 164k/170k/170k/175k |
+| 21 | 4 | SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | 79k/81k/81k/117k |
+| 22 | 2 | NOT_SUPPORTED | ✗ SUPPORTED | ✗ SUPPORTED | ✗ SUPPORTED | ✗ SUPPORTED | 33k/172k/172k/48k |
+| 23 | 2 | NOT_SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | 114k/165k/165k/152k |
+| 24 | 3 | NOT_SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | ✓ NOT_SUPPORTED | 183k/173k/173k/91k |
+| 25 | 4 | SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | 156k/150k/150k/136k |
+| 26 | 4 | NOT_SUPPORTED | ✓ NOT_SUPPORTED | ✓ NOT_SUPPORTED | ✓ NOT_SUPPORTED | ✓ NOT_SUPPORTED | 178k/169k/169k/195k |
+| 27 | 2 | SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | 178k/173k/173k/198k |
+| 28 | 2 | SUPPORTED | ✓ SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✗ NEED_MORE | 173k/167k/167k/161k |
+| 29 | 3 | NOT_SUPPORTED | ✓ NOT_SUPPORTED | ✗ NEED_MORE | ✗ NEED_MORE | ✓ NOT_SUPPORTED | 154k/88k/88k/92k |
+

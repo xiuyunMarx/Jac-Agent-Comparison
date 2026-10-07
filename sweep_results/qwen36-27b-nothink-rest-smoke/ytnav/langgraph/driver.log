@@ -1,0 +1,210 @@
+
+======================================================================
+== Stage 1/7: prerequisites
+======================================================================
+All prerequisites present.
+
+======================================================================
+== Stage 2/7: database
+======================================================================
+Using existing benchmark Postgres on port 5544
+
+======================================================================
+== Stage 3/7: dataset (synthetic NeuralBytes channel)
+======================================================================
+$ /home/xiaoyu/miniconda3/envs/ytnav/bin/python /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/datasets/build.py
+Channel 'UCbenchNeuralBytes000001' already loaded - nothing to do (use --replace to rebuild).
+
+======================================================================
+== Stage 4/7: retrieval sanity check (no LLM)
+======================================================================
+Channel resolved: UCbenchNeuralBytes000001
+SQL tool: video count -> {'n': 10}
+Semantic search OK: transformer video ranked for a self-attention query.
+
+======================================================================
+== Stage 6/7: LangGraph implementation
+======================================================================
+$ /home/xiaoyu/miniconda3/envs/ytnav/bin/python manage.py makemigrations app
+/home/xiaoyu/miniconda3/envs/ytnav/lib/python3.13/site-packages/langgraph/checkpoint/base/__init__.py:18: LangChainPendingDeprecationWarning: The default value of `allowed_objects` will change in a future version. Pass an explicit value (e.g., allowed_objects='messages' or allowed_objects='core') to suppress this warning.
+  from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+[2m2026-10-05T16:27:53.064224Z[0m [[32m[1minfo     [0m] [1mInitializing ModelManager with device[0m [[0m[1m[34mapp.services.chunks_reranker.model_manager[0m][0m [36mdevice[0m=[35mdevice(type='cpu')[0m
+[2m2026-10-05T16:27:53.064558Z[0m [[33m[1mwarning  [0m] [1mCUDA not available. Falling back to CPU.[0m [[0m[1m[34mapp.services.vector_database.base[0m][0m
+[2m2026-10-05T16:27:53.064676Z[0m [[32m[1minfo     [0m] [1mVectorDatabaseService initialized with connection pool[0m [[0m[1m[34mapp.services.vector_database.base[0m][0m
+No changes detected in app 'app'
+$ /home/xiaoyu/miniconda3/envs/ytnav/bin/python manage.py migrate --fake-initial
+/home/xiaoyu/miniconda3/envs/ytnav/lib/python3.13/site-packages/langgraph/checkpoint/base/__init__.py:18: LangChainPendingDeprecationWarning: The default value of `allowed_objects` will change in a future version. Pass an explicit value (e.g., allowed_objects='messages' or allowed_objects='core') to suppress this warning.
+  from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+[2m2026-10-05T16:27:57.010319Z[0m [[32m[1minfo     [0m] [1mInitializing ModelManager with device[0m [[0m[1m[34mapp.services.chunks_reranker.model_manager[0m][0m [36mdevice[0m=[35mdevice(type='cpu')[0m
+[2m2026-10-05T16:27:57.010638Z[0m [[33m[1mwarning  [0m] [1mCUDA not available. Falling back to CPU.[0m [[0m[1m[34mapp.services.vector_database.base[0m][0m
+[2m2026-10-05T16:27:57.010750Z[0m [[32m[1minfo     [0m] [1mVectorDatabaseService initialized with connection pool[0m [[0m[1m[34mapp.services.vector_database.base[0m][0m
+Operations to perform:
+  Apply all migrations: admin, app, auth, contenttypes, sessions
+Running migrations:
+  No migrations to apply.
+$ /home/xiaoyu/miniconda3/envs/ytnav/bin/python /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/run.py --impl langgraph --questions /home/xiaoyu/Jac-Agent-Comparison/sweep_results/qwen36-27b-nothink-rest-smoke/ytnav/questions.jsonl --no-score --langgraph-python /home/xiaoyu/miniconda3/envs/ytnav/bin/python
+
+=== LangGraph: /home/xiaoyu/miniconda3/envs/ytnav/bin/python manage.py benchmark_run /home/xiaoyu/Jac-Agent-Comparison/sweep_results/qwen36-27b-nothink-rest-smoke/ytnav/questions.jsonl -o /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/results_langgraph.jsonl --framework langgraph (cwd=/home/xiaoyu/Jac-Agent-Comparison/YTNavigator/langchain) ===
+/home/xiaoyu/miniconda3/envs/ytnav/lib/python3.13/site-packages/langgraph/checkpoint/base/__init__.py:18: LangChainPendingDeprecationWarning: The default value of `allowed_objects` will change in a future version. Pass an explicit value (e.g., allowed_objects='messages' or allowed_objects='core') to suppress this warning.
+  from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+[2m2026-10-05T16:28:00.909231Z[0m [[32m[1minfo     [0m] [1mInitializing ModelManager with device[0m [[0m[1m[34mapp.services.chunks_reranker.model_manager[0m][0m [36mdevice[0m=[35mdevice(type='cpu')[0m
+[2m2026-10-05T16:28:00.909566Z[0m [[33m[1mwarning  [0m] [1mCUDA not available. Falling back to CPU.[0m [[0m[1m[34mapp.services.vector_database.base[0m][0m
+[2m2026-10-05T16:28:00.909685Z[0m [[32m[1minfo     [0m] [1mVectorDatabaseService initialized with connection pool[0m [[0m[1m[34mapp.services.vector_database.base[0m][0m
+Run 99d9dbdd: 3 questions against channel 'UCbenchNeuralBytes000001' (router=qwen3.6-27b, agent=qwen3.6-27b) -> /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/results_langgraph.jsonl
+[2m2026-10-05T16:28:00.944931Z[0m [[32m[1minfo     [0m] [1mInitializing AgentGraph       [0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m
+[2m2026-10-05T16:28:01.793202Z[0m [[32m[1minfo     [0m] [1mAgentGraph initialized successfully[0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m
+[2m2026-10-05T16:28:01.793382Z[0m [[32m[1minfo     [0m] [1mInitializing database connection pool[0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m
+[2m2026-10-05T16:28:01.802019Z[0m [[32m[1minfo     [0m] [1mBuilding agent graph          [0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m
+[2m2026-10-05T16:28:01.806527Z[0m [[32m[1minfo     [0m] [1mAgent graph built successfully[0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m
+[2m2026-10-05T16:28:01.806632Z[0m [[32m[1minfo     [0m] [1mAgent graph setup completed   [0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m
+[2m2026-10-05T16:28:01.806775Z[0m [[32m[1minfo     [0m] [1mInvoking agent graph          [0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m [36mmessage[0m=[35m'What topics does this channel cover overall?'[0m
+[2m2026-10-05T16:28:01.811441Z[0m [[32m[1minfo     [0m] [1mRouting message               [0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m [36mmessage_content[0m=[35m'What topics does this channel cover overall?'[0m
+/home/xiaoyu/Jac-Agent-Comparison/YTNavigator/langchain/app/services/agent/main_graph.py:172: RuntimeWarning: coroutine 'Channel.pretty_str' was never awaited
+  content=ROUTE_QUERY_SYSTEM_PROMPT.format(
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+[1mHTTP Request: POST http://127.0.0.1:11436/v1/chat/completions "HTTP/1.1 200 OK"[0m
+[2m2026-10-05T16:28:03.109108Z[0m [[32m[1minfo     [0m] [1mMessage routed successfully   [0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m [36mrouter_result[0m=[35mYes[0m
+[2m2026-10-05T16:28:03.109824Z[0m [[32m[1minfo     [0m] [1mRouter condition: Yes - using tool calls[0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m
+[1mHTTP Request: POST http://127.0.0.1:11436/v1/chat/completions "HTTP/1.1 200 OK"[0m
+[2m2026-10-05T16:28:06.217970Z[0m [[32m[1minfo     [0m] [1mStarting search with query    [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mchannel_id[0m=[35mUCbenchNeuralBytes000001[0m [36mquery[0m=[35m'overview of topics covered machine learning AI deep learning neural networks'[0m
+[1mLoad pretrained SentenceTransformer: BAAI/bge-small-en-v1.5[0m
+[2m2026-10-05T16:28:07.023509Z[0m [[32m[1minfo     [0m] [1mPerforming similarity search...[0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:07.088529Z[0m [[32m[1minfo     [0m] [1mFound results from similarity search[0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m20[0m
+[2m2026-10-05T16:28:07.088702Z[0m [[32m[1minfo     [0m] [1mPerforming keyword search...  [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:07.093895Z[0m [[32m[1minfo     [0m] [1mFound keyword results         [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m4[0m
+[2m2026-10-05T16:28:07.094010Z[0m [[32m[1minfo     [0m] [1mCombined results              [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m24[0m
+[2m2026-10-05T16:28:07.094116Z[0m [[32m[1minfo     [0m] [1mFound unique video IDs        [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m9[0m
+[2m2026-10-05T16:28:07.095078Z[0m [[32m[1minfo     [0m] [1mRetrieved video objects       [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m9[0m
+[2m2026-10-05T16:28:07.095185Z[0m [[32m[1minfo     [0m] [1mEnriching search results with video data...[0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:07.095334Z[0m [[32m[1minfo     [0m] [1mEnriched results with video data[0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m24[0m
+[2m2026-10-05T16:28:07.095427Z[0m [[32m[1minfo     [0m] [1mRemoving duplicates...        [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:07.095519Z[0m [[32m[1minfo     [0m] [1mAfter deduplication           [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m22[0m
+[2m2026-10-05T16:28:07.095605Z[0m [[32m[1minfo     [0m] [1mReranking results...          [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:07.095710Z[0m [[32m[1minfo     [0m] [1mInitialized ChunksReRanker    [0m [[0m[1m[34mapp.services.chunks_reranker.reranker[0m][0m [36mbatch_size[0m=[35m32[0m
+[2m2026-10-05T16:28:07.095795Z[0m [[32m[1minfo     [0m] [1mStarting reranking            [0m [[0m[1m[34mapp.services.chunks_reranker.reranker[0m][0m [36mnum_docs[0m=[35m22[0m
+[2m2026-10-05T16:28:07.096048Z[0m [[32m[1minfo     [0m] [1mLoading cross-encoder model   [0m [[0m[1m[34mapp.services.chunks_reranker.model_manager[0m][0m [36mmodel_name[0m=[35mcross-encoder/ms-marco-MiniLM-L-6-v2[0m
+[2m2026-10-05T16:28:07.525329Z[0m [[32m[1minfo     [0m] [1mCross-encoder model loaded successfully[0m [[0m[1m[34mapp.services.chunks_reranker.model_manager[0m][0m
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  6.41it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  6.39it/s]
+[2m2026-10-05T16:28:07.682952Z[0m [[32m[1minfo     [0m] [1mCompleted reranking           [0m [[0m[1m[34mapp.services.chunks_reranker.reranker[0m][0m [36mnum_docs[0m=[35m22[0m
+[2m2026-10-05T16:28:07.683194Z[0m [[32m[1minfo     [0m] [1mFiltering valid results...    [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:07.683353Z[0m [[32m[1minfo     [0m] [1mFound valid results           [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m22[0m
+[2m2026-10-05T16:28:07.683541Z[0m [[32m[1minfo     [0m] [1mFound most common videos      [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m5[0m
+[2m2026-10-05T16:28:07.683711Z[0m [[32m[1minfo     [0m] [1mSelected top chunks           [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m16[0m
+[2m2026-10-05T16:28:07.692224Z[0m [[32m[1minfo     [0m] [1mStandardized chunk scores to 0-100 range[0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:07.692350Z[0m [[32m[1minfo     [0m] [1mCreating video schemas...     [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:07.692486Z[0m [[32m[1minfo     [0m] [1mCreated video schemas         [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m5[0m
+[2m2026-10-05T16:28:07.692605Z[0m [[32m[1minfo     [0m] [1mReturning final response...   [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[1mHTTP Request: POST http://127.0.0.1:11436/v1/chat/completions "HTTP/1.1 200 OK"[0m
+[2m2026-10-05T16:28:42.471525Z[0m [[32m[1minfo     [0m] [1mAgent graph execution completed successfully[0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m
+[2m2026-10-05T16:28:42.471686Z[0m [[32m[1minfo     [0m] [1mExtracted final response from agent output[0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m
+  [1/3] q01: ok (40.665s, 7818 tokens) route=Yes
+[2m2026-10-05T16:28:42.472289Z[0m [[32m[1minfo     [0m] [1mInvoking agent graph          [0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m [36mmessage[0m=[35m'Which video explains self-attention, and what are the query, key and value vectors?'[0m
+[2m2026-10-05T16:28:42.474830Z[0m [[32m[1minfo     [0m] [1mRouting message               [0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m [36mmessage_content[0m=[35m'Which video explains self-attention, and what are the query, key and value vectors?'[0m
+/home/xiaoyu/Jac-Agent-Comparison/YTNavigator/langchain/app/services/agent/main_graph.py:172: RuntimeWarning: coroutine 'Channel.pretty_str' was never awaited
+  content=ROUTE_QUERY_SYSTEM_PROMPT.format(
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+[1mHTTP Request: POST http://127.0.0.1:11436/v1/chat/completions "HTTP/1.1 200 OK"[0m
+[2m2026-10-05T16:28:43.858997Z[0m [[32m[1minfo     [0m] [1mMessage routed successfully   [0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m [36mrouter_result[0m=[35mYes[0m
+[2m2026-10-05T16:28:43.859653Z[0m [[32m[1minfo     [0m] [1mRouter condition: Yes - using tool calls[0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m
+[1mHTTP Request: POST http://127.0.0.1:11436/v1/chat/completions "HTTP/1.1 200 OK"[0m
+[2m2026-10-05T16:28:46.080683Z[0m [[32m[1minfo     [0m] [1mStarting search with query    [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mchannel_id[0m=[35mUCbenchNeuralBytes000001[0m [36mquery[0m=[35m'self-attention mechanism query key value vectors'[0m
+[2m2026-10-05T16:28:46.081060Z[0m [[32m[1minfo     [0m] [1mPerforming similarity search...[0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:46.097673Z[0m [[32m[1minfo     [0m] [1mFound results from similarity search[0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m20[0m
+[2m2026-10-05T16:28:46.097845Z[0m [[32m[1minfo     [0m] [1mPerforming keyword search...  [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:46.102011Z[0m [[32m[1minfo     [0m] [1mFound keyword results         [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m4[0m
+[2m2026-10-05T16:28:46.102147Z[0m [[32m[1minfo     [0m] [1mCombined results              [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m24[0m
+[2m2026-10-05T16:28:46.102265Z[0m [[32m[1minfo     [0m] [1mFound unique video IDs        [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m9[0m
+[2m2026-10-05T16:28:46.103149Z[0m [[32m[1minfo     [0m] [1mRetrieved video objects       [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m9[0m
+[2m2026-10-05T16:28:46.103247Z[0m [[32m[1minfo     [0m] [1mEnriching search results with video data...[0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:46.103396Z[0m [[32m[1minfo     [0m] [1mEnriched results with video data[0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m24[0m
+[2m2026-10-05T16:28:46.103485Z[0m [[32m[1minfo     [0m] [1mRemoving duplicates...        [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:46.103574Z[0m [[32m[1minfo     [0m] [1mAfter deduplication           [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m22[0m
+[2m2026-10-05T16:28:46.103657Z[0m [[32m[1minfo     [0m] [1mReranking results...          [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:46.103739Z[0m [[32m[1minfo     [0m] [1mInitialized ChunksReRanker    [0m [[0m[1m[34mapp.services.chunks_reranker.reranker[0m][0m [36mbatch_size[0m=[35m32[0m
+[2m2026-10-05T16:28:46.103821Z[0m [[32m[1minfo     [0m] [1mStarting reranking            [0m [[0m[1m[34mapp.services.chunks_reranker.reranker[0m][0m [36mnum_docs[0m=[35m22[0m
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 12.27it/s]
+[2m2026-10-05T16:28:46.186386Z[0m [[32m[1minfo     [0m] [1mCompleted reranking           [0m [[0m[1m[34mapp.services.chunks_reranker.reranker[0m][0m [36mnum_docs[0m=[35m22[0m
+[2m2026-10-05T16:28:46.186603Z[0m [[32m[1minfo     [0m] [1mFiltering valid results...    [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:46.186738Z[0m [[32m[1minfo     [0m] [1mFound valid results           [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m22[0m
+[2m2026-10-05T16:28:46.186881Z[0m [[32m[1minfo     [0m] [1mFound most common videos      [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m5[0m
+[2m2026-10-05T16:28:46.186998Z[0m [[32m[1minfo     [0m] [1mSelected top chunks           [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m18[0m
+[2m2026-10-05T16:28:46.187712Z[0m [[32m[1minfo     [0m] [1mStandardized chunk scores to 0-100 range[0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:46.187837Z[0m [[32m[1minfo     [0m] [1mCreating video schemas...     [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:46.187985Z[0m [[32m[1minfo     [0m] [1mCreated video schemas         [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m5[0m
+[2m2026-10-05T16:28:46.188116Z[0m [[32m[1minfo     [0m] [1mReturning final response...   [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[1mHTTP Request: POST http://127.0.0.1:11436/v1/chat/completions "HTTP/1.1 200 OK"[0m
+[2m2026-10-05T16:28:55.033479Z[0m [[32m[1minfo     [0m] [1mAgent graph execution completed successfully[0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m
+[2m2026-10-05T16:28:55.033615Z[0m [[32m[1minfo     [0m] [1mExtracted final response from agent output[0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m
+  [2/3] q02: ok (12.561s, 6877 tokens) route=Yes
+[2m2026-10-05T16:28:55.033957Z[0m [[32m[1minfo     [0m] [1mInvoking agent graph          [0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m [36mmessage[0m=[35m'What does the channel say about mode collapse in GANs?'[0m
+[2m2026-10-05T16:28:55.036136Z[0m [[32m[1minfo     [0m] [1mRouting message               [0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m [36mmessage_content[0m=[35m'What does the channel say about mode collapse in GANs?'[0m
+/home/xiaoyu/Jac-Agent-Comparison/YTNavigator/langchain/app/services/agent/main_graph.py:172: RuntimeWarning: coroutine 'Channel.pretty_str' was never awaited
+  content=ROUTE_QUERY_SYSTEM_PROMPT.format(
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+[1mHTTP Request: POST http://127.0.0.1:11436/v1/chat/completions "HTTP/1.1 200 OK"[0m
+[2m2026-10-05T16:28:56.375165Z[0m [[32m[1minfo     [0m] [1mMessage routed successfully   [0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m [36mrouter_result[0m=[35mYes[0m
+[2m2026-10-05T16:28:56.375882Z[0m [[32m[1minfo     [0m] [1mRouter condition: Yes - using tool calls[0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m
+[1mHTTP Request: POST http://127.0.0.1:11436/v1/chat/completions "HTTP/1.1 200 OK"[0m
+[2m2026-10-05T16:28:58.600661Z[0m [[32m[1minfo     [0m] [1mStarting search with query    [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mchannel_id[0m=[35mUCbenchNeuralBytes000001[0m [36mquery[0m=[35m'mode collapse in GANs'[0m
+[2m2026-10-05T16:28:58.600796Z[0m [[32m[1minfo     [0m] [1mPerforming similarity search...[0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:58.618974Z[0m [[32m[1minfo     [0m] [1mFound results from similarity search[0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m20[0m
+[2m2026-10-05T16:28:58.619223Z[0m [[32m[1minfo     [0m] [1mPerforming keyword search...  [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:58.624666Z[0m [[32m[1minfo     [0m] [1mFound keyword results         [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m4[0m
+[2m2026-10-05T16:28:58.624845Z[0m [[32m[1minfo     [0m] [1mCombined results              [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m24[0m
+[2m2026-10-05T16:28:58.624999Z[0m [[32m[1minfo     [0m] [1mFound unique video IDs        [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m8[0m
+[2m2026-10-05T16:28:58.626137Z[0m [[32m[1minfo     [0m] [1mRetrieved video objects       [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m8[0m
+[2m2026-10-05T16:28:58.626289Z[0m [[32m[1minfo     [0m] [1mEnriching search results with video data...[0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:58.626552Z[0m [[32m[1minfo     [0m] [1mEnriched results with video data[0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m24[0m
+[2m2026-10-05T16:28:58.626689Z[0m [[32m[1minfo     [0m] [1mRemoving duplicates...        [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:58.626827Z[0m [[32m[1minfo     [0m] [1mAfter deduplication           [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m21[0m
+[2m2026-10-05T16:28:58.626956Z[0m [[32m[1minfo     [0m] [1mReranking results...          [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:58.627083Z[0m [[32m[1minfo     [0m] [1mInitialized ChunksReRanker    [0m [[0m[1m[34mapp.services.chunks_reranker.reranker[0m][0m [36mbatch_size[0m=[35m32[0m
+[2m2026-10-05T16:28:58.627285Z[0m [[32m[1minfo     [0m] [1mStarting reranking            [0m [[0m[1m[34mapp.services.chunks_reranker.reranker[0m][0m [36mnum_docs[0m=[35m21[0m
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 12.40it/s]
+[2m2026-10-05T16:28:58.709185Z[0m [[32m[1minfo     [0m] [1mCompleted reranking           [0m [[0m[1m[34mapp.services.chunks_reranker.reranker[0m][0m [36mnum_docs[0m=[35m21[0m
+[2m2026-10-05T16:28:58.709395Z[0m [[32m[1minfo     [0m] [1mFiltering valid results...    [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:58.709524Z[0m [[32m[1minfo     [0m] [1mFound valid results           [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m21[0m
+[2m2026-10-05T16:28:58.709675Z[0m [[32m[1minfo     [0m] [1mFound most common videos      [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m5[0m
+[2m2026-10-05T16:28:58.709797Z[0m [[32m[1minfo     [0m] [1mSelected top chunks           [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m16[0m
+[2m2026-10-05T16:28:58.710510Z[0m [[32m[1minfo     [0m] [1mStandardized chunk scores to 0-100 range[0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:58.710644Z[0m [[32m[1minfo     [0m] [1mCreating video schemas...     [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[2m2026-10-05T16:28:58.710797Z[0m [[32m[1minfo     [0m] [1mCreated video schemas         [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m [36mcount[0m=[35m5[0m
+[2m2026-10-05T16:28:58.710918Z[0m [[32m[1minfo     [0m] [1mReturning final response...   [0m [[0m[1m[34mapp.services.vector_database.tools.vector_tool[0m][0m
+[1mHTTP Request: POST http://127.0.0.1:11436/v1/chat/completions "HTTP/1.1 200 OK"[0m
+[2m2026-10-05T16:29:06.593069Z[0m [[32m[1minfo     [0m] [1mAgent graph execution completed successfully[0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m
+[2m2026-10-05T16:29:06.593221Z[0m [[32m[1minfo     [0m] [1mExtracted final response from agent output[0m [[0m[1m[34mapp.services.agent.main_graph[0m][0m
+  [3/3] q03: ok (11.559s, 6643 tokens) route=Yes
+Cleaned up 3 benchmark thread(s)
+Done: 3/3 completed, 0 errors. Results: /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/results_langgraph.jsonl
+Score with: python benchmark/evaluate.py /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/results_langgraph.jsonl --questions /home/xiaoyu/Jac-Agent-Comparison/sweep_results/qwen36-27b-nothink-rest-smoke/ytnav/questions.jsonl
+=== LangGraph: ok in 69.7s ===
+
+Results: /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/results_langgraph.jsonl
+Score later with: python /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/score.py /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/results_langgraph.jsonl --questions /home/xiaoyu/Jac-Agent-Comparison/sweep_results/qwen36-27b-nothink-rest-smoke/ytnav/questions.jsonl
+
+======================================================================
+== Stage 7/7: scoring
+======================================================================
+$ /home/xiaoyu/miniconda3/envs/ytnav/bin/python /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/score.py /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/results_langgraph.jsonl --questions /home/xiaoyu/Jac-Agent-Comparison/sweep_results/qwen36-27b-nothink-rest-smoke/ytnav/questions.jsonl --report /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/report.json
+                          langgraph
+-----------------------------------
+Questions                         3
+Completed                         3
+Error rate                      0.0
+Fallback rate                   0.0
+Routing accuracy                1.0
+Retrieval hit rate              1.0
+Retrieval recall                1.0
+Answer parse rate               1.0
+Latency mean (s)              21.59
+Latency p50 (s)               12.56
+Latency p95 (s)               37.85
+Tokens / question            7112.7
+Tokens total                  21338
+LLM calls / question              3
+Tool calls / question             1
+
+Full report written to /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/report.json
+
+Done. Result files: /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/results_langgraph.jsonl
+Full report: /home/xiaoyu/Jac-Agent-Comparison/YTNavigator/eval/out/report.json

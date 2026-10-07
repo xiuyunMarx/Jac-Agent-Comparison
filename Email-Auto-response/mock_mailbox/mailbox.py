@@ -19,8 +19,6 @@ import json
 from pathlib import Path
 
 from .token_meter import install_token_meter
-
-
 class MockMailbox:
     def __init__(self, dataset_path):
         self.dataset_path = str(dataset_path)

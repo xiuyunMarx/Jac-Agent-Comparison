@@ -1,79 +1,71 @@
 {
   "trello": [
     {
-      "name": "Add queue depth alerting to worker fleet",
-      "desc": "Owner: Kofi. Set up alerting on queue depth for the entire worker fleet (not just payments), with consistent thresholds everywhere: warning at 1,000 jobs and page at 5,000 jobs. This addresses the 16-minute blind spot during Tuesday's outage where no alert fired until customer-facing 500s appeared."
+      "name": "Implement queue depth alerting for worker fleet",
+      "desc": "Create alerts for queue depth across the entire worker fleet (not just payments). Set warning threshold at 1,000 jobs and page threshold at 5,000 jobs. Owner: Kofi. Deadline: Not explicitly stated, but implied immediate priority post-incident."
     },
     {
-      "name": "Fix payment worker retry logic with dead-letter queue",
-      "desc": "Owner: Marta. Fix the retry loop in payment_worker.py (_process_with_retry function) which currently retries five times back-to-back with no backoff and re-enqueues failed jobs at the front of the queue. Implement exponential backoff with jitter, cap the retries, and send failed jobs to a dead-letter queue at the back instead of the front of the main queue. Add tests that simulate processor 503s to cover the retry storm scenario that was uncovered by this incident."
+      "name": "Fix retry logic in payment worker",
+      "desc": "Modify `payment_worker.py` (`_process_with_retry` function) to implement exponential backoff with jitter, cap the number of retries, and send failed jobs to a dead-letter queue at the back instead of re-enqueuing at the front. Include tests that simulate processor 503 errors. Owner: Marta."
     },
     {
-      "name": "Bump and split DB connection pools",
-      "desc": "Owner: Kofi. In one change to the same config file: (1) bump the DB connection pool from the default of 20 to 100 to get through the next incident, and (2) split worker and API connection pools so workers no longer share the API's pool, which is the real fix for the coupling that caused the API to fail when workers exhausted the pool."
+      "name": "Adjust DB connection pool configuration",
+      "desc": "Update configuration to bump the DB connection pool size to 100 and split the connection pools for workers and the API to prevent coupling. Owner: Kofi."
     },
     {
       "name": "Update payment incident runbook",
-      "desc": "Owner: Priya (Kofi to confirm assignment with her after the meeting). Update the payment incident runbook which still references the old Kibana (turned off in March). Include: new logging links, the queue drain procedure Kofi improvised during Tuesday's outage written down formally, and verification that escalation phone numbers are current (at least one still routes to someone who left last year)."
+      "desc": "Refresh the payment incident runbook to include new logging links, document the queue drain procedure, and verify/update escalation phone numbers (remove outdated contacts). Owner: Priya."
     },
     {
-      "name": "Automate status page updates on checkout alert",
-      "desc": "Owner: Marta. Automate the status page so that when the checkout error rate alert fires, the status page automatically flips to 'investigating' with a template message, using the status provider's API. Wire it to the checkout alert first; other alerts can be extended later. This addresses the 30-minute delay in updating the status page during Tuesday's outage, which generated ~50 support tickets."
+      "name": "Automate status page updates for checkout alerts",
+      "desc": "Integrate the status page API with the checkout error rate alert so that the status page automatically flips to 'investigating' with a template message when the alert fires. Owner: Marta."
     },
     {
-      "name": "Draft payment processor failover game day plan",
-      "desc": "Owner: Kofi. Draft a plan for a controlled chaos test (game day) of the payment processor failover. Plan should cover testing in staging first, then production during a low-traffic window, with a rollback plan. The secondary payment processor is configured but has never been exercised. Draft only \u2014 no execution until the plan is reviewed by the team in two weeks."
+      "name": "Plan and draft payment processor failover game day",
+      "desc": "Draft a plan for a controlled chaos test of the payment processor failover. The plan should include staging tests first, then production during low traffic, with a rollback plan. Execute only after plan review in two weeks. Owner: Kofi (leads drafting)."
     },
     {
-      "name": "Upgrade Redis from EOL 6.0 to 7.2",
-      "desc": "Owner: Kofi. Upgrade Redis from version 6.0 (security fixes ended in June) to 7.2. The migration involves a config rename and changed persistence defaults, so it requires a proper change window scheduled with the infra calendar \u2014 not a casual Friday deploy. Not related to the outage but flagged as infra debt."
-    },
-    {
-      "name": "Write and distribute outage timeline document",
-      "desc": "Owner: Ines. Write up the timeline document for Tuesday's outage tonight and send it out tomorrow. Should cover the full postmortem timeline and the seven agreed action items with their owners."
+      "name": "Upgrade Redis from 6.0 to 7.2",
+      "desc": "Schedule and execute the Redis upgrade from EOL version 6.0 to 7.2. Account for config renames and persistence default changes. Must be done in a proper change window, not a casual deploy. Owner: Kofi."
     }
   ],
   "slack": [
-    "8 New tasks have been added to Trello!"
+    "7 New tasks have been added to Trello!"
   ],
   "csv": [
     [
-      "Add queue depth alerting to worker fleet",
-      "Owner: Kofi. Set up alerting on queue depth for the entire worker fleet (not just payments), with consistent thresholds everywhere: warning at 1,000 jobs and page at 5,000 jobs. This addresses the 16-minute blind spot during Tuesday's outage where no alert fired until customer-facing 500s appeared."
+      "Implement queue depth alerting for worker fleet",
+      "Create alerts for queue depth across the entire worker fleet (not just payments). Set warning threshold at 1,000 jobs and page threshold at 5,000 jobs. Owner: Kofi. Deadline: Not explicitly stated, but implied immediate priority post-incident."
     ],
     [
-      "Fix payment worker retry logic with dead-letter queue",
-      "Owner: Marta. Fix the retry loop in payment_worker.py (_process_with_retry function) which currently retries five times back-to-back with no backoff and re-enqueues failed jobs at the front of the queue. Implement exponential backoff with jitter, cap the retries, and send failed jobs to a dead-letter queue at the back instead of the front of the main queue. Add tests that simulate processor 503s to cover the retry storm scenario that was uncovered by this incident."
+      "Fix retry logic in payment worker",
+      "Modify `payment_worker.py` (`_process_with_retry` function) to implement exponential backoff with jitter, cap the number of retries, and send failed jobs to a dead-letter queue at the back instead of re-enqueuing at the front. Include tests that simulate processor 503 errors. Owner: Marta."
     ],
     [
-      "Bump and split DB connection pools",
-      "Owner: Kofi. In one change to the same config file: (1) bump the DB connection pool from the default of 20 to 100 to get through the next incident, and (2) split worker and API connection pools so workers no longer share the API's pool, which is the real fix for the coupling that caused the API to fail when workers exhausted the pool."
+      "Adjust DB connection pool configuration",
+      "Update configuration to bump the DB connection pool size to 100 and split the connection pools for workers and the API to prevent coupling. Owner: Kofi."
     ],
     [
       "Update payment incident runbook",
-      "Owner: Priya (Kofi to confirm assignment with her after the meeting). Update the payment incident runbook which still references the old Kibana (turned off in March). Include: new logging links, the queue drain procedure Kofi improvised during Tuesday's outage written down formally, and verification that escalation phone numbers are current (at least one still routes to someone who left last year)."
+      "Refresh the payment incident runbook to include new logging links, document the queue drain procedure, and verify/update escalation phone numbers (remove outdated contacts). Owner: Priya."
     ],
     [
-      "Automate status page updates on checkout alert",
-      "Owner: Marta. Automate the status page so that when the checkout error rate alert fires, the status page automatically flips to 'investigating' with a template message, using the status provider's API. Wire it to the checkout alert first; other alerts can be extended later. This addresses the 30-minute delay in updating the status page during Tuesday's outage, which generated ~50 support tickets."
+      "Automate status page updates for checkout alerts",
+      "Integrate the status page API with the checkout error rate alert so that the status page automatically flips to 'investigating' with a template message when the alert fires. Owner: Marta."
     ],
     [
-      "Draft payment processor failover game day plan",
-      "Owner: Kofi. Draft a plan for a controlled chaos test (game day) of the payment processor failover. Plan should cover testing in staging first, then production during a low-traffic window, with a rollback plan. The secondary payment processor is configured but has never been exercised. Draft only \u2014 no execution until the plan is reviewed by the team in two weeks."
+      "Plan and draft payment processor failover game day",
+      "Draft a plan for a controlled chaos test of the payment processor failover. The plan should include staging tests first, then production during low traffic, with a rollback plan. Execute only after plan review in two weeks. Owner: Kofi (leads drafting)."
     ],
     [
-      "Upgrade Redis from EOL 6.0 to 7.2",
-      "Owner: Kofi. Upgrade Redis from version 6.0 (security fixes ended in June) to 7.2. The migration involves a config rename and changed persistence defaults, so it requires a proper change window scheduled with the infra calendar \u2014 not a casual Friday deploy. Not related to the outage but flagged as infra debt."
-    ],
-    [
-      "Write and distribute outage timeline document",
-      "Owner: Ines. Write up the timeline document for Tuesday's outage tonight and send it out tomorrow. Should cover the full postmortem timeline and the seven agreed action items with their owners."
+      "Upgrade Redis from 6.0 to 7.2",
+      "Schedule and execute the Redis upgrade from EOL version 6.0 to 7.2. Account for config renames and persistence default changes. Must be done in a proper change window, not a casual deploy. Owner: Kofi."
     ]
   ],
   "token_usage": {
     "calls": 1,
-    "prompt_tokens": 2190,
-    "completion_tokens": 1350,
-    "total_tokens": 3540
+    "prompt_tokens": 2252,
+    "completion_tokens": 526,
+    "total_tokens": 2778
   }
 }

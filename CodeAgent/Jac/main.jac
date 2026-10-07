@@ -6,12 +6,7 @@ import from nodes {
 glob MAX_REPAIRS: int = 3;
 glob MAX_RELOCATES: int = 1;
 
-glob SYSTEM: str = (
-    "You are a coding agent fixing an issue in the repository at the current directory.\n"
-    "Edit only library source, never tests. Read before you edit; copy anchor text exactly.\n"
-    "Work in phases; each phase tells you its goal and gives you only the tools it needs.\n\n"
-    "## Issue\n{issue}"
-);
+glob SYSTEM: str = "You are a coding agent fixing an issue in the repository at the current directory. Edit only library source, never tests. Read before you edit; copy anchor text exactly. Work in phases; each phase tells you its goal and gives you only the tools it needs. \n\n ## Issue\n{issue}";
 
 walker CodeAgent {
     has issue: str;
