@@ -15,10 +15,10 @@ scope = core + core-only symbols
 | meeting-assistant | openai_sdk | 3 | 174 | 165 | 161 | 4 | 3 | 2347 | 2703 | 1.52x |
 | meeting-assistant | NOOA | 3 | 110 | 104 | 87 | 17 | 1 | 2215 | 2369 | 0.82x |
 | YTNavigator | byLLM | 3 | 213 | 201 | 201 | 0 | 7 | 4314 | 4878 | 1.00x |
-| YTNavigator | langchain | 11 | 805 | 649 | 468 | 181 | 37 | 10298 | 11561 | 2.33x |
+| YTNavigator | langchain | 11 | 692 | 556 | 387 | 169 | 32 | 8464 | 10153 | 1.93x |
 | YTNavigator | openai_sdk | 5 | 587 | 539 | 442 | 97 | 10 | 8190 | 9889 | 2.20x |
 | YTNavigator | NOOA | 2 | 197 | 174 | 139 | 35 | 4 | 3448 | 4944 | 0.69x |
-| CodeAgent | Jac | 4 | 392 | 365 | 365 | 0 | 7 | 8136 | 6782 | 1.00x |
-| CodeAgent | langgraph | 3 | 449 | 414 | 386 | 28 | 10 | 10138 | 7003 | 1.06x |
-| CodeAgent | openai_sdk | 4 | 715 | 668 | 654 | 14 | 15 | 16008 | 10618 | 1.79x |
-| CodeAgent | NOOA | 9 | 1763 | 1489 | 1208 | 281 | 149 | 25809 | 21137 | 3.31x |
+| CodeAgent | Jac | 4 | 392 | 362 | 362 | 0 | 7 | 8171 | 6816 | 1.00x |
+| CodeAgent | langgraph | 3 | 449 | 414 | 386 | 28 | 10 | 10138 | 7003 | 1.07x |
+| CodeAgent | openai_sdk | 4 | 715 | 668 | 654 | 14 | 15 | 16008 | 10618 | 1.81x |
+| CodeAgent | NOOA | 9 | 1763 | 1489 | 1208 | 281 | 149 | 25809 | 21137 | 3.34x |

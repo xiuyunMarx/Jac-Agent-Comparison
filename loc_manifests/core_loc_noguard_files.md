@@ -55,12 +55,12 @@ scope = core + core-only symbols - protection code
 |  | `YTNavigator/byLLM/main.jac` | | 10 | 8 | 8 | 0 | 2 | 154 | 42 | |
 |  | `YTNavigator/byLLM/nodes.jac` | | 116 | 111 | 111 | 0 | 0 | 2294 | 3259 | |
 |  | `YTNavigator/byLLM/tools.jac` | | 16 | 16 | 16 | 0 | 0 | 443 | 1030 | |
-| YTNavigator | langchain | 11 | 720 | 567 | 392 | 175 | 35 | 8632 | 10695 | 2.90x |
+| YTNavigator | langchain | 11 | 617 | 484 | 321 | 163 | 30 | 7015 | 9428 | 2.38x |
 |  | `YTNavigator/langchain/app/schemas/agent.py` | | 62 | 48 | 48 | 0 | 0 | 1061 | 804 | |
 |  | `YTNavigator/langchain/app/schemas/tools.py` | | 9 | 7 | 7 | 0 | 0 | 166 | 228 | |
 |  | `YTNavigator/langchain/app/services/agent/__init__.py` | | 0 | 0 | 0 | 0 | 0 | 0 | 0 | |
 |  | `YTNavigator/langchain/app/services/agent/llm.py` | | 19 | 9 | 9 | 0 | 10 | 211 | 137 | |
-|  | `YTNavigator/langchain/app/services/agent/main_graph.py` | | 351 | 277 | 203 | 74 | 16 | 4637 | 4028 | |
+|  | `YTNavigator/langchain/app/services/agent/main_graph.py` | | 248 | 194 | 132 | 62 | 11 | 3020 | 2761 | |
 |  | `YTNavigator/langchain/app/services/agent/prompts.py` | | 88 | 67 | 3 | 64 | 0 | 78 | 2722 | |
 |  | `YTNavigator/langchain/app/services/agent/react_graph.py` | | 133 | 111 | 79 | 32 | 6 | 1746 | 1508 | |
 |  | `YTNavigator/langchain/app/services/agent/trace.py` | | 0 | 0 | 0 | 0 | 0 | 0 | 0 | |
@@ -76,21 +76,21 @@ scope = core + core-only symbols - protection code
 | YTNavigator | NOOA | 2 | 180 | 158 | 123 | 35 | 3 | 2886 | 4823 | 0.91x |
 |  | `YTNavigator/NOOA/agent.py` | | 173 | 151 | 116 | 35 | 3 | 2725 | 4697 | |
 |  | `YTNavigator/NOOA/main.py` | | 7 | 7 | 7 | 0 | 0 | 161 | 126 | |
-| CodeAgent | Jac | 4 | 332 | 305 | 305 | 0 | 7 | 6939 | 5757 | 1.00x |
-|  | `CodeAgent/Jac/main.jac` | | 93 | 84 | 84 | 0 | 2 | 1781 | 1236 | |
+| CodeAgent | Jac | 4 | 332 | 302 | 302 | 0 | 7 | 6920 | 5624 | 1.00x |
+|  | `CodeAgent/Jac/main.jac` | | 93 | 81 | 81 | 0 | 2 | 1762 | 1103 | |
 |  | `CodeAgent/Jac/nodes.jac` | | 239 | 221 | 221 | 0 | 5 | 5158 | 4521 | |
 |  | `CodeAgent/Jac/orchestrator.jac` | | 0 | 0 | 0 | 0 | 0 | 0 | 0 | |
 |  | `CodeAgent/Jac/tools.jac` | | 0 | 0 | 0 | 0 | 0 | 0 | 0 | |
-| CodeAgent | langgraph | 3 | 378 | 344 | 316 | 28 | 9 | 8447 | 5992 | 1.04x |
+| CodeAgent | langgraph | 3 | 378 | 344 | 316 | 28 | 9 | 8447 | 5992 | 1.05x |
 |  | `CodeAgent/langgraph/main.py` | | 114 | 107 | 107 | 0 | 4 | 3043 | 1544 | |
 |  | `CodeAgent/langgraph/nodes.py` | | 264 | 237 | 209 | 28 | 5 | 5404 | 4448 | |
 |  | `CodeAgent/langgraph/orchestrator.py` | | 0 | 0 | 0 | 0 | 0 | 0 | 0 | |
-| CodeAgent | openai_sdk | 4 | 612 | 565 | 551 | 14 | 15 | 13487 | 9340 | 1.81x |
+| CodeAgent | openai_sdk | 4 | 612 | 565 | 551 | 14 | 15 | 13487 | 9340 | 1.82x |
 |  | `CodeAgent/openai_sdk/main.py` | | 76 | 69 | 69 | 0 | 4 | 1467 | 1102 | |
 |  | `CodeAgent/openai_sdk/nodes.py` | | 353 | 320 | 310 | 10 | 8 | 7430 | 6121 | |
 |  | `CodeAgent/openai_sdk/orchestrator.py` | | 0 | 0 | 0 | 0 | 0 | 0 | 0 | |
 |  | `CodeAgent/openai_sdk/phase_agent.py` | | 183 | 176 | 172 | 4 | 3 | 4590 | 2117 | |
-| CodeAgent | NOOA | 9 | 1034 | 834 | 637 | 197 | 96 | 14497 | 12780 | 2.09x |
+| CodeAgent | NOOA | 9 | 1034 | 834 | 637 | 197 | 96 | 14497 | 12780 | 2.11x |
 |  | `CodeAgent/NOOA/agent.py` | | 350 | 275 | 117 | 158 | 17 | 2404 | 8141 | |
 |  | `CodeAgent/NOOA/llm.py` | | 25 | 22 | 14 | 8 | 0 | 331 | 447 | |
 |  | `CodeAgent/NOOA/orchestrator.py` | | 36 | 34 | 34 | 0 | 0 | 650 | 130 | |
@@ -100,5 +100,3 @@ scope = core + core-only symbols - protection code
 |  | `CodeAgent/NOOA/tools/explore.py` | | 196 | 143 | 140 | 3 | 41 | 3646 | 402 | |
 |  | `CodeAgent/NOOA/tools/plan.py` | | 62 | 57 | 57 | 0 | 0 | 1289 | 374 | |
 |  | `CodeAgent/NOOA/tools/verify.py` | | 216 | 175 | 150 | 25 | 26 | 3144 | 2446 | |
-
-wrote core_loc_noguard.csv

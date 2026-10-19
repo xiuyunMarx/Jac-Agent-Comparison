@@ -15,10 +15,10 @@ scope = core + core-only symbols - protection code
 | meeting-assistant | openai_sdk | 3 | 152 | 143 | 139 | 4 | 3 | 1932 | 2413 | 1.83x |
 | meeting-assistant | NOOA | 3 | 81 | 75 | 65 | 10 | 1 | 1733 | 1509 | 0.86x |
 | YTNavigator | byLLM | 3 | 142 | 135 | 135 | 0 | 2 | 2891 | 4331 | 1.00x |
-| YTNavigator | langchain | 11 | 720 | 567 | 392 | 175 | 35 | 8632 | 10695 | 2.90x |
+| YTNavigator | langchain | 11 | 617 | 484 | 321 | 163 | 30 | 7015 | 9428 | 2.38x |
 | YTNavigator | openai_sdk | 5 | 518 | 477 | 380 | 97 | 4 | 6376 | 9500 | 2.81x |
 | YTNavigator | NOOA | 2 | 180 | 158 | 123 | 35 | 3 | 2886 | 4823 | 0.91x |
-| CodeAgent | Jac | 4 | 332 | 305 | 305 | 0 | 7 | 6939 | 5757 | 1.00x |
-| CodeAgent | langgraph | 3 | 378 | 344 | 316 | 28 | 9 | 8447 | 5992 | 1.04x |
-| CodeAgent | openai_sdk | 4 | 612 | 565 | 551 | 14 | 15 | 13487 | 9340 | 1.81x |
-| CodeAgent | NOOA | 9 | 1034 | 834 | 637 | 197 | 96 | 14497 | 12780 | 2.09x |
+| CodeAgent | Jac | 4 | 332 | 302 | 302 | 0 | 7 | 6920 | 5624 | 1.00x |
+| CodeAgent | langgraph | 3 | 378 | 344 | 316 | 28 | 9 | 8447 | 5992 | 1.05x |
+| CodeAgent | openai_sdk | 4 | 612 | 565 | 551 | 14 | 15 | 13487 | 9340 | 1.82x |
+| CodeAgent | NOOA | 9 | 1034 | 834 | 637 | 197 | 96 | 14497 | 12780 | 2.11x |

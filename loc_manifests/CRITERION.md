@@ -87,3 +87,21 @@ NOT protection (keep):
 Rules: mirror across arms (a guard inlined in a Jac ability and factored into a
 Python helper get the same lines removed); brace/closing lines that only exist for
 the removed block go with it; when in doubt keep the line and add `?` to the reason.
+
+## STRICT pass: vendored product code
+
+Applies only to `YTNavigator/langchain/app/services/agent/main_graph.py`: the
+upstream wassim249/YT-Navigator Django app (681 of 720 lines are upstream).  Its
+methods mix agent logic with web-app infrastructure, so this file is tagged at
+sub-method granularity (hand-split manifest).
+
+Moved from core to adapter:
+- Product infrastructure: Postgres checkpointer state, LangSmith init and
+  background export, event-loop debug, benchmark callback plumbing,
+  `process_message` (web-view wrapper; `benchmark_run` calls `invoke` /
+  `extract_response` directly).
+- Product logging: bare `logger.*` statements and try/except wrappers that only
+  log and re-raise.  `record_event` benchmark instrumentation stays core.
+
+Effect on the langchain arm: core phys 805 -> 692, logic 468 -> 387,
+2.33x -> 1.93x vs byLLM (logic).
